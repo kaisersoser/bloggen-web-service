@@ -8,6 +8,12 @@ from bloggen.crew import Bloggen
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
+# Configure logging for better CrewAI output capture
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 # This main file is intended to be a way for you to run your
 # crew locally, so refrain from adding unnecessary logic into this file.
 # Replace with inputs you want to test with, it will automatically
@@ -25,14 +31,32 @@ def run(_inputs):
     else:
         inputs = _inputs
     
+    # Create a logger for this run
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting blog generation for topic: {inputs.get('topic', 'Unknown')}")
+    
     try:
-        results = Bloggen().crew().kickoff(inputs=inputs)
+        # Initialize the crew
+        crew_instance = Bloggen().crew()
+        logger.info("CrewAI crew initialized successfully")
+        
+        # Run the crew with inputs
+        logger.info("Starting crew kickoff...")
+        results = crew_instance.kickoff(inputs=inputs)
+        
+        # Extract the blog content
         blog_content = getattr(results, "raw", None)
-
-
+        
+        if blog_content:
+            logger.info("Blog generation completed successfully")
+            logger.info(f"Generated content length: {len(blog_content)} characters")
+        else:
+            logger.warning("Blog generation completed but no content was generated")
+        
         return blog_content
 
     except Exception as e:
+        logger.error(f"An error occurred while running the crew: {e}")
         raise Exception(f"An error occurred while running the crew: {e}")
 
 
