@@ -1,5 +1,9 @@
 Flask
+Flask-SocketIO
+Flask-CORS
+crewai
+crewai-tools
+python-dotenv
 gunicorn
 pydantic
 requests
-datetime
