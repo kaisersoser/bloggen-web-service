@@ -2,34 +2,34 @@
 CrewAI Blog Generation Service - Real-time WebSocket API
 
 This Flask application provides a REST API with WebSocket support for generating blog posts
-using CrewAI agents. It captures real-time progress updates from CrewAI execution and streams
-them to connected frontend clients.
+using CrewAI Flows. It uses a structured workflow approach with explicit control points
+to send meaningful, business-relevant status updates to connected frontend clients.
 
 Key Features:
-- Asynchronous blog generation using CrewAI
+- Asynchronous blog generation using CrewAI Flows
 - Real-time progress updates via WebSockets
-- Log interception to track agent activities
+- Structured workflow with explicit control points
+- Business-relevant status messages
 - Status tracking for multiple concurrent tasks
 
 Architecture:
 1. REST endpoint accepts blog generation requests
-2. Background thread executes CrewAI blog generation
-3. Custom log handler intercepts CrewAI output
+2. Background thread executes CrewAI Flow-based blog generation
+3. Flow sends custom status updates at each workflow phase
 4. WebSocket streams real-time updates to frontend
-5. Task completion triggers final status update
+5. Task completion triggers final status update with generated content
 """
 
 from datetime import datetime
 from flask import Flask, request as flask_request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room
-from bloggen.main import run  # CrewAI blog generation function
+from bloggen.flows import BlogGenerationFlow  # New Flow-based approach
 import os
 import threading
 import uuid
 import time
 import logging
-import re
 
 # Load environment variables for CrewAI configuration
 from bloggen.helper import load_env
@@ -49,19 +49,18 @@ logging.basicConfig(level=logging.INFO)
 
 def background_blog_generation(task_id, topic, room_id):
     """
-    Background task that executes CrewAI blog generation with real-time progress tracking.
+    Background task that executes CrewAI Flow-based blog generation with real-time progress tracking.
     
     This function runs in a separate thread to prevent blocking the main Flask application.
-    It sets up log interception to capture CrewAI agent activities and streams progress
-    updates to the frontend via WebSockets.
+    It uses CrewAI Flows to orchestrate the blog generation process through structured phases,
+    sending meaningful business-relevant status updates to the frontend via WebSockets.
     
     Process Flow:
-    1. Initialize task status and send initial update
-    2. Set up CrewAI log interceptor for real-time monitoring
-    3. Execute CrewAI blog generation with input parameters
-    4. Stream progress updates as agents work through tasks
-    5. Send completion status and generated content to frontend
-    6. Clean up log handlers and update task records
+    1. Initialize BlogGenerationFlow with WebSocket communication
+    2. Execute structured workflow: Research → Content → Fact-check → Finalize
+    3. Stream meaningful progress updates at each phase
+    4. Send completion status and generated content to frontend
+    5. Handle errors gracefully with user-friendly messages
     
     Args:
         task_id (str): Unique identifier for this generation task
@@ -72,216 +71,96 @@ def background_blog_generation(task_id, topic, room_id):
         # === TASK INITIALIZATION ===
         # Update the task record with in-progress status
         active_tasks[task_id]['status'] = 'in_progress'
-        active_tasks[task_id]['current_step'] = 'Starting blog generation...'
+        active_tasks[task_id]['current_step'] = 'Initializing blog generation workflow...'
         
         # Send initial status update to frontend
         socketio.emit('status_update', {
             'task_id': task_id,
             'status': 'in_progress',
-            'message': 'Starting blog generation...',
-            'step': 1,
+            'message': 'Initializing blog generation workflow...',
+            'step': 0,
             'total_steps': 4
         }, to=room_id)
         
-        # === CREWAI INPUT PREPARATION ===
-        # Prepare input parameters for CrewAI blog generation
-        inputs = {
+        # Send initial log update
+        socketio.emit('log_update', {
+            'task_id': task_id,
+            'log': f'🚀 Blog generation started for topic: "{topic}"',
+            'timestamp': datetime.now().isoformat()
+        }, to=room_id)
+        
+        # === FLOW EXECUTION ===
+        # Create and configure the blog generation flow
+        blog_flow = BlogGenerationFlow(
+            socketio=socketio,
+            task_id=task_id,
+            room_id=room_id
+        )
+        
+        # Prepare input parameters for the flow
+        flow_inputs = {
             'topic': topic,
             'current_year': str(datetime.now().year)
         }
         
-        # === CREWAI LOG INTERCEPTOR SETUP ===
-        # Custom logging handler that captures and parses CrewAI output in real-time
-        class CrewAILogInterceptor(logging.Handler):
-            """
-            Custom logging handler that intercepts CrewAI log messages and converts them
-            into structured status updates for the frontend.
-            
-            This handler specifically looks for CrewAI's output patterns:
-            - Agent activities: "# Agent: [Name]"
-            - Tool usage: "## Using tool: [Tool Name]" 
-            - Task execution: "🚀 Crew: crew" and "├── 📋 Task:"
-            
-            When these patterns are detected, it sends real-time status updates
-            to the frontend via WebSockets.
-            """
-            
-            def __init__(self, task_id, room_id, socketio, active_tasks):
-                """
-                Initialize the log interceptor with WebSocket communication setup.
-                
-                Args:
-                    task_id (str): Task ID for status updates
-                    room_id (str): WebSocket room for broadcasting
-                    socketio: Flask-SocketIO instance for real-time communication
-                    active_tasks (dict): Reference to global task storage
-                """
-                super().__init__()
-                self.task_id = task_id
-                self.room_id = room_id
-                self.socketio = socketio
-                self.active_tasks = active_tasks
-                self.current_step = 1
-                self.total_steps = 4
-                self.current_agent = None  # Track which agent is currently active
-                self.last_status_time = time.time()  # For throttling updates
-
-            def emit(self, record):
-                """
-                Process each log record and extract CrewAI progress information.
-                
-                This method analyzes log messages using regex patterns to identify:
-                1. Agent start activities 
-                2. Tool usage by agents
-                3. Task execution milestones
-                4. Crew workflow progression
-                
-                Args:
-                    record (LogRecord): Python logging record containing the message
-                """
-                try:
-                    message = record.getMessage()
-                    
-                    # === AGENT ACTIVITY DETECTION ===
-                    # Pattern: "# Agent: Senior Researcher" (agent starts working)
-                    agent_match = re.search(r'^#\s+Agent:\s+(.+)', message)
-                    if agent_match:
-                        agent_name = agent_match.group(1).strip()
-                        self.current_agent = agent_name
-                        self._send_status_update(f'{agent_name} is working...', self.current_step)
-                        return
-                    
-                    # === TOOL USAGE DETECTION ===
-                    # Pattern: "## Using tool: Search the internet with Serper"
-                    tool_match = re.search(r'^##\s+Using tool:\s+(.+)', message)
-                    if tool_match:
-                        tool_name = tool_match.group(1).strip()
-                        agent_info = f" ({self.current_agent})" if self.current_agent else ""
-                        self._send_status_update(f'Using {tool_name}{agent_info}', self.current_step)
-                        return
-                    
-                    # === CREW WORKFLOW PROGRESSION ===
-                    # Pattern: "🚀 Crew: crew" (major workflow milestone)
-                    if '🚀 Crew: crew' in message:
-                        self.current_step += 1
-                        if self.current_step <= self.total_steps:
-                            self._send_status_update(f'Processing step {self.current_step}...', self.current_step)
-                        return
-                    
-                    # === TASK EXECUTION DETECTION ===
-                    # Pattern: "├── 📋 Task:" (individual task within workflow)
-                    if '├── 📋 Task:' in message:
-                        self._send_status_update('Executing task...', self.current_step)
-                        return
-                        
-                except Exception as e:
-                    print(f"Error in log interceptor: {e}")
-
-            def _send_status_update(self, message, step):
-                """
-                Send a status update to the frontend via WebSocket.
-                
-                This method handles:
-                1. Update throttling (max 1 update per second)
-                2. Task record updates
-                3. WebSocket emission to connected clients
-                
-                Args:
-                    message (str): Human-readable status message
-                    step (int): Current progress step (1-4)
-                """
-                current_time = time.time()
-                
-                # Throttle updates to prevent overwhelming the frontend
-                if current_time - self.last_status_time < 1:
-                    return
-                
-                self.last_status_time = current_time
-                
-                # Update the global task record
-                self.active_tasks[self.task_id]['current_step'] = message
-                
-                # Broadcast status update to connected frontend clients
-                self.socketio.emit('status_update', {
-                    'task_id': self.task_id,
-                    'status': 'in_progress',
-                    'message': message,
-                    'step': min(step, self.total_steps),
-                    'total_steps': self.total_steps
-                }, to=self.room_id)
+        # Execute the structured blog generation workflow
+        print(f"[DEBUG] Starting CrewAI Flow execution for task {task_id}")
+        print(f"[DEBUG] Flow inputs: {flow_inputs}")
         
-        # === LOG HANDLER SETUP ===
-        # Create and configure the custom log interceptor
-        log_interceptor = CrewAILogInterceptor(task_id, room_id, socketio, active_tasks)
-        log_interceptor.setLevel(logging.INFO)  # Capture INFO level and above
+        # Send log update about Flow execution start
+        socketio.emit('log_update', {
+            'task_id': task_id,
+            'log': '🌊 CrewAI Flow execution started',
+            'timestamp': datetime.now().isoformat()
+        }, to=room_id)
         
-        # Attach to root logger since CrewAI uses print statements that route here
-        root_logger = logging.getLogger()
-        root_logger.addHandler(log_interceptor)
-        root_logger.setLevel(logging.INFO)
+        # The flow will handle all status updates internally through its phases
+        # Execute the complete flow using kickoff method (this will run all @start and @listen methods)
+        final_blog_content = blog_flow.kickoff(inputs=flow_inputs)
         
-        try:
-            # === CREWAI EXECUTION ===
-            # Send initial status before starting CrewAI
-            active_tasks[task_id]['current_step'] = 'Starting blog generation...'
-            socketio.emit('status_update', {
-                'task_id': task_id,
-                'status': 'in_progress',
-                'message': 'Starting blog generation...',
-                'step': 1,
-                'total_steps': 4
-            }, to=room_id)
-            
-            # Execute CrewAI blog generation (this is where the magic happens)
-            print(f"[DEBUG] Starting CrewAI execution for task {task_id}")
-            content = run(inputs)  # CrewAI execution with real-time log capture
-            print(f"[DEBUG] CrewAI execution completed for task {task_id}")
-            
-            # === COMPLETION HANDLING ===
-            # Update task status to show completion
-            active_tasks[task_id]['current_step'] = 'Blog generation completed!'
-            socketio.emit('status_update', {
-                'task_id': task_id,
-                'status': 'in_progress', 
-                'message': 'Blog generation completed!',
-                'step': 4,
-                'total_steps': 4
-            }, to=room_id)
-            
-            # Update task record with final results
-            active_tasks[task_id]['status'] = 'completed'
-            active_tasks[task_id]['result'] = content
-            active_tasks[task_id]['completed_at'] = datetime.now().isoformat()
-            
-            # Send final completion event with generated content
-            socketio.emit('generation_complete', {
-                'task_id': task_id,
-                'status': 'completed',
-                'message': 'Blog generation completed successfully!',
-                'content': content
-            }, to=room_id)
-            
-        finally:
-            # === CLEANUP ===
-            # Always remove the log handler to prevent memory leaks
-            logging.getLogger().removeHandler(log_interceptor)
-            
+        print(f"[DEBUG] CrewAI Flow execution completed for task {task_id}")
+        
+        # Send final log update
+        socketio.emit('log_update', {
+            'task_id': task_id,
+            'log': '✅ CrewAI Flow execution completed successfully',
+            'timestamp': datetime.now().isoformat()
+        }, to=room_id)
+        
+        # === COMPLETION HANDLING ===
+        # Update task record with final results
+        active_tasks[task_id]['status'] = 'completed'
+        active_tasks[task_id]['result'] = str(final_blog_content)
+        active_tasks[task_id]['completed_at'] = datetime.now().isoformat()
+        active_tasks[task_id]['current_step'] = 'Blog generation completed successfully!'
+        
+        # Send final completion event with generated content
+        socketio.emit('generation_complete', {
+            'task_id': task_id,
+            'status': 'completed',
+            'message': 'Blog generation completed successfully!',
+            'content': str(final_blog_content)
+        }, to=room_id)
+        
     except Exception as e:
         # === ERROR HANDLING ===
         # Update task record with error information
         active_tasks[task_id]['status'] = 'failed'
         active_tasks[task_id]['error'] = str(e)
         active_tasks[task_id]['completed_at'] = datetime.now().isoformat()
+        active_tasks[task_id]['current_step'] = f'Error: {str(e)}'
         
         # Notify frontend of the error
         socketio.emit('generation_error', {
             'task_id': task_id,
             'status': 'failed',
-            'error': str(e)
+            'error': str(e),
+            'message': 'Blog generation failed. Please try again.'
         }, to=room_id)
         
         # Log error for debugging
         logging.error(f"Blog generation failed for task {task_id}: {e}")
+        print(f"[ERROR] Blog generation failed for task {task_id}: {e}")
 
 
 # =============================================================================
@@ -291,13 +170,21 @@ def background_blog_generation(task_id, topic, room_id):
 @app.route('/generate-blog', methods=['POST'])
 def generate_blog():
     """
-    Main API endpoint to initiate blog generation.
+    Main API endpoint to initiate blog generation using CrewAI Flows.
     
     This endpoint:
     1. Validates the incoming request for required topic parameter
     2. Creates a new task record with unique ID
-    3. Starts background thread for CrewAI execution
+    3. Starts background thread for CrewAI Flow-based execution
     4. Returns task information for frontend tracking
+    
+    The Flow-based approach provides structured workflow phases:
+    - Research Phase: Gather insights and data on the topic
+    - Content Generation: Create engaging blog content
+    - Fact Checking: Verify accuracy and credibility
+    - Finalization: Polish and format for publication
+    
+    Each phase sends meaningful status updates via WebSocket.
     
     Request Body:
         {
