@@ -111,14 +111,9 @@ class BlogGenerationFlow(Flow):
         # Access inputs from the Flow's state (set by kickoff method)
         flow_state = self.state if hasattr(self, 'state') else {}
         
-        # Debug: Print what we have in state
-        print(f"[FLOW DEBUG] Flow state: {flow_state}")
-        
         # Extract inputs from the flow state
         topic = flow_state.get('topic') if isinstance(flow_state, dict) else None
         current_year = flow_state.get('current_year') if isinstance(flow_state, dict) else None
-        
-        print(f"[FLOW DEBUG] Extracted topic: {topic}, current_year: {current_year}")
         
         # Store for later use
         self.topic = topic
