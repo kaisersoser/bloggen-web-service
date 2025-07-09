@@ -69,6 +69,7 @@ def background_blog_generation(task_id, topic, room_id):
     """
     try:
         # === TASK INITIALIZATION ===
+        
         # Update the task record with in-progress status
         active_tasks[task_id]['status'] = 'in_progress'
         active_tasks[task_id]['current_step'] = 'Initializing blog generation workflow...'
@@ -104,8 +105,6 @@ def background_blog_generation(task_id, topic, room_id):
         }
         
         # Execute the structured blog generation workflow
-        print(f"[DEBUG] Starting CrewAI Flow execution for task {task_id}")
-        print(f"[DEBUG] Flow inputs: {flow_inputs}")
         
         # Send log update about Flow execution start
         socketio.emit('log_update', {
@@ -118,8 +117,6 @@ def background_blog_generation(task_id, topic, room_id):
         # Execute the complete flow using kickoff method (this will run all @start and @listen methods)
         final_blog_content = blog_flow.kickoff(inputs=flow_inputs)
         
-        print(f"[DEBUG] CrewAI Flow execution completed for task {task_id}")
-        
         # Send final log update
         socketio.emit('log_update', {
             'task_id': task_id,
@@ -128,6 +125,7 @@ def background_blog_generation(task_id, topic, room_id):
         }, to=room_id)
         
         # === COMPLETION HANDLING ===
+        
         # Update task record with final results
         active_tasks[task_id]['status'] = 'completed'
         active_tasks[task_id]['result'] = str(final_blog_content)
@@ -143,24 +141,28 @@ def background_blog_generation(task_id, topic, room_id):
         }, to=room_id)
         
     except Exception as e:
-        # === ERROR HANDLING ===
+        # === ENHANCED ERROR HANDLING ===
+        from error_handler import create_error_response
+        
+        # Create structured error response
+        error_info = create_error_response(e)
+        
         # Update task record with error information
         active_tasks[task_id]['status'] = 'failed'
         active_tasks[task_id]['error'] = str(e)
+        active_tasks[task_id]['error_info'] = error_info
         active_tasks[task_id]['completed_at'] = datetime.now().isoformat()
-        active_tasks[task_id]['current_step'] = f'Error: {str(e)}'
+        active_tasks[task_id]['current_step'] = f'Error: {error_info["user_message"]}'
         
-        # Notify frontend of the error
+        # Notify frontend of the error with enhanced information
         socketio.emit('generation_error', {
             'task_id': task_id,
             'status': 'failed',
-            'error': str(e),
-            'message': 'Blog generation failed. Please try again.'
+            'error_info': error_info
         }, to=room_id)
         
         # Log error for debugging
         logging.error(f"Blog generation failed for task {task_id}: {e}")
-        print(f"[ERROR] Blog generation failed for task {task_id}: {e}")
 
 
 # =============================================================================
@@ -292,7 +294,6 @@ def handle_connect():
     This event fires when a frontend client establishes a WebSocket connection.
     It sends a confirmation message to let the client know the connection is active.
     """
-    print("Client connected")
     emit('connected', {'message': 'Connected to blog generation service'})
 
 @socketio.on('disconnect')
@@ -303,7 +304,7 @@ def handle_disconnect():
     This event fires when a frontend client closes their WebSocket connection.
     Used primarily for logging and cleanup if needed.
     """
-    print("Client disconnected")
+    pass
 
 @socketio.on('join_task')
 def handle_join_task(data):
