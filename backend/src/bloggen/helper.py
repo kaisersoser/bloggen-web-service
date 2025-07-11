@@ -5,6 +5,13 @@ from dotenv import load_dotenv, find_dotenv
 
 # these expect to find a .env file at the directory above the lesson.                                                                                                                     # the format for that file is (without the comment)                                                                                                                                       #API_KEYNAME=AStringThatIsTheLongAPIKeyFromSomeService                                                                                                                                     
 def load_env():
+    # Try to find .env file in the backend directory first
+    backend_env = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    if os.path.exists(backend_env):
+        load_dotenv(backend_env)
+        return
+    
+    # Fallback to standard search
     _ = load_dotenv(find_dotenv())
 
 def get_openai_api_key():

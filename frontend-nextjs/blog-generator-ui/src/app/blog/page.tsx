@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { io, Socket } from "socket.io-client";
 import { Progress } from "@/components/ui/progress";
@@ -146,7 +147,8 @@ export default function BlogGenerator() {
       updateJob(data.task_id, {
         status: data.status as JobState['status'],
         currentStep: data.message,
-        progress: data.step && data.total_steps ? (data.step / data.total_steps) * 100 : 0
+        // Adjust progress calculation: step represents "starting step X", so progress should be (step-1)/total
+        progress: data.step && data.total_steps ? ((data.step - 1) / data.total_steps) * 100 : 0
       });
     });
 
@@ -522,6 +524,7 @@ function JobDetailsModal({
                       style={{ fontSize: `${textScale}%` }}
                     >
                       <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
                         components={{
                           h1: ({ children }) => <h1 className="text-2xl font-bold mb-4 text-gray-900">{children}</h1>,
                           h2: ({ children }) => <h2 className="text-xl font-semibold mb-3 text-gray-900">{children}</h2>,
@@ -545,6 +548,22 @@ function JobDetailsModal({
                               {children}
                             </pre>
                           ),
+                          img: ({ src, alt, title }) => {
+                            return (
+                              <div className="my-6 text-center">
+                                <img 
+                                  src={src} 
+                                  alt={alt || 'Blog image'} 
+                                  title={title}
+                                  className="max-w-full h-auto rounded-lg shadow-md mx-auto"
+                                  style={{ maxHeight: '400px' }}
+                                />
+                                {title && (
+                                  <p className="text-sm text-gray-500 mt-2 italic">{title}</p>
+                                )}
+                              </div>
+                            );
+                          },
                         }}
                       >
                         {job.blogContent}

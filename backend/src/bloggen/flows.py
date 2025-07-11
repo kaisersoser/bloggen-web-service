@@ -7,17 +7,19 @@ we can send meaningful, business-relevant status updates to the frontend.
 
 The flow is structured into clear phases:
 1. Research Phase - Gather information and insights on the topic
-2. Content Generation - Create the initial blog draft
+2. Content Generation - Create the initial blog draft with images
 3. Fact Checking - Verify accuracy and add credibility
 4. Finalization - Polish and format the final blog post
 
 Each phase sends custom status updates via WebSocket to provide real-time feedback.
+The content generation phase now includes automatic image integration via Unsplash API.
 """
 
 from crewai.flow.flow import Flow, listen, start
 from crewai import Agent, Task, Crew
 from datetime import datetime
 import time
+import os
 
 
 class BlogGenerationFlow(Flow):
@@ -244,55 +246,92 @@ class BlogGenerationFlow(Flow):
         
         self._send_log_update("✍️ Creating Content Writer agent...")
         
-        # Create Content Writer Agent
+        # Create Content Writer Agent with image search capabilities
         writer = Agent(
-            role='Tech Content Strategist',
-            goal='Craft compelling, engaging blog posts that captivate readers',
+            role='Tech Content Strategist & Visual Designer',
+            goal='Create compelling blog posts with professional images using available tools',
             verbose=True,
-            backstory="""You are a renowned Content Strategist, known for your 
-            insightful and engaging articles. You transform complex technical 
-            concepts into accessible, compelling narratives that resonate with 
-            diverse audiences.""",
-            tools=[],
+            backstory="""You are a tech content strategist who ALWAYS enhances articles with professional images. 
+            You have access to an unsplash_image_search tool that finds perfect images for any topic.
+            
+            CRITICAL: You MUST use the unsplash_image_search tool to add at least 2 images to every blog post.
+            Never write a blog post without calling this tool multiple times to get relevant images.
+            
+            Your process:
+            1. Write introduction
+            2. Call unsplash_image_search tool for hero image  
+            3. Write main content sections
+            4. Call unsplash_image_search tool for supporting images
+            5. Complete the article with conclusion
+            
+            You always insert the exact Markdown returned by the tool without modification.""",
+            tools=self._get_content_tools(),  # Include Unsplash and research tools
             allow_delegation=False
         )
         
-        # Create Content Generation Task
+        # Create Content Generation Task with image integration
         content_task = Task(
-            description=f"""Using the research findings, create an engaging and informative 
-            blog post about "{self.topic}".
-            
+            description=f"""You are creating an engaging blog post about "{self.topic}" with professional images.
+
             Research findings to incorporate:
             {research_data['research_results']}
             
-            Your blog post should:
-            1. Have a compelling headline and introduction
-            2. Be well-structured with clear sections
-            3. Incorporate the research insights naturally
-            4. Include specific data points and statistics
-            5. Be engaging and accessible to a general audience
-            6. Have a strong conclusion with actionable insights
-            7. Be approximately 800-1200 words
+            STEP-BY-STEP INSTRUCTIONS:
             
-            Make it informative yet engaging, professional yet accessible.""",
+            1. Write a compelling headline and introduction paragraph
+            
+            2. **MANDATORY**: Use the unsplash_image_search tool to find a hero image:
+               - Call: unsplash_image_search(query="{self.topic}", count=1, orientation="landscape")
+               - Insert the returned Markdown immediately after your introduction
+            
+            3. Write the main content with 3-4 sections covering key insights
+            
+            4. **MANDATORY**: Use the unsplash_image_search tool again for a supporting image:
+               - Call: unsplash_image_search(query="{self.topic} technology business", count=1, orientation="landscape")
+               - Insert the returned Markdown in the middle of your content
+            
+            5. Write your conclusion with actionable insights
+            
+            6. **OPTIONAL**: Add one more image if it enhances the content:
+               - Call: unsplash_image_search(query="innovation technology future", count=1, orientation="landscape")
+            
+            REQUIREMENTS:
+            - 800-1200 words total
+            - Professional, engaging tone
+            - Include research insights and data
+            - **YOU MUST CALL THE UNSPLASH_IMAGE_SEARCH TOOL AT LEAST 2 TIMES**
+            - Insert the exact Markdown returned by the tool (don't modify it)
+            
+            The unsplash_image_search tool will return properly formatted Markdown like:
+            ![Alt text](image-url)
+            *Photo credit*
+            
+            Just copy and paste this output directly into your blog post.""",
             expected_output="""A complete blog post with:
             - Compelling headline
             - Engaging introduction
-            - Well-structured body with 3-5 main sections
+            - **AT LEAST 2 IMAGES** inserted using the unsplash_image_search tool
+            - Well-structured body with 3-4 main sections
             - Integration of research findings and data
+            - Professional images with proper Markdown formatting and attribution
+            - Images strategically placed to enhance content flow and engagement
             - Strong conclusion with key takeaways
-            - Professional yet accessible tone""",
+            - Professional yet accessible tone
+            - 800-1200 words total
+            
+            CRITICAL: The output MUST contain actual images retrieved using the unsplash_image_search tool, 
+            not placeholder text or image descriptions.""",
             agent=writer
         )
         
-        # Execute content generation
+        # Execute content generation with image integration
         self._send_status_update(
-            "Writing compelling introduction and main content...", 
+            "Writing compelling content and selecting images...", 
             2, 
-            "Structuring arguments and incorporating research insights"
+            "Crafting narrative and integrating professional images from Unsplash"
         )
         
-        self._send_log_update("📝 Executing content generation crew...")
+        self._send_log_update("📝🖼️ Executing content generation with image integration...")
         
         crew = Crew(
             agents=[writer],
@@ -303,10 +342,10 @@ class BlogGenerationFlow(Flow):
         content_results = crew.kickoff()
         self.initial_content = content_results
         
-        self._send_log_update("✅ Content generation phase completed successfully")
+        self._send_log_update("✅ Content generation with images completed successfully")
         
         self._send_status_update(
-            "Initial content draft completed!", 
+            "Content with professional images completed!", 
             2, 
             "Proceeding to fact-checking and verification"
         )
@@ -507,3 +546,32 @@ class BlogGenerationFlow(Flow):
         except ImportError:
             # Fallback if tools are not available
             return []
+
+    def _get_content_tools(self):
+        """
+        Get the content creation tools including Unsplash image integration.
+        
+        Returns:
+            list: List of content creation tools (UnsplashImageTool)
+        """
+        tools = []
+        
+        # Add Unsplash tool if available
+        try:
+            from .tools import create_unsplash_tool
+            unsplash_tool = create_unsplash_tool()
+            tools.append(unsplash_tool)
+            self._send_log_update(f"✅ Unsplash tool added successfully (Tool: {unsplash_tool.name})")
+        except ImportError as e:
+            # Fallback if Unsplash tool is not available
+            self._send_log_update(f"❌ Unsplash tool import failed: {str(e)}")
+        except Exception as e:
+            self._send_log_update(f"❌ Unsplash tool creation failed: {str(e)}")
+        
+        # Add research tools for content enhancement
+        research_tools = self._get_research_tools()
+        tools.extend(research_tools)
+        
+        self._send_log_update(f"🔧 Total tools available to agent: {len(tools)} ({[t.name for t in tools]})")
+        
+        return tools
