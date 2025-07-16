@@ -529,7 +529,7 @@ function JobDetailsModal({
                           h1: ({ children }) => <h1 className="text-2xl font-bold mb-4 text-gray-900">{children}</h1>,
                           h2: ({ children }) => <h2 className="text-xl font-semibold mb-3 text-gray-900">{children}</h2>,
                           h3: ({ children }) => <h3 className="text-lg font-medium mb-2 text-gray-900">{children}</h3>,
-                          p: ({ children }) => <p className="mb-4 text-gray-700 leading-relaxed">{children}</p>,
+                          p: ({ children }) => <div className="mb-4 text-gray-700 leading-relaxed">{children}</div>,
                           ul: ({ children }) => <ul className="list-disc list-inside mb-4 text-gray-700">{children}</ul>,
                           ol: ({ children }) => <ol className="list-decimal list-inside mb-4 text-gray-700">{children}</ol>,
                           li: ({ children }) => <li className="mb-1">{children}</li>,
@@ -550,18 +550,18 @@ function JobDetailsModal({
                           ),
                           img: ({ src, alt, title }) => {
                             return (
-                              <div className="my-6 text-center">
+                              <>
                                 <img 
                                   src={src} 
                                   alt={alt || 'Blog image'} 
                                   title={title}
-                                  className="max-w-full h-auto rounded-lg shadow-md mx-auto"
+                                  className="block max-w-full h-auto rounded-lg shadow-md mx-auto my-6"
                                   style={{ maxHeight: '400px' }}
                                 />
                                 {title && (
-                                  <p className="text-sm text-gray-500 mt-2 italic">{title}</p>
+                                  <em className="block text-sm text-gray-500 text-center mt-2">{title}</em>
                                 )}
-                              </div>
+                              </>
                             );
                           },
                         }}
