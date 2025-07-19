@@ -7,9 +7,12 @@ import { Input } from "@/components/ui/input";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { io, Socket } from "socket.io-client";
 import { Progress } from "@/components/ui/progress";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { useAuth, useRoleCheck } from "@/hooks/useAuth";
+import { useUserStats } from "@/hooks/useUserStats";
+import { UserProfile } from "@/components/auth/UserProfile";
+import { signIn } from "next-auth/react";
 
 interface JobState {
   id: string;
@@ -25,12 +28,16 @@ interface JobState {
   completedAt?: string;
 }
 
-interface StatusUpdate {
+interface SSEUpdate {
+  type: 'connected' | 'status_update' | 'stream_ended' | 'error';
   task_id: string;
-  status: string;
-  message: string;
-  step?: number;
-  total_steps?: number;
+  status?: string;
+  current_step?: string;
+  progress?: number;
+  result?: string;
+  error?: string;
+  message?: string;
+  timestamp?: string;
 }
 
 interface LogUpdate {
@@ -50,6 +57,10 @@ interface ErrorInfo {
 }
 
 export default function BlogGenerator() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const { canGenerateBlog, getRemainingGenerations, isFree } = useRoleCheck();
+  const { stats, loading: statsLoading, refetch: refetchStats } = useUserStats();
+  
   const [topic, setTopic] = useState("");
   const [instructions, setInstructions] = useState("");
   const [jobs, setJobs] = useState<JobState[]>([]);
@@ -58,9 +69,241 @@ export default function BlogGenerator() {
   const [showLogs, setShowLogs] = useState(false);
   const [textScale, setTextScale] = useState(100);
   const [activeView, setActiveView] = useState<'form' | 'jobs' | 'details'>('form');
+  const [generationError, setGenerationError] = useState<string | null>(null);
   
-  const socketRef = useRef<Socket | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const completedTasksRef = useRef<Set<string>>(new Set());
+
+  // Utility function to create SSE connection for a task
+  const connectToTaskStream = async (taskId: string): Promise<EventSource> => {
+    try {
+      // Get JWT token for SSE authentication
+      const tokenResponse = await fetch('/api/auth/jwt-token', {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!tokenResponse.ok) {
+        throw new Error('Failed to get authentication token');
+      }
+      
+      const { token } = await tokenResponse.json();
+      
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://localhost:5000';
+      const streamUrl = `${backendUrl}/stream/${taskId}?token=${encodeURIComponent(token)}`;
+      
+      console.log('🔌 Connecting to SSE stream:', streamUrl);
+      
+      const eventSource = new EventSource(streamUrl);
+      
+      eventSource.onopen = () => {
+        console.log('✅ SSE connection established for task:', taskId);
+      };
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data: SSEUpdate = JSON.parse(event.data);
+          console.log('📡 SSE update received:', data);
+          
+          switch (data.type) {
+            case 'connected':
+              console.log('✅ Connected to task stream:', data.task_id);
+              break;
+              
+            case 'status_update':
+              console.log('📝 Status update:', data);
+              updateJob(data.task_id, {
+                status: data.status as JobState['status'],
+                currentStep: data.current_step || 'Processing...',
+                progress: Math.round((data.progress || 0) * 100)
+              });
+              
+              // Add log entry for status updates
+              const logEntry: LogUpdate = {
+                task_id: data.task_id,
+                log: `📊 ${data.current_step}`,
+                timestamp: data.timestamp || new Date().toISOString()
+              };
+              
+              setJobs(prevJobs => 
+                prevJobs.map(job => 
+                  job.id === data.task_id 
+                    ? { ...job, logs: [...job.logs, logEntry] }
+                    : job
+                )
+              );
+              
+              // Handle completion
+              if (data.status === 'completed' && data.result) {
+                handleTaskCompletion(data.task_id, data.result);
+                // Close the SSE connection after completion
+                eventSourceRef.current?.close();
+              }
+              
+              // Handle errors  
+              if (data.status === 'failed' && data.error) {
+                handleTaskError(data.task_id, data.error);
+                // Close the SSE connection after failure
+                eventSourceRef.current?.close();
+              }
+              break;
+              
+            case 'stream_ended':
+              console.log('🏁 Stream ended for task:', data.task_id);
+              // Ensure connection is closed
+              eventSourceRef.current?.close();
+              break;
+              
+            case 'error':
+              console.error('❌ Stream error:', data.message);
+              break;
+          }
+        } catch (error) {
+          console.error('Failed to parse SSE data:', error);
+        }
+      };
+      
+      eventSource.onerror = (error) => {
+        console.error('❌ SSE connection error:', error);
+        // Close connection on error to prevent endless reconnection attempts
+        eventSource.close();
+      };
+      
+      return eventSource;
+      
+    } catch (error) {
+      console.error('Failed to create SSE connection:', error);
+      throw error;
+    }
+  };
+
+  // Handle task completion
+  const handleTaskCompletion = async (taskId: string, content: string) => {
+    // Prevent duplicate completion handling
+    if (completedTasksRef.current.has(taskId)) {
+      console.log('⚠️ Task already completed, skipping:', taskId);
+      return;
+    }
+    
+    console.log('✅ Task completed:', taskId);
+    completedTasksRef.current.add(taskId);
+    
+    updateJob(taskId, {
+      status: 'completed',
+      currentStep: 'Blog generation complete!',
+      progress: 100,
+      blogContent: content,
+      completedAt: new Date().toISOString()
+    });
+    
+    // Notify backend of successful completion
+    try {
+      const response = await fetch('/api/blog-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blog_id: taskId,
+          status: 'completed',
+          content: content
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Blog completion processed:', result);
+        // Refetch user stats to update generation count
+        refetchStats();
+      }
+    } catch (error) {
+      console.error('Failed to update blog completion status:', error);
+    }
+  };
+
+  // Handle task errors
+  const handleTaskError = async (taskId: string, errorMessage: string) => {
+    console.error('❌ Task failed:', taskId, errorMessage);
+    
+    const errorInfo: ErrorInfo = {
+      error_type: 'generation_error',
+      user_message: errorMessage,
+      technical_details: errorMessage,
+      is_recoverable: false,
+      suggestions: ['Please try again with a different topic'],
+      timestamp: new Date().toISOString(),
+      severity: 'error'
+    };
+    
+    updateJob(taskId, {
+      status: 'failed',
+      currentStep: 'Generation failed',
+      progress: 0,
+      error: errorInfo
+    });
+    
+    // Notify backend of failure
+    try {
+      await fetch('/api/blog-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blog_id: taskId,
+          status: 'failed',
+          error: errorInfo
+        })
+      });
+    } catch (error) {
+      console.error('Failed to update blog completion status:', error);
+    }
+  };
+
+  // Cleanup SSE connections on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [jobs]);
+
+  // Reset text scale when modal opens
+  useEffect(() => {
+    if (showJobDetails) {
+      setTextScale(100);
+    }
+  }, [showJobDetails]);
+
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="max-w-6xl mx-auto p-4 space-y-4">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
+          <div className="h-64 bg-gray-200 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show sign-in prompt if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-4xl mx-auto p-4 space-y-4">
+        <div className="text-center py-12">
+          <h1 className="text-3xl font-bold mb-4">AI Blog Generator</h1>
+          <p className="text-gray-600 mb-8">Sign in to start generating amazing blogs with AI</p>
+          <Button onClick={() => signIn()}>Sign In</Button>
+        </div>
+      </div>
+    );
+  }
 
   // Helper function to get selected job
   const getSelectedJob = () => {
@@ -97,12 +340,37 @@ export default function BlogGenerator() {
     setSelectedJobId(jobId);
     setActiveView('details');
     setShowJobDetails(true);
+    
+    // Only start SSE stream if job is not completed or failed
+    const job = jobs.find(j => j.id === jobId);
+    if (job && job.status !== 'completed' && job.status !== 'failed') {
+      // Check if we need to start SSE for in-progress job
+      if (!eventSourceRef.current) {
+        console.log('📡 Reconnecting to SSE stream for in-progress task:', jobId);
+        connectToTaskStream(jobId)
+          .then(eventSource => {
+            eventSourceRef.current = eventSource;
+          })
+          .catch(error => {
+            console.error('Failed to reconnect SSE stream:', error);
+          });
+      }
+    } else {
+      console.log('✋ Not starting SSE for completed/failed task:', jobId);
+    }
   };
 
   // Helper function to close job details
   const closeJobDetails = () => {
     setShowJobDetails(false);
     setSelectedJobId(null);
+    
+    // Close any active SSE connection
+    if (eventSourceRef.current) {
+      console.log('🔌 Closing SSE connection');
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
   };
 
   // Helper function to delete completed jobs
@@ -113,99 +381,26 @@ export default function BlogGenerator() {
     }
   };
 
-  useEffect(() => {
-    socketRef.current = io("http://localhost:5000", {
-      transports: ['websocket', 'polling'],
-      timeout: 20000,
-      forceNew: true,
-      rememberUpgrade: false,
-      upgrade: true
-    });
-    
-    // Socket event listeners
-    socketRef.current.on('connect', () => {
-      // WebSocket connected successfully
-    });
-    
-    socketRef.current.on('disconnect', () => {
-      // WebSocket disconnected
-    });
-
-    socketRef.current.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-    });
-
-    socketRef.current.on('connected', (data: { message: string }) => {
-      // Connected to server
-    });
-
-    socketRef.current.on('joined_task', (data: { task_id: string; message: string }) => {
-      // Joined task room
-    });
-    
-    socketRef.current.on('status_update', (data: StatusUpdate) => {
-      updateJob(data.task_id, {
-        status: data.status as JobState['status'],
-        currentStep: data.message,
-        // Adjust progress calculation: step represents "starting step X", so progress should be (step-1)/total
-        progress: data.step && data.total_steps ? ((data.step - 1) / data.total_steps) * 100 : 0
-      });
-    });
-
-    socketRef.current.on('log_update', (data: LogUpdate) => {
-      setJobs(prevJobs => 
-        prevJobs.map(job => 
-          job.id === data.task_id 
-            ? { ...job, logs: [...job.logs, data] }
-            : job
-        )
-      );
-    });
-
-    socketRef.current.on('generation_complete', (data: { task_id: string; status: string; message: string; content: string }) => {
-      updateJob(data.task_id, {
-        blogContent: data.content,
-        status: 'completed',
-        progress: 100,
-        currentStep: 'Completed successfully!',
-        completedAt: new Date().toISOString()
-      });
-    });
-
-    socketRef.current.on('generation_error', (data: { task_id: string; status: string; error_info: ErrorInfo }) => {
-      console.error('Generation error:', data.error_info);
-      updateJob(data.task_id, {
-        status: 'failed',
-        error: data.error_info,
-        currentStep: "Blog generation stopped due to an error. Please see details below."
-      });
-    });
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  }, []);
-
-  // Auto-scroll logs to bottom
-  useEffect(() => {
-    if (logsEndRef.current && selectedJobId) {
-      const selectedJob = getSelectedJob();
-      if (selectedJob && selectedJob.logs.length > 0) {
-        logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-  }, [selectedJobId, jobs]);
-
   const handleGenerateBlog = async () => {
     if (!topic.trim()) {
-      alert('Please enter a topic');
+      setGenerationError('Please enter a topic');
+      return;
+    }
+
+    // Use fresh stats if available, fallback to session-based check
+    const canGenerate = stats ? stats.remainingGenerations > 0 || stats.monthlyLimit === -1 : canGenerateBlog();
+    if (!canGenerate) {
+      setGenerationError('Monthly generation limit reached. Upgrade to Premium for unlimited access.');
       return;
     }
 
     try {
-      const response = await fetch("http://localhost:5000/generate-blog", {
+      setGenerationError(null);
+      
+      // Clear any previously completed tasks to allow new completions
+      completedTasksRef.current.clear();
+      
+      const response = await fetch("/api/generate-blog", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -216,11 +411,11 @@ export default function BlogGenerator() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to start blog generation");
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || "Failed to start blog generation");
+      }
       
       // Create new job and add to jobs list
       const newJob = createJob(data.task_id, topic.trim(), instructions.trim());
@@ -231,9 +426,14 @@ export default function BlogGenerator() {
       setActiveView('details');
       setShowJobDetails(true);
       
-      // Join the task room for real-time updates
-      if (socketRef.current) {
-        socketRef.current.emit('join_task', { task_id: data.task_id });
+      // Start SSE stream for real-time updates
+      console.log('📡 Starting SSE stream for task:', data.task_id);
+      try {
+        const eventSource = await connectToTaskStream(data.task_id);
+        eventSourceRef.current = eventSource;
+      } catch (sseError) {
+        console.error('Failed to start SSE stream:', sseError);
+        // Continue without SSE - user can still check status manually
       }
       
       // Clear form
@@ -242,16 +442,9 @@ export default function BlogGenerator() {
       
     } catch (error) {
       console.error("Error starting blog generation:", error);
-      alert('Failed to start blog generation. Please try again.');
+      setGenerationError(error instanceof Error ? error.message : 'Failed to start blog generation. Please try again.');
     }
   };
-
-  // Reset text scale when modal opens
-  useEffect(() => {
-    if (showJobDetails) {
-      setTextScale(100);
-    }
-  }, [showJobDetails]);
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
@@ -274,119 +467,157 @@ export default function BlogGenerator() {
         </div>
       </div>
 
-      {/* New Blog Form */}
-      {activeView === 'form' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Generate New Blog</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Blog Topic</label>
-              <Input
-                type="text"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                placeholder="Enter your blog topic..."
-                className="w-full"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium mb-2">Additional Instructions (Optional)</label>
-              <Textarea
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-                placeholder="Any specific requirements or style preferences..."
-                className="min-h-[100px]"
-              />
-            </div>
-            
-            <Button
-              onClick={handleGenerateBlog}
-              disabled={!topic.trim()}
-              className="w-full"
-            >
-              Generate Blog
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Jobs Dashboard */}
-      {activeView === 'jobs' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Blog Generation Jobs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {jobs.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                No blog generation jobs yet. Create your first blog!
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {jobs.map((job) => (
-                  <div
-                    key={job.id}
-                    className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => openJobDetails(job.id)}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg">{job.topic}</h3>
-                        <p className="text-sm text-gray-600 mt-1">{job.currentStep}</p>
-                        <div className="flex items-center space-x-4 mt-2">
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            job.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            job.status === 'failed' ? 'bg-red-100 text-red-800' :
-                            job.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {job.status.replace('_', ' ')}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {new Date(job.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-                        {job.status === 'in_progress' && (
-                          <div className="mt-2">
-                            <Progress value={job.progress} className="w-full" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openJobDetails(job.id);
-                          }}
-                        >
-                          View Details
-                        </Button>
-                        {job.status === 'completed' || job.status === 'failed' ? (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteJob(job.id);
-                            }}
-                          >
-                            Delete
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Main Content */}
+        <div className="lg:col-span-3">
+          {/* New Blog Form */}
+          {activeView === 'form' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Generate New Blog</CardTitle>
+                {isFree && stats && (
+                  <p className="text-sm text-gray-600">
+                    {stats.remainingGenerations} of {stats.monthlyLimit} free generations remaining this month
+                  </p>
+                )}
+                {isFree && !stats && (
+                  <p className="text-sm text-gray-600">
+                    Loading generation limits...
+                  </p>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {generationError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p className="text-sm text-red-700">{generationError}</p>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+                )}
+                
+                <div>
+                  <label className="block text-sm font-medium mb-2">Blog Topic</label>
+                  <Input
+                    type="text"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="Enter your blog topic..."
+                    className="w-full"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-2">Additional Instructions (Optional)</label>
+                  <Textarea
+                    value={instructions}
+                    onChange={(e) => setInstructions(e.target.value)}
+                    placeholder="Any specific requirements or style preferences..."
+                    className="min-h-[100px]"
+                  />
+                </div>
+                
+                <Button
+                  onClick={handleGenerateBlog}
+                  disabled={!topic.trim() || (!stats || (stats.remainingGenerations <= 0 && stats.monthlyLimit !== -1)) || statsLoading}
+                  className="w-full"
+                >
+                  {!stats ? 'Loading...' : 
+                   (stats.remainingGenerations > 0 || stats.monthlyLimit === -1) ? 'Generate Blog' : 'Monthly Limit Reached'}
+                </Button>
+                
+                {isFree && stats && stats.remainingGenerations === 0 && (
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600 mb-2">
+                      Upgrade to Premium for unlimited blog generation
+                    </p>
+                    <Button variant="outline" size="sm">
+                      Upgrade Now
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Jobs Dashboard */}
+          {activeView === 'jobs' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Blog Generation Jobs</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {jobs.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No blog generation jobs yet. Create your first blog!
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {jobs.map((job) => (
+                      <div
+                        key={job.id}
+                        className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
+                        onClick={() => openJobDetails(job.id)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-lg">{job.topic}</h3>
+                            <p className="text-sm text-gray-600 mt-1">{job.currentStep}</p>
+                            <div className="flex items-center space-x-4 mt-2">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                job.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                job.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                job.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {job.status.replace('_', ' ')}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {new Date(job.createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                            {job.status === 'in_progress' && (
+                              <div className="mt-2">
+                                <Progress value={job.progress} className="w-full" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openJobDetails(job.id);
+                              }}
+                            >
+                              View Details
+                            </Button>
+                            {job.status === 'completed' || job.status === 'failed' ? (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteJob(job.id);
+                                }}
+                              >
+                                Delete
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Sidebar */}
+        <div className="lg:col-span-1">
+          <UserProfile />
+        </div>
+      </div>
 
       {/* Job Details Modal */}
       {showJobDetails && selectedJobId && (

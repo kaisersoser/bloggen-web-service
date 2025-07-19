@@ -30,19 +30,15 @@ class BlogGenerationFlow(Flow):
     sending meaningful status updates to the frontend at each stage.
     """
     
-    def __init__(self, socketio=None, task_id=None, room_id=None):
+    def __init__(self, status_callback=None):
         """
         Initialize the blog generation flow.
         
         Args:
-            socketio: Flask-SocketIO instance for real-time communication
-            task_id (str): Unique task identifier for tracking
-            room_id (str): WebSocket room for broadcasting updates
+            status_callback: Function to call for status updates (for SSE streaming)
         """
         super().__init__()
-        self.socketio = socketio
-        self.task_id = task_id
-        self.room_id = room_id
+        self.status_callback = status_callback
         self.topic = None
         self.current_year = None
         
@@ -58,47 +54,38 @@ class BlogGenerationFlow(Flow):
 
     def _send_status_update(self, message, step, detail=None):
         """
-        Send a status update to the frontend via WebSocket.
+        Send a status update via callback function.
         
         Args:
             message (str): Human-readable status message
             step (int): Current progress step (1-4)
             detail (str, optional): Additional detail information
         """
-        if self.socketio and self.task_id and self.room_id:
-            update_data = {
-                'task_id': self.task_id,
-                'status': 'in_progress',
-                'message': message,
-                'step': step,
-                'total_steps': self.total_steps
-            }
+        if self.status_callback:
+            # Calculate progress percentage based on steps
+            progress = min((step / self.total_steps), 1.0)
             
+            # Create detailed status message
+            full_message = f"Phase {step}/{self.total_steps}: {message}"
             if detail:
-                update_data['detail'] = detail
+                full_message += f" - {detail}"
                 
-            self.socketio.emit('status_update', update_data, to=self.room_id)
-            
-            # Also send log update to track the sequence of actions
-            self._send_log_update(f"Step {step}/{self.total_steps}: {message}")
+            # Call the status callback
+            self.status_callback(f"Phase {step}", full_message, progress)
             
             # Small delay to ensure message delivery
             time.sleep(0.1)
 
     def _send_log_update(self, log_message):
         """
-        Send a log update to track the sequence of Flow actions.
+        Send a log update via status callback.
         
         Args:
-            log_message (str): Log message to send to frontend
+            log_message (str): Log message to send
         """
-        if self.socketio and self.task_id and self.room_id:
-            from datetime import datetime
-            self.socketio.emit('log_update', {
-                'task_id': self.task_id,
-                'log': log_message,
-                'timestamp': datetime.now().isoformat()
-            }, to=self.room_id)
+        if self.status_callback:
+            # Send as a detailed status update
+            self.status_callback("Processing", log_message, 0.5)
 
     @start()
     def initialize_flow(self):
