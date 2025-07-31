@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       user_id: session.user.id
     })
 
-    const backendResponse = await new Promise<{ok: boolean, status: number, json: () => Promise<any>, text: () => Promise<string>}>((resolve, reject) => {
+    const backendResponse = await new Promise<{ok: boolean, status: number, json: () => Promise<{task_id?: string; error?: string}>, text: () => Promise<string>}>((resolve, reject) => {
       const options = {
         hostname: backendUrl.hostname,
         port: backendUrl.port || 5000,
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
         const errorData = await backendResponse.json()
         backendError = JSON.stringify(errorData)
         console.error("Backend error response:", errorData)
-      } catch (e) {
+      } catch {
         // If JSON parsing fails, get text response
         try {
           backendError = await backendResponse.text()
