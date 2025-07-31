@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
-import { UserService, BlogService } from "@/lib/services/user"
+import { BlogService } from "@/lib/services/user"
 
 export async function POST(request: NextRequest) {
   try {

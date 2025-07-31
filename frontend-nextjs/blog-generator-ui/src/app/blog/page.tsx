@@ -8,11 +8,28 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { useAuth, useRoleCheck } from "@/hooks/useAuth";
 import { useUserStats } from "@/hooks/useUserStats";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
+import { BlogCard } from "@/components/blog/BlogCard";
+import { DeleteConfirmationDialog } from "@/components/blog/DeleteConfirmationDialog";
 import { UserProfile } from "@/components/auth/UserProfile";
 import { signIn } from "next-auth/react";
+
+interface BlogData {
+  id: string
+  userId: string
+  topic: string
+  instructions: string | null
+  content: string | null
+  status: string
+  progress: number
+  currentStep: string | null
+  error: string | null
+  createdAt: Date
+  updatedAt: Date
+  completedAt: Date | null
+}
 
 interface JobState {
   id: string;
@@ -58,7 +75,7 @@ interface ErrorInfo {
 
 export default function BlogGenerator() {
   const { isAuthenticated, isLoading } = useAuth();
-  const { canGenerateBlog, getRemainingGenerations, isFree } = useRoleCheck();
+  const { canGenerateBlog, isFree } = useRoleCheck();
   const { stats, loading: statsLoading, refetch: refetchStats } = useUserStats();
   
   const [topic, setTopic] = useState("");
@@ -70,10 +87,68 @@ export default function BlogGenerator() {
   const [textScale, setTextScale] = useState(100);
   const [activeView, setActiveView] = useState<'form' | 'jobs' | 'details'>('form');
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [previousBlogs, setPreviousBlogs] = useState<BlogData[]>([]);
+  const [blogsLoading, setBlogsLoading] = useState(false);
+  
+  // Delete confirmation dialog state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [blogToDelete, setBlogToDelete] = useState<BlogData | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Infinite scroll hook for previous blogs
+  const { displayedBlogs, hasMore, isLoading: scrollLoading } = useInfiniteScroll({
+    allBlogs: previousBlogs,
+    itemsPerPage: 6
+  });
   
   const eventSourceRef = useRef<EventSource | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const completedTasksRef = useRef<Set<string>>(new Set());
+
+  // Function to fetch user's previous blogs
+  const fetchPreviousBlogs = async () => {
+    if (!isAuthenticated) return;
+    
+    try {
+      setBlogsLoading(true);
+      const response = await fetch('/api/blogs');
+      if (response.ok) {
+        const data = await response.json();
+        setPreviousBlogs(data.blogs || []);
+      } else {
+        console.error('Failed to fetch previous blogs:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error fetching previous blogs:', error);
+    } finally {
+      setBlogsLoading(false);
+    }
+  };
+
+  // Function to convert blog data to job state for modal display
+  const convertBlogToJob = (blog: BlogData): JobState => {
+    return {
+      id: blog.id,
+      topic: blog.topic,
+      instructions: blog.instructions || '',
+      status: blog.status.toLowerCase() as JobState['status'],
+      progress: blog.progress,
+      currentStep: blog.currentStep || 'Completed',
+      logs: [], // Previous blogs don't have logs
+      blogContent: blog.content || '',
+      error: blog.error ? {
+        error_type: 'generation_error',
+        user_message: blog.error,
+        technical_details: blog.error,
+        is_recoverable: false,
+        suggestions: [],
+        timestamp: new Date().toISOString(),
+        severity: 'error'
+      } : null,
+      createdAt: new Date(blog.createdAt).toISOString(),
+      completedAt: blog.completedAt ? new Date(blog.completedAt).toISOString() : undefined
+    };
+  };
 
   // Utility function to create SSE connection for a task
   const connectToTaskStream = async (taskId: string): Promise<EventSource> => {
@@ -214,6 +289,8 @@ export default function BlogGenerator() {
         console.log('Blog completion processed:', result);
         // Refetch user stats to update generation count
         refetchStats();
+        // Refetch previous blogs to include the new completed blog
+        fetchPreviousBlogs();
       }
     } catch (error) {
       console.error('Failed to update blog completion status:', error);
@@ -279,6 +356,13 @@ export default function BlogGenerator() {
       setTextScale(100);
     }
   }, [showJobDetails]);
+
+  // Fetch previous blogs when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      fetchPreviousBlogs();
+    }
+  }, [isAuthenticated, isLoading]);
 
   // Show loading state while checking authentication
   if (isLoading) {
@@ -381,6 +465,80 @@ export default function BlogGenerator() {
     }
   };
 
+  // Function to handle delete blog request
+  const handleDeleteBlog = (blogId: string) => {
+    const blog = previousBlogs.find(b => b.id === blogId);
+    if (blog) {
+      setBlogToDelete(blog);
+      setShowDeleteDialog(true);
+    }
+  };
+
+  // Function to confirm and execute blog deletion
+  const confirmDeleteBlog = async () => {
+    if (!blogToDelete) return;
+
+    try {
+      setIsDeleting(true);
+      
+      const response = await fetch(`/api/blogs/delete?id=${blogToDelete.id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Remove the blog from the list
+        setPreviousBlogs(prevBlogs => 
+          prevBlogs.filter(blog => blog.id !== blogToDelete.id)
+        );
+        
+        // Close dialog
+        setShowDeleteDialog(false);
+        setBlogToDelete(null);
+        
+        // Show success message (optional)
+        console.log('Blog deleted successfully');
+      } else {
+        const errorData = await response.json();
+        console.error('Failed to delete blog:', errorData.error);
+        // You could show an error toast here
+      }
+    } catch (error) {
+      console.error('Error deleting blog:', error);
+      // You could show an error toast here
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Function to cancel delete operation
+  const cancelDeleteBlog = () => {
+    setShowDeleteDialog(false);
+    setBlogToDelete(null);
+    setIsDeleting(false);
+  };
+
+  // Function to handle clicking on a previous blog card
+  const openPreviousBlogDetails = (blog: BlogData) => {
+    const jobState = convertBlogToJob(blog);
+    // Add the blog as a temporary job to display in modal
+    setJobs(prevJobs => {
+      const existingIndex = prevJobs.findIndex(job => job.id === blog.id);
+      if (existingIndex >= 0) {
+        // Update existing job
+        const newJobs = [...prevJobs];
+        newJobs[existingIndex] = jobState;
+        return newJobs;
+      } else {
+        // Add as new job
+        return [...prevJobs, jobState];
+      }
+    });
+    
+    setSelectedJobId(blog.id);
+    setActiveView('details');
+    setShowJobDetails(true);
+  };
+
   const handleGenerateBlog = async () => {
     if (!topic.trim()) {
       setGenerationError('Please enter a topic');
@@ -462,7 +620,7 @@ export default function BlogGenerator() {
             variant={activeView === 'jobs' ? 'default' : 'outline'}
             onClick={() => setActiveView('jobs')}
           >
-            Jobs ({jobs.length})
+            Jobs ({jobs.length + previousBlogs.length})
           </Button>
         </div>
       </div>
@@ -537,77 +695,171 @@ export default function BlogGenerator() {
             </Card>
           )}
 
+          {/* Previous Blogs Section - Show in form view */}
+          {activeView === 'form' && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Previous Blogs</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {blogsLoading ? (
+                  <div className="flex justify-center items-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : previousBlogs.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No previous blogs yet. Generate your first blog above!
+                  </div>
+                ) : (
+                  <div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {displayedBlogs.map((blog) => (
+                        <BlogCard
+                          key={blog.id}
+                          blog={blog}
+                          onClick={openPreviousBlogDetails}
+                          onDelete={handleDeleteBlog}
+                        />
+                      ))}
+                    </div>
+                    
+                    {/* Infinite scroll sentinel */}
+                    {hasMore && (
+                      <div id="blog-scroll-sentinel" className="flex justify-center items-center py-8">
+                        {scrollLoading ? (
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        ) : (
+                          <div className="text-sm text-gray-500">Scroll to load more blogs...</div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {!hasMore && displayedBlogs.length > 6 && (
+                      <div className="text-center py-4">
+                        <p className="text-sm text-gray-500">You&apos;ve reached the end of your blogs</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Jobs Dashboard */}
           {activeView === 'jobs' && (
             <Card>
               <CardHeader>
-                <CardTitle>Blog Generation Jobs</CardTitle>
+                <CardTitle>Blog Generation Jobs & History</CardTitle>
               </CardHeader>
               <CardContent>
-                {jobs.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    No blog generation jobs yet. Create your first blog!
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {jobs.map((job) => (
-                      <div
-                        key={job.id}
-                        className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
-                        onClick={() => openJobDetails(job.id)}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-lg">{job.topic}</h3>
-                            <p className="text-sm text-gray-600 mt-1">{job.currentStep}</p>
-                            <div className="flex items-center space-x-4 mt-2">
-                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                job.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                job.status === 'failed' ? 'bg-red-100 text-red-800' :
-                                job.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                                {job.status.replace('_', ' ')}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {new Date(job.createdAt).toLocaleString()}
-                              </span>
-                            </div>
-                            {job.status === 'in_progress' && (
-                              <div className="mt-2">
-                                <Progress value={job.progress} className="w-full" />
+                {/* Active Jobs Section */}
+                {jobs.length > 0 && (
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800">Active Jobs</h3>
+                    <div className="space-y-4">
+                      {jobs.map((job) => (
+                        <div
+                          key={job.id}
+                          className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
+                          onClick={() => openJobDetails(job.id)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-lg">{job.topic}</h3>
+                              <p className="text-sm text-gray-600 mt-1">{job.currentStep}</p>
+                              <div className="flex items-center space-x-4 mt-2">
+                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                  job.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                  job.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                  job.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {job.status.replace('_', ' ')}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(job.createdAt).toLocaleString()}
+                                </span>
                               </div>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openJobDetails(job.id);
-                              }}
-                            >
-                              View Details
-                            </Button>
-                            {job.status === 'completed' || job.status === 'failed' ? (
+                              {job.status === 'in_progress' && (
+                                <div className="mt-2">
+                                  <Progress value={job.progress} className="w-full" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-2">
                               <Button
-                                variant="destructive"
+                                variant="outline"
                                 size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  deleteJob(job.id);
+                                  openJobDetails(job.id);
                                 }}
                               >
-                                Delete
+                                View Details
                               </Button>
-                            ) : null}
+                              {job.status === 'completed' || job.status === 'failed' ? (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteJob(job.id);
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
+
+                {/* Previous Blogs Section */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-4 text-gray-800">Previous Blogs</h3>
+                  {blogsLoading ? (
+                    <div className="flex justify-center items-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    </div>
+                  ) : previousBlogs.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      No previous blogs yet. Create your first blog!
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {displayedBlogs.map((blog) => (
+                          <BlogCard
+                            key={blog.id}
+                            blog={blog}
+                            onClick={openPreviousBlogDetails}
+                            onDelete={handleDeleteBlog}
+                          />
+                        ))}
+                      </div>
+                      
+                      {/* Infinite scroll sentinel */}
+                      {hasMore && (
+                        <div id="blog-scroll-sentinel" className="flex justify-center items-center py-8">
+                          {scrollLoading ? (
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                          ) : (
+                            <div className="text-sm text-gray-500">Scroll to load more blogs...</div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {!hasMore && displayedBlogs.length > 6 && (
+                        <div className="text-center py-4">
+                          <p className="text-sm text-gray-500">You&apos;ve reached the end of your blogs</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -631,6 +883,15 @@ export default function BlogGenerator() {
           logsEndRef={logsEndRef}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmationDialog
+        isOpen={showDeleteDialog}
+        onClose={cancelDeleteBlog}
+        onConfirm={confirmDeleteBlog}
+        blogTopic={blogToDelete?.topic || ''}
+        isDeleting={isDeleting}
+      />
     </div>
   );
 }

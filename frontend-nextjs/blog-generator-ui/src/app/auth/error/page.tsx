@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AlertCircle } from "lucide-react"
 import Link from "next/link"
+import { Suspense } from "react"
 
 const errors = {
   Configuration: "There is a problem with the server configuration.",
@@ -13,7 +14,7 @@ const errors = {
   Default: "An error occurred during authentication."
 }
 
-export default function AuthError() {
+function AuthErrorContent() {
   const searchParams = useSearchParams()
   const error = searchParams.get('error')
   const errorMessage = errors[error as keyof typeof errors] || errors.Default
@@ -42,5 +43,22 @@ export default function AuthError() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function AuthError() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md">
+          <CardContent className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading...</p>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <AuthErrorContent />
+    </Suspense>
   )
 }

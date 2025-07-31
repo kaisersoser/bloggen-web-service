@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { BlogService } from "@/lib/services/user"
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await getServerSession(authOptions)
     
@@ -39,11 +39,19 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Blog ID is required" }, { status: 400 })
     }
 
-    const success = await BlogService.deleteBlog(blogId, session.user.id)
-
-    if (!success) {
-      return NextResponse.json({ error: "Failed to delete blog" }, { status: 400 })
+    // Get the blog to verify ownership
+    const blog = await BlogService.getBlogById(blogId)
+    
+    if (!blog) {
+      return NextResponse.json({ error: "Blog not found" }, { status: 404 })
     }
+
+    // Check if user owns the blog or is admin
+    if (blog.userId !== session.user.id && session.user.role !== 'ADMIN') {
+      return NextResponse.json({ error: "Permission denied" }, { status: 403 })
+    }
+
+    await BlogService.deleteBlog(blogId)
 
     return NextResponse.json({ message: "Blog deleted successfully" })
 
