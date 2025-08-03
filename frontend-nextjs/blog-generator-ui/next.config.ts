@@ -6,6 +6,24 @@ const nextConfig: NextConfig = {
   // Move serverComponentsExternalPackages to the root level
   serverExternalPackages: ['@prisma/client'],
   
+  // Image configuration for external domains
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'unsplash.com',
+        port: '',
+        pathname: '/**',
+      },
+    ],
+  },
+  
   // HTTPS configuration for development
   ...(process.env.NODE_ENV === 'development' && {
     webpack: (config, { dev }) => {

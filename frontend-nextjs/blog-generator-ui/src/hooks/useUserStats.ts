@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 
 interface UserStats {
@@ -17,7 +17,7 @@ export function useUserStats() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     if (!session) {
       setLoading(false)
       return
@@ -39,11 +39,11 @@ export function useUserStats() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [session])
 
   useEffect(() => {
     fetchStats()
-  }, [session])
+  }, [fetchStats])
 
   return {
     stats,
