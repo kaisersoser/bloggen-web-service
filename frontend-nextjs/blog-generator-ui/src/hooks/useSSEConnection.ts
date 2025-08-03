@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react';
-import { JobState, SSEUpdate } from '@/types/blog';
+import { JobState, SSEUpdate, LogEntry } from '@/types/blog';
 
 export function useSSEConnection() {
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -9,7 +9,8 @@ export function useSSEConnection() {
     taskId: string,
     onUpdate: (taskId: string, updates: Partial<JobState>) => void,
     onCompletion: (taskId: string, content: string) => void,
-    onError: (taskId: string, error: string) => void
+    onError: (taskId: string, error: string) => void,
+    onLogUpdate?: (taskId: string, log: LogEntry) => void
   ): Promise<EventSource> => {
     try {
       // Get JWT token for SSE authentication
@@ -42,6 +43,18 @@ export function useSSEConnection() {
           switch (data.type) {
             case 'connected':
               console.log('✅ Connected to task stream:', data.task_id);
+              break;
+              
+            case 'log_update':
+              console.log('📋 Log update:', data);
+              if (onLogUpdate && data.step && data.message && data.timestamp) {
+                onLogUpdate(data.task_id, {
+                  timestamp: data.timestamp,
+                  step: data.step,
+                  message: data.message,
+                  progress: data.progress || 0
+                });
+              }
               break;
               
             case 'status_update':

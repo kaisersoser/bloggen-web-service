@@ -31,6 +31,7 @@ import uuid
 import json
 import logging
 import time
+import openai
 
 # Load environment variables for CrewAI configuration
 from bloggen.helper import load_env
@@ -261,9 +262,25 @@ def background_blog_generation(task_id, topic, room_id=None):
         
         # Define status update callback for the flow
         def update_task_status(step_name, message, progress=0.5):
-            """Callback function for flow to update task status"""
+            """Callback function for flow to update task status and stream detailed logs"""
             if task_id in active_tasks:
                 active_tasks[task_id]['current_step'] = f"{step_name}: {message}"
+                # Store detailed logs for streaming
+                if 'detailed_logs' not in active_tasks[task_id]:
+                    active_tasks[task_id]['detailed_logs'] = []
+                
+                # Add timestamped log entry
+                log_entry = {
+                    'timestamp': datetime.now().isoformat(),
+                    'step': step_name,
+                    'message': message,
+                    'progress': progress
+                }
+                active_tasks[task_id]['detailed_logs'].append(log_entry)
+                
+                # Also add the last log as current_log for immediate streaming
+                active_tasks[task_id]['current_log'] = log_entry
+                
                 logging.info(f"Task {task_id} - {step_name}: {message}")
         
         blog_flow = BlogGenerationFlow(status_callback=update_task_status)
@@ -335,6 +352,127 @@ def health_check():
 def ping():
     """Simple ping endpoint"""
     return jsonify({'message': 'pong'}), 200
+
+@app.route('/generate-title', methods=['POST'])
+@require_auth
+def generate_title():
+    """
+    Generate a concise blog title from blog instructions using OpenAI.
+    
+    This endpoint:
+    1. Takes blog instructions as input
+    2. Uses OpenAI to generate a short, engaging title
+    3. Returns the generated title
+    
+    Request Body:
+    {
+        "instructions": "Blog instructions or description"
+    }
+    
+    Response:
+    {
+        "title": "Generated Blog Title",
+        "success": true
+    }
+    """
+    try:
+        # Get request data
+        data = flask_request.get_json()
+        if not data:
+            return jsonify({
+                'error': 'Request body must be JSON',
+                'success': False
+            }), 400
+        
+        # Validate required fields
+        instructions = data.get('instructions', '').strip()
+        if not instructions:
+            return jsonify({
+                'error': 'Instructions are required',
+                'success': False
+            }), 400
+        
+        # Set up OpenAI API key
+        openai_api_key = os.getenv('OPENAI_API_KEY')
+        if not openai_api_key:
+            logging.error("OpenAI API key not found in environment variables")
+            return jsonify({
+                'error': 'OpenAI API key not configured',
+                'success': False
+            }), 500
+        
+        # Generate title using OpenAI
+        try:
+            client = openai.OpenAI(api_key=openai_api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that creates short, engaging blog titles. Extract the core topic from user instructions and create a concise title (5-10 words max). Remove any instruction words like 'Generate', 'Write', 'Create', 'blog about', etc. Focus only on the main subject. Return only the title, nothing else."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Extract the core topic and create a short blog title from: \"{instructions}\""
+                    }
+                ],
+                max_tokens=25,
+                temperature=0.5,
+            )
+            
+            generated_title = response.choices[0].message.content
+            if not generated_title:
+                return jsonify({
+                    'error': 'No title generated',
+                    'success': False
+                }), 500
+                
+            generated_title = generated_title.strip()
+            
+            # Clean up the title (remove quotes if present)
+            clean_title = generated_title.replace('"', '').replace("'", "")
+            
+            # Format title with proper capitalization (Title Case)
+            formatted_title = clean_title.title()
+            
+            # Fix common title case issues
+            # Keep certain words lowercase unless they're the first word
+            lowercase_words = ['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in', 'nor', 'of', 'on', 'or', 'so', 'the', 'to', 'up', 'yet']
+            words = formatted_title.split()
+            
+            for i, word in enumerate(words):
+                if i > 0 and word.lower() in lowercase_words:
+                    words[i] = word.lower()
+                elif i == 0:  # Always capitalize first word
+                    words[i] = word.capitalize()
+            
+            final_title = ' '.join(words)
+            
+            return jsonify({
+                'title': final_title,
+                'success': True
+            }), 200
+            
+        except openai.OpenAIError as e:
+            logging.error(f"OpenAI API error: {str(e)}")
+            return jsonify({
+                'error': 'Failed to generate title using AI',
+                'success': False
+            }), 500
+        except Exception as e:
+            logging.error(f"Unexpected error during title generation: {str(e)}")
+            return jsonify({
+                'error': 'Internal error during title generation',
+                'success': False
+            }), 500
+            
+    except Exception as e:
+        logging.error(f"Error in generate_title endpoint: {str(e)}")
+        return jsonify({
+            'error': 'Internal server error',
+            'success': False
+        }), 500
 
 # =============================================================================
 # REST API ENDPOINTS
@@ -474,6 +612,7 @@ def stream_task_updates(task_id):
         """Generator function that yields SSE-formatted updates"""
         last_status = None
         last_step = None
+        last_log_count = 0
         
         # Send initial connection confirmation
         yield f"data: {json.dumps({'type': 'connected', 'task_id': task_id, 'message': 'Connected to task stream'})}\n\n"
@@ -490,7 +629,27 @@ def stream_task_updates(task_id):
                 current_status = current_task.get('status')
                 current_step = current_task.get('current_step')
                 
-                # Send update if status or step changed
+                # Check for new detailed logs
+                detailed_logs = current_task.get('detailed_logs', [])
+                current_log_count = len(detailed_logs)
+                
+                # Send new log entries
+                if current_log_count > last_log_count:
+                    for i in range(last_log_count, current_log_count):
+                        log_entry = detailed_logs[i]
+                        log_data = {
+                            'type': 'log_update',
+                            'task_id': task_id,
+                            'timestamp': log_entry['timestamp'],
+                            'step': log_entry['step'],
+                            'message': log_entry['message'],
+                            'progress': log_entry['progress']
+                        }
+                        yield f"data: {json.dumps(log_data)}\n\n"
+                    
+                    last_log_count = current_log_count
+                
+                # Send status update if status or step changed
                 if current_status != last_status or current_step != last_step:
                     update_data = {
                         'type': 'status_update',
@@ -535,8 +694,8 @@ def stream_task_updates(task_id):
                         
                         break
                 
-                # Wait before next check (1 second polling)
-                time.sleep(1)
+                # Wait before next check (0.5 second polling for more responsive log streaming)
+                time.sleep(0.5)
                 
             except Exception as e:
                 logging.error(f"SSE stream error for task {task_id}: {e}")

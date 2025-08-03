@@ -76,16 +76,18 @@ class BlogGenerationFlow(Flow):
             # Small delay to ensure message delivery
             time.sleep(0.1)
 
-    def _send_log_update(self, log_message):
+    def _send_log_update(self, log_message, step="Processing"):
         """
         Send a log update via status callback.
         
         Args:
             log_message (str): Log message to send
+            step (str): Current step name
         """
         if self.status_callback:
-            # Send as a detailed status update
-            self.status_callback("Processing", log_message, 0.5)
+            # Send as a detailed log update with proper step context
+            progress = min((self.current_step / self.total_steps), 1.0) if hasattr(self, 'current_step') else 0.0
+            self.status_callback(step, log_message, progress)
 
     @start()
     def initialize_flow(self):
@@ -109,7 +111,9 @@ class BlogGenerationFlow(Flow):
         self.current_year = current_year
         
         # Send initial log
-        self._send_log_update(f"🚀 Flow initialized for topic: '{topic}'")
+        self._send_log_update(f"🚀 Flow initialized for topic: '{topic}'", "Initialization")
+        self._send_log_update(f"📋 Topic: {topic}", "Initialization")
+        self._send_log_update(f"📅 Year: {current_year}", "Initialization")
         
         self._send_status_update(
             f"Starting research on '{topic}'...", 
@@ -143,7 +147,9 @@ class BlogGenerationFlow(Flow):
             "Senior Researcher is analyzing trends, gathering data, and finding key insights"
         )
         
-        self._send_log_update("🔍 Creating Senior Researcher agent...")
+        self._send_log_update("🔍 Creating Senior Researcher agent...", "Research")
+        self._send_log_update("👤 Agent Role: Senior Researcher", "Research")
+        self._send_log_update("🎯 Agent Goal: Uncover cutting-edge developments and insights", "Research")
         
         # Create Research Agent
         researcher = Agent(
@@ -157,6 +163,9 @@ class BlogGenerationFlow(Flow):
             tools=self._get_research_tools(),
             allow_delegation=False
         )
+        
+        self._send_log_update("✅ Senior Researcher agent created successfully", "Research")
+        self._send_log_update("📋 Creating research task...", "Research")
         
         # Create Research Task
         research_task = Task(
@@ -179,6 +188,10 @@ class BlogGenerationFlow(Flow):
             agent=researcher
         )
         
+        self._send_log_update("✅ Research task configured", "Research")
+        self._send_log_update("🔍 Task: Comprehensive research analysis", "Research")
+        self._send_log_update("📊 Expected: 5 key insights, statistics, trends, expert opinions", "Research")
+        
         # Execute research
         self._send_status_update(
             "Gathering latest insights and trends...", 
@@ -186,7 +199,8 @@ class BlogGenerationFlow(Flow):
             "Analyzing market data, expert opinions, and recent developments"
         )
         
-        self._send_log_update("📊 Executing research crew to gather insights...")
+        self._send_log_update("� Executing research crew to gather insights...", "Research")
+        self._send_log_update("⚡ CrewAI is now processing the research task...", "Research")
         
         crew = Crew(
             agents=[researcher],
@@ -194,10 +208,14 @@ class BlogGenerationFlow(Flow):
             verbose=True
         )
         
+        self._send_log_update("👥 Research crew assembled", "Research")
+        self._send_log_update("🔄 Starting crew execution...", "Research")
+        
         research_results = crew.kickoff()
         self.research_results = research_results
         
-        self._send_log_update("✅ Research phase completed successfully")
+        self._send_log_update("✅ Research phase completed successfully", "Research")
+        self._send_log_update(f"📄 Research results: {len(str(research_results))} characters", "Research")
         
         self._send_status_update(
             "Research completed - found valuable insights!", 
@@ -231,7 +249,10 @@ class BlogGenerationFlow(Flow):
             "Content Writer is crafting a compelling narrative based on research findings"
         )
         
-        self._send_log_update("✍️ Creating Content Writer agent...")
+        self._send_log_update("✍️ Creating Content Writer agent...", "Content Generation")
+        self._send_log_update("👤 Agent Role: Tech Content Strategist & Visual Designer", "Content Generation")
+        self._send_log_update("🎯 Agent Goal: Create compelling blog posts with professional images", "Content Generation")
+        self._send_log_update("🛠️ Agent Tools: Unsplash image search capabilities", "Content Generation")
         
         # Create Content Writer Agent with image search capabilities
         writer = Agent(

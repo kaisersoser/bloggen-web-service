@@ -28,7 +28,7 @@ export interface JobState {
 }
 
 export interface SSEUpdate {
-  type: 'connected' | 'status_update' | 'stream_ended' | 'error';
+  type: 'connected' | 'status_update' | 'log_update' | 'stream_ended' | 'error';
   task_id: string;
   status?: string;
   current_step?: string;
@@ -37,6 +37,14 @@ export interface SSEUpdate {
   error?: string;
   message?: string;
   timestamp?: string;
+  step?: string;
+}
+
+export interface LogEntry {
+  timestamp: string;
+  step: string;
+  message: string;
+  progress: number;
 }
 
 export interface LogUpdate {

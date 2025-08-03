@@ -8,3 +8,4 @@ gunicorn
 pydantic
 requests
 PyJWT
+openai
