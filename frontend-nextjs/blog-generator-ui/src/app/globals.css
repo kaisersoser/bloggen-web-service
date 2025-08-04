@@ -247,3 +247,43 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
+
+/* Long press pulse animation for blog cards */
+@keyframes longPressPulse {
+  0% {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.6);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+    transform: scale(1);
+  }
+}
+
+.long-press-pulse {
+  animation: longPressPulse 1s ease-in-out infinite;
+}
+
+/* Dark mode pulse animation */
+.dark .long-press-pulse {
+  animation: longPressPulseDark 1s ease-in-out infinite;
+}
+
+@keyframes longPressPulseDark {
+  0% {
+    box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.7);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.4);
+    transform: scale(1);
+  }
+}

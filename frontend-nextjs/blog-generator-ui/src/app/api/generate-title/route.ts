@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
-import { getToken } from "next-auth/jwt"
 import https from 'https'
 import jwt from 'jsonwebtoken'
 
@@ -13,9 +12,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 })
     }
 
-    // Get JWT token for backend authentication
-    const nextAuthToken = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
-    
     // Create a JWT token that the backend expects
     const backendJWT = jwt.sign(
       {
@@ -37,20 +33,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Instructions are required" }, { status: 400 })
     }
 
+    // Validate backend URL is configured
+    if (!process.env.API_BASE_URL) {
+      console.error('API_BASE_URL environment variable is not configured')
+      return NextResponse.json({ error: "Backend configuration error" }, { status: 500 })
+    }
+
     // Configure HTTPS agent to ignore self-signed certificates for local development
     const httpsAgent = new https.Agent({
       rejectUnauthorized: false
     })
 
     // Make request to backend
-    const backendResponse = await fetch(`${process.env.BACKEND_URL}/generate-title`, {
+    const backendResponse = await fetch(`${process.env.API_BASE_URL}/generate-title`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${backendJWT}`,
       },
       body: JSON.stringify({ instructions }),
-      // @ts-ignore - agent is valid for node.js fetch
+      // @ts-expect-error - agent is valid for node.js fetch
       agent: httpsAgent,
     })
 

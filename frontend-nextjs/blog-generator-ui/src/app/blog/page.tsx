@@ -330,6 +330,27 @@ export default function BlogGenerator() {
     }
   };
 
+  const handleBulkDeleteBlogs = async (blogIds: string[]) => {
+    try {
+      // Delete all blogs in parallel
+      const deletePromises = blogIds.map(blogId => deleteBlog(blogId));
+      const results = await Promise.all(deletePromises);
+      
+      // Check if all deletions were successful
+      const successfulDeletions = results.filter(success => success).length;
+      
+      if (successfulDeletions === blogIds.length) {
+        // Refresh the blogs list
+        await fetchPreviousBlogs();
+      } else {
+        setGenerationError(`Failed to delete ${blogIds.length - successfulDeletions} blog(s). Please try again.`);
+      }
+    } catch (error) {
+      console.error('Failed to bulk delete blogs:', error);
+      setGenerationError('Failed to delete blogs. Please try again.');
+    }
+  };
+
   const confirmDeleteBlog = async () => {
     if (!blogToDelete) return;
 
@@ -378,6 +399,7 @@ export default function BlogGenerator() {
         onBlogClick={handleBlogClick}
         onJobClick={handleJobClick}
         onDeleteBlog={handleDeleteBlog}
+        onBulkDeleteBlogs={handleBulkDeleteBlogs}
         onNewBlog={handleNewBlog}
       />
 
