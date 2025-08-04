@@ -1,7 +1,9 @@
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ChevronLeft, ChevronRight, History, Plus } from 'lucide-react';
-import { BlogData, JobState } from '@/types/blog';
+import { ChevronLeft, ChevronRight, History, Plus, CheckSquare, Trash2, X } from 'lucide-react';
+import { BlogData, JobState, SelectionState } from '@/types/blog';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { useState, useCallback } from 'react';
 
 interface BlogHistorySidebarProps {
   blogs: BlogData[];
@@ -12,6 +14,7 @@ interface BlogHistorySidebarProps {
   onBlogClick: (blog: BlogData) => void;
   onJobClick: (jobId: string) => void;
   onDeleteBlog: (blogId: string) => void;
+  onBulkDeleteBlogs: (blogIds: string[]) => void;
   onNewBlog: () => void;
 }
 
@@ -24,8 +27,108 @@ export function BlogHistorySidebar({
   onBlogClick,
   onJobClick,
   onDeleteBlog,
+  onBulkDeleteBlogs,
   onNewBlog
 }: BlogHistorySidebarProps) {
+
+  // Selection state management
+  const [selectionState, setSelectionState] = useState<SelectionState>({
+    isSelectionMode: false,
+    selectedBlogIds: new Set(),
+    longPressTimer: null,
+    targetBlogId: null,
+    pulsingBlogId: null,
+  });
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // Selection handlers
+  const activateSelectionMode = useCallback((blogId: string) => {
+    setSelectionState(prev => ({
+      ...prev,
+      isSelectionMode: true,
+      selectedBlogIds: new Set([blogId]),
+      longPressTimer: null,
+      targetBlogId: null,
+      pulsingBlogId: null,
+    }));
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectionState({
+      isSelectionMode: false,
+      selectedBlogIds: new Set(),
+      longPressTimer: null,
+      targetBlogId: null,
+      pulsingBlogId: null,
+    });
+  }, []);
+
+  const toggleBlogSelection = useCallback((blogId: string) => {
+    setSelectionState(prev => {
+      const newSelected = new Set(prev.selectedBlogIds);
+      if (newSelected.has(blogId)) {
+        newSelected.delete(blogId);
+      } else {
+        newSelected.add(blogId);
+      }
+      return { ...prev, selectedBlogIds: newSelected };
+    });
+  }, []);
+
+  const selectAllBlogs = useCallback(() => {
+    const allBlogIds = blogs.map(blog => blog.id);
+    setSelectionState(prev => ({
+      ...prev,
+      selectedBlogIds: new Set(allBlogIds),
+    }));
+  }, [blogs]);
+
+  const handleLongPress = useCallback((blogId: string) => {
+    // Start pulsing animation immediately
+    setSelectionState(prev => ({
+      ...prev,
+      pulsingBlogId: blogId,
+      targetBlogId: blogId,
+    }));
+
+    // Set timer for 2 seconds to activate selection mode
+    const timer = setTimeout(() => {
+      activateSelectionMode(blogId);
+    }, 2000);
+
+    setSelectionState(prev => ({
+      ...prev,
+      longPressTimer: timer,
+    }));
+  }, [activateSelectionMode]);
+
+  const handleMouseUp = useCallback(() => {
+    if (selectionState.longPressTimer) {
+      clearTimeout(selectionState.longPressTimer);
+    }
+    
+    // Clear pulsing and target states
+    setSelectionState(prev => ({
+      ...prev,
+      longPressTimer: null,
+      targetBlogId: null,
+      pulsingBlogId: null,
+    }));
+  }, [selectionState.longPressTimer]);
+
+  const openDeleteConfirmation = useCallback(() => {
+    setShowDeleteModal(true);
+  }, []);
+
+  const handleBulkDelete = useCallback(() => {
+    const blogIdsToDelete = Array.from(selectionState.selectedBlogIds);
+    onBulkDeleteBlogs(blogIdsToDelete);
+    setShowDeleteModal(false);
+    exitSelectionMode();
+  }, [selectionState.selectedBlogIds, onBulkDeleteBlogs, exitSelectionMode]);
+
+  const selectedBlogs = blogs.filter(blog => selectionState.selectedBlogIds.has(blog.id));
 
   if (collapsed) {
     return (
@@ -79,6 +182,45 @@ export function BlogHistorySidebar({
           <Plus className="w-4 h-4 mr-2" />
           New Blog
         </Button>
+
+        {/* Selection Controls - only shown in selection mode */}
+        {selectionState.isSelectionMode && (
+          <div className="flex items-center justify-between px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+              {selectionState.selectedBlogIds.size} selected
+            </span>
+            <div className="flex space-x-1">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={selectAllBlogs}
+                className="w-8 h-8 p-0 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                title="Select All"
+              >
+                <CheckSquare className="w-4 h-4" />
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={openDeleteConfirmation}
+                className="w-8 h-8 p-0 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                disabled={selectionState.selectedBlogIds.size === 0}
+                title="Delete Selected"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={exitSelectionMode}
+                className="w-8 h-8 p-0 text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                title="Cancel"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -121,6 +263,12 @@ export function BlogHistorySidebar({
                       blog={blog}
                       onClick={() => onBlogClick(blog)}
                       onDelete={() => onDeleteBlog(blog.id)}
+                      isSelectionMode={selectionState.isSelectionMode}
+                      isSelected={selectionState.selectedBlogIds.has(blog.id)}
+                      isPulsing={selectionState.pulsingBlogId === blog.id}
+                      onSelectionToggle={toggleBlogSelection}
+                      onLongPress={handleLongPress}
+                      onMouseUp={handleMouseUp}
                     />
                   ))
                 ) : (
@@ -142,6 +290,14 @@ export function BlogHistorySidebar({
           )}
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={showDeleteModal}
+        selectedBlogs={selectedBlogs}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setShowDeleteModal(false)}
+      />
     </div>
   );
 }
@@ -206,33 +362,90 @@ function JobHistoryCard({
 function BlogHistoryCard({
   blog,
   onClick,
-  onDelete
+  onDelete,
+  isSelectionMode = false,
+  isSelected = false,
+  isPulsing = false,
+  onSelectionToggle,
+  onLongPress,
+  onMouseUp
 }: {
   blog: BlogData;
   onClick: () => void;
   onDelete: () => void;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  isPulsing?: boolean;
+  onSelectionToggle?: (blogId: string) => void;
+  onLongPress?: (blogId: string) => void;
+  onMouseUp?: () => void;
 }) {
+  
+  const handleMouseDown = () => {
+    if (!isSelectionMode && onLongPress) {
+      onLongPress(blog.id);
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (onMouseUp) {
+      onMouseUp();
+    }
+  };
+
+  const handleClick = () => {
+    if (isSelectionMode && onSelectionToggle) {
+      onSelectionToggle(blog.id);
+    } else {
+      onClick();
+    }
+  };
+
   return (
     <Card 
-      className="p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors group border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
-      onClick={onClick}
+      className={`p-3 cursor-pointer transition-all duration-200 group relative
+        ${isSelectionMode ? 'border-dashed border-2 border-blue-300 dark:border-blue-600' : 'border border-gray-200 dark:border-gray-600'} 
+        ${isSelected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 border-solid' : ''}
+        ${!isSelectionMode ? 'hover:bg-gray-50 dark:hover:bg-gray-700' : 'hover:bg-blue-50 dark:hover:bg-blue-900/10'}
+        ${isPulsing ? 'long-press-pulse' : ''}
+        bg-white dark:bg-gray-800`}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      onClick={handleClick}
     >
-      <div className="space-y-2">
+      {/* Selection checkbox - positioned absolutely in top-left */}
+      {isSelectionMode && (
+        <div className="absolute top-2 left-2 z-10">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onSelectionToggle && onSelectionToggle(blog.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+          />
+        </div>
+      )}
+
+      <div className={`space-y-2 ${isSelectionMode ? 'ml-6' : ''}`}>
         <div className="flex items-start justify-between">
           <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2">
             {blog.topic}
           </h4>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 p-0 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
-          >
-            ×
-          </Button>
+          {/* Only show delete button in normal mode */}
+          {!isSelectionMode && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 p-0 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
+            >
+              ×
+            </Button>
+          )}
         </div>
         
         <div className="flex items-center justify-between">

@@ -62,3 +62,11 @@ export interface ErrorInfo {
   timestamp: string;
   severity: string;
 }
+
+export interface SelectionState {
+  isSelectionMode: boolean;
+  selectedBlogIds: Set<string>;
+  longPressTimer: NodeJS.Timeout | null;
+  targetBlogId: string | null;
+  pulsingBlogId: string | null;
+}
