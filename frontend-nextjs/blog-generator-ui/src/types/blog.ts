@@ -13,6 +13,11 @@ export interface BlogData {
   completedAt: Date | null
 }
 
+export interface BlogGenerationResponse {
+  task_id: string;
+  message?: string;
+}
+
 export interface JobState {
   id: string;
   topic: string;

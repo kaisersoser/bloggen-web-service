@@ -1,25 +1,15 @@
 """
 Configuration management for different deployment environments.
 
-DEPRECATED: This module is deprecated in favor of core.config.py
-Please use the new unified configuration system instead.
-
 This module handles environment-specific settings for development, staging, and production.
 """
 
 import os
 from typing import List, Dict, Any
 
-# Import the new unified configuration
-from core.config import config as unified_config
-from core.database_config import get_chroma_db_path
-
-# Migration note: This file provides backward compatibility
-# New code should use core.config directly
-
 
 class Config:
-    """Base configuration class - DEPRECATED: Use core.config instead"""
+    """Base configuration class"""
     
     # Environment detection
     ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
@@ -28,13 +18,13 @@ class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
     NEXTAUTH_SECRET = os.getenv('NEXTAUTH_SECRET')
     
-    # Database - now uses centralized database configuration
-    DATABASE_URL = get_chroma_db_path()
+    # Database
+    DATABASE_URL = os.getenv('DATABASE_URL')
     
-    # API Keys - now delegates to unified config
-    OPENAI_API_KEY = unified_config.api.openai_key
-    SERPER_API_KEY = unified_config.api.serper_key
-    UNSPLASH_ACCESS_KEY = unified_config.api.unsplash_key
+    # API Keys
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    SERPER_API_KEY = os.getenv('SERPER_API_KEY')
+    UNSPLASH_ACCESS_KEY = os.getenv('UNSPLASH_ACCESS_KEY')
     
     # Flask settings
     DEBUG = False
