@@ -27,19 +27,49 @@ export function useSSEConnection() {
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://localhost:5000';
       const streamUrl = `${backendUrl}/stream/${taskId}?token=${encodeURIComponent(token)}`;
       
-      console.log('🔌 Connecting to SSE stream:', streamUrl);
-      
       const eventSource = new EventSource(streamUrl);
-      
-      eventSource.onopen = () => {
-        console.log('✅ SSE connection established for task:', taskId);
-      };
       
       eventSource.onmessage = (event) => {
         try {
           const data: SSEUpdate = JSON.parse(event.data);
-          console.log('📡 SSE update received:', data);
           
+          // Handle the actual SSE message format from the backend
+          if (data.status && data.step && data.timestamp) {
+            // Update job status and step
+            onUpdate(taskId, {
+              status: data.status as JobState['status'],
+              currentStep: data.step,
+              progress: data.progress || (data.status === 'in_progress' ? 50 : 0)
+            });
+            
+            // Add log entry
+            if (onLogUpdate) {
+              onLogUpdate(taskId, {
+                timestamp: data.timestamp,
+                step: data.step,
+                message: data.step,
+                progress: data.progress || 0
+              });
+            }
+            
+            // Handle completion
+            if (data.status === 'completed' && data.result) {
+              if (!completedTasksRef.current.has(taskId)) {
+                completedTasksRef.current.add(taskId);
+                onCompletion(taskId, data.result);
+              }
+              eventSource.close();
+            }
+            
+            // Handle errors  
+            if (data.status === 'failed' && data.error) {
+              onError(taskId, data.error);
+              eventSource.close();
+            }
+            return;
+          }
+          
+          // Fallback: handle structured messages with type field (if any)
           switch (data.type) {
             case 'connected':
               console.log('✅ Connected to task stream:', data.task_id);

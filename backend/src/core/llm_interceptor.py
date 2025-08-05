@@ -1,14 +1,25 @@
 """
-LiteLLM Callback Interceptor for Real-time Cost Tracking
+LiteLLM Callback Interceptor for Real-time Cost Tracking with Context Variables
 
 This module provides a callback system to intercept actual OpenAI API calls
 made by CrewAI and capture real usage data (tokens, costs, model) in real-time.
+
+Now enhanced with context variables for perfect request isolation in FastAPI.
 """
 
 import os
 import time
 from typing import Dict, Any, Optional
 from datetime import datetime
+
+# Context variables for request isolation
+from core.context_vars import (
+    current_audit_tracker,
+    current_phase,
+    current_request_id,
+    current_user_id,
+    get_context_summary
+)
 
 # LiteLLM imports for callback system
 try:
@@ -21,37 +32,34 @@ except ImportError:
 
 from core.common import get_logger
 
-class AuditCallbackHandler(CustomLogger):
+class ContextAwareAuditCallbackHandler(CustomLogger):
     """
-    Custom LiteLLM callback handler to capture actual API usage.
+    Context-aware LiteLLM callback handler for multi-user request isolation.
     
-    This class intercepts OpenAI API calls made through LiteLLM (which CrewAI uses)
-    and forwards the real usage data to our audit tracker.
+    This class intercepts OpenAI API calls and uses context variables to
+    correctly attribute usage to the right user session, eliminating race
+    conditions between concurrent requests.
     """
     
     def __init__(self):
         super().__init__()
         self.logger = get_logger("llm_interceptor")
-        self.current_phase = "unknown"
-        self.audit_tracker = None
-        
-    def set_audit_tracker(self, tracker):
-        """Set the active audit tracker to receive intercepted data."""
-        self.audit_tracker = tracker
-        self.logger.info("LLM interceptor connected to audit tracker")
-    
-    def set_current_phase(self, phase: str):
-        """Set the current blog generation phase for context."""
-        self.current_phase = phase
-        self.logger.debug(f"LLM interceptor phase set to: {phase}")
+        self.logger.info("Context-aware LLM interceptor initialized")
     
     def log_success_event(self, kwargs, response_obj, start_time, end_time):
         """
         Called when an LLM API call succeeds.
-        This is where we capture the actual usage data.
+        Uses context variables to correctly attribute usage.
         """
         try:
-            if not self.audit_tracker:
+            # Get context from current async task
+            audit_tracker = current_audit_tracker.get(None)
+            phase = current_phase.get("unknown")
+            request_id = current_request_id.get("unknown")
+            user_id = current_user_id.get("unknown")
+            
+            if not audit_tracker:
+                self.logger.warning(f"No audit tracker in context for request {request_id}")
                 return
             
             # Extract model information
@@ -64,27 +72,43 @@ class AuditCallbackHandler(CustomLogger):
                 output_tokens = getattr(usage, 'completion_tokens', 0)
                 total_tokens = getattr(usage, 'total_tokens', input_tokens + output_tokens)
                 
-                # Track the actual API call
-                self.audit_tracker.track_api_call(
-                    model=model,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    phase=self.current_phase,
-                    agent_role="crew_agent"
+                # Track the actual API call with context (type: ignore for now)
+                if hasattr(audit_tracker, 'track_api_call'):
+                    audit_tracker.track_api_call(  # type: ignore
+                        model=model,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        phase=phase,
+                        agent_role="crew_agent"
+                    )
+                
+                # Enhanced logging with context
+                context_summary = get_context_summary()
+                self.logger.info(
+                    f"🎯 API call intercepted: {model} - {total_tokens} tokens "
+                    f"(phase: {phase}) {context_summary}"
                 )
                 
-                self.logger.info(f"🎯 Intercepted API call: {model} - {total_tokens} tokens (phase: {self.current_phase})")
-                
             else:
-                self.logger.warning("No usage data found in API response")
+                self.logger.warning(f"No usage data in API response for {request_id}")
                 
+        except LookupError:
+            self.logger.warning("No context available for API call - this should not happen in FastAPI")
         except Exception as e:
-            self.logger.error(f"Error in LLM callback handler: {e}")
+            self.logger.error(f"Error in context-aware LLM callback: {e}")
     
     def log_failure_event(self, kwargs, response_obj, start_time, end_time):
         """Called when an LLM API call fails."""
-        model = kwargs.get('model', 'unknown')
-        self.logger.warning(f"LLM API call failed for model {model} in phase {self.current_phase}")
+        try:
+            model = kwargs.get('model', 'unknown')
+            phase = current_phase.get("unknown")
+            request_id = current_request_id.get("unknown")
+            
+            self.logger.warning(
+                f"LLM API call failed: {model} in phase {phase} for request {request_id}"
+            )
+        except LookupError:
+            self.logger.warning("API call failed but no context available")
 
 
 # Global callback handler instance
@@ -92,8 +116,8 @@ _callback_handler = None
 
 def setup_llm_interceptor():
     """
-    Set up the LiteLLM callback interceptor.
-    This should be called once during application startup.
+    Set up the context-aware LiteLLM callback interceptor.
+    This should be called once during FastAPI application startup.
     """
     global _callback_handler
     
@@ -102,34 +126,41 @@ def setup_llm_interceptor():
         return None
     
     try:
-        # Create and register the callback handler
-        _callback_handler = AuditCallbackHandler()
+        # Create and register the context-aware callback handler
+        _callback_handler = ContextAwareAuditCallbackHandler()
         
         # Register the callback with LiteLLM
         litellm.success_callback = [_callback_handler.log_success_event]
         litellm.failure_callback = [_callback_handler.log_failure_event]
         
-        print("✅ LLM API interceptor successfully set up")
+        print("✅ Context-aware LLM API interceptor successfully set up")
         return _callback_handler
         
     except Exception as e:
-        print(f"❌ Failed to set up LLM interceptor: {e}")
+        print(f"❌ Failed to set up context-aware LLM interceptor: {e}")
         return None
 
 def get_callback_handler():
     """Get the global callback handler instance."""
     return _callback_handler
 
+# =============================================================================
+# Context Management Functions (for backward compatibility)
+# =============================================================================
+
 def connect_audit_tracker(audit_tracker):
-    """Connect an audit tracker to receive intercepted API data."""
-    if _callback_handler:
-        _callback_handler.set_audit_tracker(audit_tracker)
-        return True
-    return False
+    """
+    Legacy function for backward compatibility.
+    In the new context-aware system, audit tracker is set via context variables.
+    """
+    from core.context_vars import current_audit_tracker
+    current_audit_tracker.set(audit_tracker)
+    return True
 
 def set_current_phase(phase: str):
-    """Set the current blog generation phase for context."""
-    if _callback_handler:
-        _callback_handler.set_current_phase(phase)
-        return True
-    return False
+    """
+    Set the current blog generation phase in context.
+    """
+    from core.context_vars import current_phase
+    current_phase.set(phase)
+    return True

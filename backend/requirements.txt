@@ -1,11 +1,25 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Legacy Flask (for gradual migration)
 Flask
 Flask-SocketIO
 Flask-CORS
+
+# AI and ML
 crewai
 crewai-tools
+openai
+
+# Core Dependencies
 python-dotenv
-gunicorn
 pydantic
 requests
 PyJWT
-openai
+asyncpg  # Direct PostgreSQL/Supabase connections
+
+# Server
+uvicorn
+gunicorn

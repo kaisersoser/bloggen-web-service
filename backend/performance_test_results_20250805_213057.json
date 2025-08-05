@@ -1,0 +1,172 @@
+{
+  "config": {
+    "base_url": "https://localhost:5000",
+    "total_requests": 5,
+    "max_concurrency": 3,
+    "timeout": 300,
+    "detailed_logging": true,
+    "verify_ssl": false
+  },
+  "report": {
+    "config": {
+      "base_url": "https://localhost:5000",
+      "total_requests": 5,
+      "max_concurrency": 3,
+      "timeout": 300,
+      "detailed_logging": true,
+      "verify_ssl": false
+    },
+    "results": [
+      {
+        "request_id": "test_cbf9c215",
+        "topic": "Sustainable Energy Solutions for Climate Change",
+        "start_time": 1754422257.2623916,
+        "end_time": 1754422257.2886221,
+        "duration": 0.026230573654174805,
+        "status_code": 200,
+        "success": true,
+        "task_id": "test_cbf9c215",
+        "error_message": "SSE stream failed: HTTP 403",
+        "final_content": null,
+        "content_length": null,
+        "sse_events_count": 0
+      },
+      {
+        "request_id": "test_8c36b281",
+        "topic": "Remote Work Productivity Tips and Strategies",
+        "start_time": 1754422257.2625287,
+        "end_time": 1754422257.2938244,
+        "duration": 0.0312957763671875,
+        "status_code": 200,
+        "success": true,
+        "task_id": "test_8c36b281",
+        "error_message": "SSE stream failed: HTTP 403",
+        "final_content": null,
+        "content_length": null,
+        "sse_events_count": 0
+      },
+      {
+        "request_id": "test_30b4a457",
+        "topic": "The Future of Artificial Intelligence in Healthcare",
+        "start_time": 1754422257.2501864,
+        "end_time": 1754422257.3065991,
+        "duration": 0.056412696838378906,
+        "status_code": 200,
+        "success": true,
+        "task_id": "test_30b4a457",
+        "error_message": "SSE stream failed: HTTP 403",
+        "final_content": null,
+        "content_length": null,
+        "sse_events_count": 0
+      },
+      {
+        "request_id": "test_d857e914",
+        "topic": "Cryptocurrency and Blockchain Technology Explained",
+        "start_time": 1754422257.2888305,
+        "end_time": 1754422257.3159795,
+        "duration": 0.027148962020874023,
+        "status_code": 200,
+        "success": true,
+        "task_id": "test_d857e914",
+        "error_message": "SSE stream failed: HTTP 403",
+        "final_content": null,
+        "content_length": null,
+        "sse_events_count": 0
+      },
+      {
+        "request_id": "test_9213791e",
+        "topic": "Mental Health Awareness in the Digital Age",
+        "start_time": 1754422257.2938554,
+        "end_time": 1754422257.3163147,
+        "duration": 0.02245926856994629,
+        "status_code": 200,
+        "success": true,
+        "task_id": "test_9213791e",
+        "error_message": "SSE stream failed: HTTP 403",
+        "final_content": null,
+        "content_length": null,
+        "sse_events_count": 0
+      }
+    ],
+    "total_duration": 0.06668996810913086,
+    "successful_requests": 5,
+    "failed_requests": 0,
+    "average_duration": 0.0327094554901123,
+    "median_duration": 0.027148962020874023,
+    "min_duration": 0.02245926856994629,
+    "max_duration": 0.056412696838378906,
+    "throughput_rps": 74.97379503642955
+  },
+  "detailed_results": [
+    {
+      "request_id": "test_cbf9c215",
+      "topic": "Sustainable Energy Solutions for Climate Change",
+      "start_time": 1754422257.2623916,
+      "end_time": 1754422257.2886221,
+      "duration": 0.026230573654174805,
+      "status_code": 200,
+      "success": true,
+      "task_id": "test_cbf9c215",
+      "error_message": "SSE stream failed: HTTP 403",
+      "final_content": null,
+      "content_length": null,
+      "sse_events_count": 0
+    },
+    {
+      "request_id": "test_8c36b281",
+      "topic": "Remote Work Productivity Tips and Strategies",
+      "start_time": 1754422257.2625287,
+      "end_time": 1754422257.2938244,
+      "duration": 0.0312957763671875,
+      "status_code": 200,
+      "success": true,
+      "task_id": "test_8c36b281",
+      "error_message": "SSE stream failed: HTTP 403",
+      "final_content": null,
+      "content_length": null,
+      "sse_events_count": 0
+    },
+    {
+      "request_id": "test_30b4a457",
+      "topic": "The Future of Artificial Intelligence in Healthcare",
+      "start_time": 1754422257.2501864,
+      "end_time": 1754422257.3065991,
+      "duration": 0.056412696838378906,
+      "status_code": 200,
+      "success": true,
+      "task_id": "test_30b4a457",
+      "error_message": "SSE stream failed: HTTP 403",
+      "final_content": null,
+      "content_length": null,
+      "sse_events_count": 0
+    },
+    {
+      "request_id": "test_d857e914",
+      "topic": "Cryptocurrency and Blockchain Technology Explained",
+      "start_time": 1754422257.2888305,
+      "end_time": 1754422257.3159795,
+      "duration": 0.027148962020874023,
+      "status_code": 200,
+      "success": true,
+      "task_id": "test_d857e914",
+      "error_message": "SSE stream failed: HTTP 403",
+      "final_content": null,
+      "content_length": null,
+      "sse_events_count": 0
+    },
+    {
+      "request_id": "test_9213791e",
+      "topic": "Mental Health Awareness in the Digital Age",
+      "start_time": 1754422257.2938554,
+      "end_time": 1754422257.3163147,
+      "duration": 0.02245926856994629,
+      "status_code": 200,
+      "success": true,
+      "task_id": "test_9213791e",
+      "error_message": "SSE stream failed: HTTP 403",
+      "final_content": null,
+      "content_length": null,
+      "sse_events_count": 0
+    }
+  ]
+}

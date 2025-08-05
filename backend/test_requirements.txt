@@ -1,0 +1,5 @@
+# Performance Test Dependencies
+# These are additional packages needed for the performance test script
+
+aiohttp>=3.8.0
+PyJWT>=2.8.0
