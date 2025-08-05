@@ -26,8 +26,16 @@ import os
 # Database audit tracking import - full database persistence
 from core.audit_tracker import DatabaseAuditTracker as DatabaseCostTracker
 
-# LLM API interceptor for real-time usage tracking
-from core.llm_interceptor import setup_llm_interceptor, connect_audit_tracker, set_current_phase
+# Context variables for request isolation (NEW)
+from core.context_vars import (
+    set_audit_context,
+    update_phase as set_current_phase,
+    current_audit_tracker,
+    get_context_summary
+)
+
+# LLM API interceptor for real-time usage tracking  
+from core.llm_interceptor import setup_llm_interceptor, connect_audit_tracker
 
 
 class BlogGenerationFlow(Flow):
@@ -64,18 +72,19 @@ class BlogGenerationFlow(Flow):
         self.fact_checked_content = None
         self.final_blog_post = None
         
-        # Database audit tracking (permanent feature)
+        # Database audit tracking (permanent feature) 
+        # NOTE: FastAPI manages audit tracking via context variables
+        # This flow focuses on SSE notifications via status_callback
         self.db_audit_tracker = None
-        if user_id:
-            self.db_audit_tracker = DatabaseCostTracker(
-                session_type="blog_generation",
-                user_id=user_id,
-                blog_id=blog_id
-            )
-            
-            # Set up LLM API interceptor for real-time cost tracking
-            setup_llm_interceptor()
-            connect_audit_tracker(self.db_audit_tracker)
+        
+        # Try to get audit tracker from context, but don't fail if not available
+        # The main purpose of this flow is SSE streaming, not audit tracking
+        try:
+            from core.context_vars import current_audit_tracker
+            self.db_audit_tracker = current_audit_tracker.get(None)
+        except Exception:
+            # Context not available - that's fine, audit is handled by FastAPI
+            pass
 
     def _send_status_update(self, message, step, detail=None):
         """
@@ -140,10 +149,11 @@ class BlogGenerationFlow(Flow):
         self._send_log_update(f"📋 Topic: {topic}", "Initialization")
         self._send_log_update(f"📅 Year: {current_year}", "Initialization")
         
-        # Start database audit session if tracker is available
-        if self.db_audit_tracker:
-            self.db_audit_tracker.start_session_sync()
-            self._send_log_update("🔍 Database audit session started", "Initialization")
+        # SSE streaming is the primary notification mechanism
+        if self.status_callback:
+            self._send_log_update("✅ SSE streaming enabled - real-time updates active", "Initialization")
+        else:
+            self._send_log_update("⚠️ No status callback - SSE streaming disabled", "Initialization")
         
         self._send_status_update(
             f"Starting research on '{topic}'...", 
@@ -248,9 +258,9 @@ class BlogGenerationFlow(Flow):
         research_results = crew.kickoff()
         
         # Track in database audit system
-        if self.db_audit_tracker:
-            self.db_audit_tracker.track_crewai_execution(research_results, "research_phase")
-            self._send_log_update("📊 Research phase tracked in audit database", "Research")
+        # Note: LLM calls are automatically tracked via callback system
+        # Focus on SSE streaming for user notifications
+        self._send_log_update("📊 Research phase completed, proceeding to content generation", "Research")
 
         self.research_results = research_results
         
@@ -393,9 +403,9 @@ class BlogGenerationFlow(Flow):
         content_results = crew.kickoff()
         
         # Track in database audit system
-        if self.db_audit_tracker:
-            self.db_audit_tracker.track_crewai_execution(content_results, "content_generation_phase")
-            self._send_log_update("📊 Content generation phase tracked in audit database", "Content Generation")
+        # Note: LLM calls are automatically tracked via callback system
+        # Focus on SSE streaming for user notifications
+        self._send_log_update("📊 Content generation completed, proceeding to fact-checking", "Content Generation")
 
         self.initial_content = content_results
         
@@ -491,9 +501,9 @@ class BlogGenerationFlow(Flow):
         fact_checked_results = crew.kickoff()
         
         # Track in database audit system
-        if self.db_audit_tracker:
-            self.db_audit_tracker.track_crewai_execution(fact_checked_results, "fact_checking_phase")
-            self._send_log_update("📊 Fact-checking phase tracked in audit database", "Fact Checking")
+        # Note: LLM calls are automatically tracked via callback system
+        # Focus on SSE streaming for user notifications
+        self._send_log_update("📊 Fact-checking completed, proceeding to finalization", "Fact Checking")
 
         self.fact_checked_content = fact_checked_results
         
@@ -590,16 +600,16 @@ class BlogGenerationFlow(Flow):
         final_results = crew.kickoff()
         
         # Track in database audit system
-        if self.db_audit_tracker:
-            self.db_audit_tracker.track_crewai_execution(final_results, "finalization_phase")
-            self._send_log_update("📊 Finalization phase tracked in audit database", "Finalization")
+        # Note: LLM calls are automatically tracked via callback system
+        # Focus on SSE streaming for user notifications
+        self._send_log_update("📊 Finalization completed successfully", "Finalization")
 
         self.final_blog_post = final_results
 
-        # Complete database audit session
-        if self.db_audit_tracker:
-            self.db_audit_tracker.end_session_sync()
-            self._send_log_update("🔍 Database audit session completed", "Completion")
+        # Complete session
+        # Note: Session end is managed by FastAPI context
+        # Focus on SSE streaming completion notification
+        self._send_log_update("🔍 Blog generation pipeline completed successfully", "Completion")
         
         self._send_log_update("🎉 Blog generation completed successfully!")
         

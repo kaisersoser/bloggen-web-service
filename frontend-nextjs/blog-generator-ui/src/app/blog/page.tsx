@@ -69,8 +69,12 @@ export default function BlogGenerator() {
 
   // Memoized computed values with proper null checking
   const currentJob = useMemo(() => {
-    if (!currentJobId) return null;
-    return jobs.find(job => job.id === currentJobId) || null;
+    if (!currentJobId) {
+      return null;
+    }
+    
+    const job = jobs.find(job => job.id === currentJobId);
+    return job || null;
   }, [jobs, currentJobId]);
 
   const canGenerate = useMemo(() => {
@@ -85,7 +89,13 @@ export default function BlogGenerator() {
     }
   }, [isAuthenticated, isLoading, fetchPreviousBlogs]);
 
-  // Show loading state while checking authentication
+  // Auto-update currentJobId when new jobs are added (but no current job selected)
+  useEffect(() => {
+    if (jobs.length > 0 && !currentJobId) {
+      const latestJob = jobs[jobs.length - 1];
+      setCurrentJobId(latestJob.id);
+    }
+  }, [jobs, currentJobId]);  // Show loading state while checking authentication
   if (isLoading) {
     return (
       <div className="h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -140,7 +150,7 @@ export default function BlogGenerator() {
       // Create new job and add to jobs list
       createJob(data.task_id, topic.trim(), instructions.trim());
       
-      // Set this job as current
+      // Set this job as current immediately
       setCurrentJobId(data.task_id);
       setActiveConnectionId(data.task_id);
       
@@ -375,19 +385,17 @@ export default function BlogGenerator() {
   };
 
   const handleNewBlog = () => {
-    // Close any active connections
-    if (activeConnectionId) {
-      closeConnection();
-      setActiveConnectionId(null);
+    // Don't clear if we're currently generating a blog
+    if (isGenerating && activeConnectionId) {
+      return;
     }
     
-    // Clear all state for fresh start
+    // Clear current state to show the new blog form
     setCurrentJobId(null);
     setGenerationError(null);
-    setIsGenerating(false);
-  };
-
-  return (
+    setSelectedBlog(null);
+    setShowBlogModal(false);
+  };  return (
     <div className="h-screen bg-gray-50 dark:bg-gray-900 flex">
       {/* Sidebar */}
       <BlogHistorySidebar
@@ -417,12 +425,12 @@ export default function BlogGenerator() {
             <>
               <BlogGenerationView
                 job={currentJob}
-                isGenerating={isGenerating || currentJob.status === 'in_progress'}
+                isGenerating={isGenerating || (currentJob?.status === 'in_progress')}
                 logs={currentJobId ? taskLogs[currentJobId] || [] : []}
               />
               
               {/* Action buttons for completed blogs */}
-              {currentJob.status === 'completed' && (
+              {currentJob?.status === 'completed' && (
                 <div className="border-t border-gray-200 bg-white p-4">
                   <div className="max-w-4xl mx-auto flex justify-between items-center">
                     <Button
@@ -437,7 +445,7 @@ export default function BlogGenerator() {
                       onClick={handleDeleteCurrentItem}
                       disabled={isDeleting}
                     >
-                      {isDeleting ? 'Deleting...' : (currentJob.status === 'completed' ? 'Delete Blog' : 'Cancel Generation')}
+                      {isDeleting ? 'Deleting...' : (currentJob?.status === 'completed' ? 'Delete Blog' : 'Cancel Generation')}
                     </Button>
                   </div>
                 </div>

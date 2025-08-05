@@ -7,15 +7,14 @@ export async function PATCH(
 ) {
   try {
     const body = await request.json();
-    const { endTime, status } = body;
+    const { endTime } = body;
     const { sessionId } = await params;
 
-    // Update audit session
+    // Update audit session (remove status field since it doesn't exist in schema)
     const updatedSession = await prisma.auditSession.update({
       where: { id: sessionId },
       data: {
-        endTime: endTime ? new Date(endTime) : new Date(),
-        ...(status && { status })
+        endTime: endTime ? new Date(endTime) : new Date()
       }
     });
 
