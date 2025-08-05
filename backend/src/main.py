@@ -28,6 +28,12 @@ from bloggen.flows import BlogGenerationFlow  # New Flow-based approach
 import os
 import threading
 import uuid
+
+# Import configuration and utilities
+from core.config import config, get_cors_origins
+from core.logging_utils import setup_api_logger
+from core.error_handling import handle_api_errors, create_error_response, APIError, AuthenticationError
+from core.env_validation import validate_env, get_env_summary
 import json
 import logging
 import time
@@ -43,77 +49,13 @@ from auth_middleware import require_auth, require_role, check_generation_limits
 # Import HTTPS configuration
 from https_config import get_server_config, should_use_https
 
+# Temporary cost tracking import - can be easily removed
+from bloggen.cost_tracker import CostTracker
+
 # Initialize Flask application with CORS and WebSocket support
 app = Flask(__name__)
 
-# Dynamic CORS configuration for different environments
-def get_cors_origins():
-    """Get allowed CORS origins based on environment and deployment"""
-    origins = []
-    
-    # Development origins (HTTPS enforced in all environments)
-    dev_origins = [
-        'https://localhost:3000',
-        'https://localhost:3001', 
-        'https://127.0.0.1:3000',
-        'https://127.0.0.1:3001'
-    ]
-    
-    # Get environment
-    environment = os.getenv('ENVIRONMENT', 'development').lower()
-    
-    if environment == 'production':
-        # Production: Only allow HTTPS domains
-        frontend_url = os.getenv('FRONTEND_URL')
-        if frontend_url:
-            # Ensure production URLs are HTTPS
-            if not frontend_url.startswith('https://'):
-                logging.warning(f"Frontend URL should use HTTPS in production: {frontend_url}")
-                # Convert to HTTPS if it's HTTP
-                if frontend_url.startswith('http://'):
-                    frontend_url = frontend_url.replace('http://', 'https://')
-            origins.append(frontend_url)
-        
-        # Additional production domains (enforce HTTPS)
-        production_domains = os.getenv('PRODUCTION_DOMAINS', '').split(',')
-        for domain in production_domains:
-            domain = domain.strip()
-            if domain and not domain.startswith('https://yourdomain.com'):  # Skip placeholders
-                # Ensure HTTPS for production domains
-                if not domain.startswith('https://'):
-                    if domain.startswith('http://'):
-                        domain = domain.replace('http://', 'https://')
-                        logging.warning(f"Converting HTTP to HTTPS for production domain: {domain}")
-                    else:
-                        domain = f"https://{domain}"
-                origins.append(domain)
-                
-        # Also add NextAuth URL if different (enforce HTTPS)
-        nextauth_url = os.getenv('NEXTAUTH_URL')
-        if nextauth_url and nextauth_url not in origins:
-            if not nextauth_url.startswith('https://'):
-                if nextauth_url.startswith('http://'):
-                    nextauth_url = nextauth_url.replace('http://', 'https://')
-                    logging.warning(f"Converting NextAuth URL to HTTPS: {nextauth_url}")
-            origins.append(nextauth_url)
-            
-    else:
-        # Development: Also enforce HTTPS (use HTTPS localhost URLs)
-        origins.extend(dev_origins)
-        
-        frontend_url = os.getenv('FRONTEND_URL')
-        if frontend_url:
-            # Convert HTTP to HTTPS even in development
-            if frontend_url.startswith('http://localhost') or frontend_url.startswith('http://127.0.0.1'):
-                frontend_url = frontend_url.replace('http://', 'https://')
-                logging.info(f"Converting development URL to HTTPS: {frontend_url}")
-            origins.append(frontend_url)
-    
-    # Remove duplicates and empty strings
-    origins = list(set(filter(None, origins)))
-    return origins
-
-# Configure CORS
+# Configure CORS using unified configuration
 allowed_origins = get_cors_origins()
 CORS(app, origins=allowed_origins, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins=allowed_origins)
@@ -148,7 +90,7 @@ def force_https():
 @app.after_request
 def add_security_headers(response):
     """Add security headers to all responses"""
-    environment = os.getenv('ENVIRONMENT', 'development').lower()
+    environment = config.server.environment
     
     # Apply security headers in all environments
     # Strict Transport Security (HSTS)
@@ -213,11 +155,24 @@ def add_security_headers(response):
     return response
 
 # Log configuration for debugging
-environment = os.getenv('ENVIRONMENT', 'development')
-logging.info(f"Environment: {environment}")
-logging.info(f"HTTPS enforcement: enabled (all environments)")
-logging.info(f"Security headers: enabled (all environments)")
-logging.info(f"Allowed CORS origins: {allowed_origins}")
+api_logger = setup_api_logger("main")
+env_validation = validate_env(strict=False)
+
+api_logger.info(f"Environment: {config.server.environment}")
+api_logger.info(f"HTTPS enforcement: enabled (all environments)")
+api_logger.info(f"Security headers: enabled (all environments)")
+api_logger.info(f"Allowed CORS origins: {len(allowed_origins)} configured")
+
+if not env_validation['valid']:
+    api_logger.warning("Environment validation issues detected:")
+    for error in env_validation['errors']:
+        api_logger.error(f"  - {error}")
+
+# Log environment summary in debug mode
+if config.server.debug:
+    api_logger.debug("Environment Summary:")
+    for line in get_env_summary().split('\n'):
+        api_logger.debug(f"  {line}")
 
 # Global storage for tracking active blog generation tasks
 # Structure: {task_id: {id, topic, status, created_at, current_step, result, error}}
@@ -226,7 +181,7 @@ active_tasks = {}
 # Configure logging to capture CrewAI output
 logging.basicConfig(level=logging.INFO)
 
-def background_blog_generation(task_id, topic, room_id=None):
+def background_blog_generation(task_id, topic, user_id=None, blog_id=None, room_id=None):
     """
     Background task that executes CrewAI Flow-based blog generation with real-time progress tracking.
     
@@ -243,6 +198,10 @@ def background_blog_generation(task_id, topic, room_id=None):
     
     Args:
         task_id (str): Unique identifier for this generation task
+        topic (str): Blog topic to generate content about
+        user_id (str, optional): ID of the user for audit tracking
+        blog_id (str, optional): ID of the blog for audit tracking (defaults to task_id)
+        room_id (str, optional): Legacy parameter for room-based updates
         topic (str): Blog topic provided by the user
         room_id (str): Legacy parameter for Socket.IO compatibility (unused)
     """
@@ -283,7 +242,11 @@ def background_blog_generation(task_id, topic, room_id=None):
                 
                 logging.info(f"Task {task_id} - {step_name}: {message}")
         
-        blog_flow = BlogGenerationFlow(status_callback=update_task_status)
+        blog_flow = BlogGenerationFlow(
+            status_callback=update_task_status,
+            user_id=user_id,
+            blog_id=blog_id or task_id  # Use task_id as blog_id if not provided
+        )
         
         # Prepare input parameters for the flow
         flow_inputs = {
@@ -344,8 +307,8 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'environment': os.getenv('ENVIRONMENT', 'development'),
-        'https_enforced': os.getenv('ENVIRONMENT', 'development').lower() == 'production'
+        'environment': config.server.environment,
+        'https_enforced': config.is_production()
     }), 200
 
 @app.route('/ping', methods=['GET'])
@@ -393,7 +356,7 @@ def generate_title():
             }), 400
         
         # Set up OpenAI API key
-        openai_api_key = os.getenv('OPENAI_API_KEY')
+        openai_api_key = config.api.openai_key
         if not openai_api_key:
             logging.error("OpenAI API key not found in environment variables")
             return jsonify({
@@ -403,6 +366,9 @@ def generate_title():
         
         # Generate title using OpenAI
         try:
+            # Initialize cost tracker for title generation
+            title_cost_tracker = CostTracker("title_generation")
+            
             client = openai.OpenAI(api_key=openai_api_key)
             
             response = client.chat.completions.create(
@@ -420,6 +386,9 @@ def generate_title():
                 max_tokens=25,
                 temperature=0.5,
             )
+            
+            # Estimate cost for title generation
+            title_cost_tracker.estimate_title_generation_cost()
             
             generated_title = response.choices[0].message.content
             if not generated_title:
@@ -448,6 +417,13 @@ def generate_title():
                     words[i] = word.capitalize()
             
             final_title = ' '.join(words)
+            
+            # Print title generation cost summary (temporary feature)
+            if title_cost_tracker.calls:
+                print("\n" + "🟡" * 30)
+                print("TITLE GENERATION COST:")
+                title_cost_tracker.print_cost_summary()
+                print("🟡" * 30 + "\n")
             
             return jsonify({
                 'title': final_title,
@@ -543,7 +519,7 @@ def generate_blog():
     # Start background blog generation in separate thread
     thread = threading.Thread(
         target=background_blog_generation,
-        args=(task_id, topic)  # SSE version - no room_id needed
+        args=(task_id, topic, user_id, task_id)  # Pass user_id and use task_id as blog_id
     )
     thread.daemon = True  # Thread will die when main program exits
     thread.start()

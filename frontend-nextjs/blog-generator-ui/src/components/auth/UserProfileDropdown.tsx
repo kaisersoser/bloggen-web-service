@@ -5,8 +5,9 @@ import { useSession, signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Crown, User, LogOut, Sun, Moon, Monitor } from "lucide-react"
+import { Crown, User, LogOut, Sun, Moon, Monitor, BarChart3 } from "lucide-react"
 import { useUserStats } from "@/hooks/useUserStats"
+import { useRouter } from "next/navigation"
 
 type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -20,6 +21,7 @@ export function UserProfileDropdown({ themeMode = 'light', onThemeChange }: User
   const { stats, loading: statsLoading } = useUserStats()
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const router = useRouter()
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -178,6 +180,21 @@ export function UserProfileDropdown({ themeMode = 'light', onThemeChange }: User
                   ))}
                 </div>
               </div>
+
+              {/* Admin Dashboard Link - Only for ADMIN users */}
+              {session.user.role === 'ADMIN' && (
+                <Button 
+                  onClick={() => {
+                    setIsOpen(false)
+                    router.push('/admin/audit')
+                  }} 
+                  variant="outline" 
+                  className="w-full mb-2"
+                >
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  Admin Dashboard
+                </Button>
+              )}
 
               {/* Sign Out Button */}
               <Button 

@@ -13,6 +13,8 @@ The flow is structured into clear phases:
 
 Each phase sends custom status updates via WebSocket to provide real-time feedback.
 The content generation phase now includes automatic image integration via Unsplash API.
+
+Cost tracking includes both console output and real-time API interception.
 """
 
 from crewai.flow.flow import Flow, listen, start
@@ -20,6 +22,12 @@ from crewai import Agent, Task, Crew
 from datetime import datetime
 import time
 import os
+
+# Database audit tracking import - full database persistence
+from core.audit_tracker import DatabaseAuditTracker as DatabaseCostTracker
+
+# LLM API interceptor for real-time usage tracking
+from core.llm_interceptor import setup_llm_interceptor, connect_audit_tracker, set_current_phase
 
 
 class BlogGenerationFlow(Flow):
@@ -30,15 +38,19 @@ class BlogGenerationFlow(Flow):
     sending meaningful status updates to the frontend at each stage.
     """
     
-    def __init__(self, status_callback=None):
+    def __init__(self, status_callback=None, user_id=None, blog_id=None):
         """
         Initialize the blog generation flow.
         
         Args:
             status_callback: Function to call for status updates (for SSE streaming)
+            user_id: ID of the user generating the blog (for audit tracking)
+            blog_id: ID of the blog being generated (for audit tracking)
         """
         super().__init__()
         self.status_callback = status_callback
+        self.user_id = user_id
+        self.blog_id = blog_id
         self.topic = None
         self.current_year = None
         
@@ -51,6 +63,19 @@ class BlogGenerationFlow(Flow):
         self.initial_content = None
         self.fact_checked_content = None
         self.final_blog_post = None
+        
+        # Database audit tracking (permanent feature)
+        self.db_audit_tracker = None
+        if user_id:
+            self.db_audit_tracker = DatabaseCostTracker(
+                session_type="blog_generation",
+                user_id=user_id,
+                blog_id=blog_id
+            )
+            
+            # Set up LLM API interceptor for real-time cost tracking
+            setup_llm_interceptor()
+            connect_audit_tracker(self.db_audit_tracker)
 
     def _send_status_update(self, message, step, detail=None):
         """
@@ -115,6 +140,11 @@ class BlogGenerationFlow(Flow):
         self._send_log_update(f"📋 Topic: {topic}", "Initialization")
         self._send_log_update(f"📅 Year: {current_year}", "Initialization")
         
+        # Start database audit session if tracker is available
+        if self.db_audit_tracker:
+            self.db_audit_tracker.start_session_sync()
+            self._send_log_update("🔍 Database audit session started", "Initialization")
+        
         self._send_status_update(
             f"Starting research on '{topic}'...", 
             1, 
@@ -141,6 +171,9 @@ class BlogGenerationFlow(Flow):
         Returns:
             dict: Research results and insights
         """
+        # Set phase for LLM interceptor
+        set_current_phase("research_phase")
+        
         self._send_status_update(
             "Conducting deep research on the topic...", 
             1, 
@@ -211,7 +244,14 @@ class BlogGenerationFlow(Flow):
         self._send_log_update("👥 Research crew assembled", "Research")
         self._send_log_update("🔄 Starting crew execution...", "Research")
         
+        # Execute with cost tracking
         research_results = crew.kickoff()
+        
+        # Track in database audit system
+        if self.db_audit_tracker:
+            self.db_audit_tracker.track_crewai_execution(research_results, "research_phase")
+            self._send_log_update("📊 Research phase tracked in audit database", "Research")
+
         self.research_results = research_results
         
         self._send_log_update("✅ Research phase completed successfully", "Research")
@@ -243,6 +283,9 @@ class BlogGenerationFlow(Flow):
         Returns:
             dict: Generated blog content
         """
+        # Set phase for LLM interceptor
+        set_current_phase("content_generation_phase")
+        
         self._send_status_update(
             "Creating engaging blog content...", 
             2, 
@@ -348,6 +391,12 @@ class BlogGenerationFlow(Flow):
         )
         
         content_results = crew.kickoff()
+        
+        # Track in database audit system
+        if self.db_audit_tracker:
+            self.db_audit_tracker.track_crewai_execution(content_results, "content_generation_phase")
+            self._send_log_update("📊 Content generation phase tracked in audit database", "Content Generation")
+
         self.initial_content = content_results
         
         self._send_log_update("✅ Content generation with images completed successfully")
@@ -377,6 +426,8 @@ class BlogGenerationFlow(Flow):
         Returns:
             dict: Fact-checked and verified content
         """
+        # Set phase for LLM interceptor
+        set_current_phase("fact_checking_phase")
         self._send_status_update(
             "Fact-checking and verifying information...", 
             3, 
@@ -438,6 +489,12 @@ class BlogGenerationFlow(Flow):
         )
         
         fact_checked_results = crew.kickoff()
+        
+        # Track in database audit system
+        if self.db_audit_tracker:
+            self.db_audit_tracker.track_crewai_execution(fact_checked_results, "fact_checking_phase")
+            self._send_log_update("📊 Fact-checking phase tracked in audit database", "Fact Checking")
+
         self.fact_checked_content = fact_checked_results
         
         self._send_log_update("✅ Fact-checking phase completed successfully")
@@ -467,6 +524,8 @@ class BlogGenerationFlow(Flow):
         Returns:
             str: Final polished blog post
         """
+        # Set phase for LLM interceptor
+        set_current_phase("finalization_phase")
         self._send_status_update(
             "Finalizing and polishing your blog post...", 
             4, 
@@ -529,7 +588,18 @@ class BlogGenerationFlow(Flow):
         )
         
         final_results = crew.kickoff()
+        
+        # Track in database audit system
+        if self.db_audit_tracker:
+            self.db_audit_tracker.track_crewai_execution(final_results, "finalization_phase")
+            self._send_log_update("📊 Finalization phase tracked in audit database", "Finalization")
+
         self.final_blog_post = final_results
+
+        # Complete database audit session
+        if self.db_audit_tracker:
+            self.db_audit_tracker.end_session_sync()
+            self._send_log_update("🔍 Database audit session completed", "Completion")
         
         self._send_log_update("🎉 Blog generation completed successfully!")
         

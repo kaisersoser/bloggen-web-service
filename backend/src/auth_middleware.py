@@ -9,8 +9,12 @@ import jwt
 import requests
 from functools import wraps
 from flask import request, jsonify, current_app
-import os
 from datetime import datetime
+
+# Import unified configuration
+from core.config import config
+from core.logging_utils import setup_api_logger
+from core.error_handling import AuthenticationError
 
 
 class AuthMiddleware:
@@ -18,8 +22,14 @@ class AuthMiddleware:
     
     def __init__(self, app=None):
         self.app = app
-        self.nextauth_secret = os.getenv('NEXTAUTH_SECRET')
-        self.nextauth_url = os.getenv('NEXTAUTH_URL', 'http://localhost:3001')
+        self.logger = setup_api_logger("auth_middleware")
+        
+        # Use unified configuration
+        self.nextauth_secret = config.security.nextauth_secret
+        self.nextauth_url = config.security.nextauth_url
+        
+        if not self.nextauth_secret:
+            self.logger.error("NEXTAUTH_SECRET not configured - authentication will fail")
         
         if app is not None:
             self.init_app(app)

@@ -1,31 +1,38 @@
 """
 Centralized configuration management for the blog generator application.
+
+DEPRECATED: This module is deprecated in favor of core.config.py
+Please use the new unified configuration system instead.
 """
 import os
 from pathlib import Path
 from typing import Optional
 
-# Base directories
-BASE_DIR = Path(__file__).parent.parent.parent
-SRC_DIR = BASE_DIR / "src"
-BLOGGEN_DIR = SRC_DIR / "bloggen"
+# Import the new unified configuration
+from core.config import config as unified_config
+from core.database_config import get_chroma_db_path
+
+# Base directories - now delegated to unified config
+BASE_DIR = unified_config.paths.base_dir
+SRC_DIR = unified_config.paths.src_dir
+BLOGGEN_DIR = unified_config.paths.bloggen_dir
 
 class Settings:
-    """Application settings and configuration."""
+    """Application settings and configuration - DEPRECATED: Use core.config instead"""
     
-    # API Settings
-    HOST: str = os.getenv("HOST", "localhost")
-    PORT: int = int(os.getenv("PORT", "5000"))
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
+    # API Settings - now delegates to unified config
+    HOST: str = unified_config.server.host
+    PORT: int = unified_config.server.port
+    DEBUG: bool = unified_config.server.debug
     
-    # Database Settings
-    DATABASE_URL: str = os.getenv("DATABASE_URL", str(BLOGGEN_DIR / "db" / "chroma.sqlite3"))
+    # Database Settings - now uses centralized database configuration
+    DATABASE_URL: str = get_chroma_db_path()
     
-    # External APIs
-    UNSPLASH_ACCESS_KEY: Optional[str] = os.getenv("UNSPLASH_ACCESS_KEY")
+    # External APIs - now delegates to unified config
+    UNSPLASH_ACCESS_KEY: Optional[str] = unified_config.api.unsplash_key
     
-    # CrewAI Settings
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
+    # CrewAI Settings - now delegates to unified config
+    OPENAI_API_KEY: Optional[str] = unified_config.api.openai_key
     
     # File Paths
     AGENTS_CONFIG: Path = BLOGGEN_DIR / "config" / "agents.yaml"
