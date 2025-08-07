@@ -21,6 +21,10 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
 
+# Load environment variables first
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,8 +48,7 @@ from core.context_vars import (
 
 # Core imports
 from core.config import config, get_cors_origins
-from core.audit_tracker import DatabaseAuditTracker
-from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
+from core import DatabaseAuditTracker, EnhancedDatabaseAuditTracker  # Use refactored version
 from core.llm_interceptor import setup_llm_interceptor
 from core.logging_utils import setup_api_logger
 
@@ -454,7 +457,7 @@ async def generate_title(
         
         # Generate title using OpenAI
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model=config.models.default_model,  # Use gpt-4o-mini for basic title generation
             messages=[
                 {
                     "role": "system",
@@ -562,20 +565,26 @@ async def async_blog_generation(task_id: str, topic: str, user_id: str):
         logger.info(f"✅ Context restored and audit tracker initialized for task {task_id}")
         
         # Define status update callback
-        def update_task_status(step_name: str, message: str, progress: float = 0.5):
+        def update_task_status(status_data: Dict[str, Any]):
             """Update task status for SSE streaming."""
             if task_id in active_tasks:
-                active_tasks[task_id]['current_step'] = f"{step_name}: {message}"
-                logger.info(f"📊 {task_id}: {step_name} - {message}")
+                message = status_data.get('message', 'Processing...')
+                step = status_data.get('step', 0)
+                progress = status_data.get('progress', 0.0) * 100  # Convert to percentage
+                
+                active_tasks[task_id]['current_step'] = message
+                active_tasks[task_id]['progress'] = progress
+                logger.info(f"📊 {task_id}: Step {step} - {message} ({progress:.1f}%)")
         
-        # Create and run blog generation flow
+        # Create and run blog generation flow with direct audit tracker
         flow = BlogGenerationFlow(
             status_callback=update_task_status,
             user_id=user_id,
-            blog_id=task_id
+            blog_id=task_id,
+            audit_tracker=audit_tracker  # Pass audit tracker directly for thread execution
         )
         
-        # Execute the flow
+        # Execute the flow with proper inputs
         result = await run_blog_flow_async(flow, topic)
         
         # End the audit session
@@ -583,11 +592,36 @@ async def async_blog_generation(task_id: str, topic: str, user_id: str):
         
         # Update task with completion
         if task_id in active_tasks:
+            # Extract just the final blog content, not the entire flow result
+            blog_content = "Blog generation completed, but content extraction failed."
+            
+            try:
+                if isinstance(result, dict) and 'final_blog_post' in result:
+                    # Get the final blog post content
+                    final_blog = result['final_blog_post']
+                    if hasattr(final_blog, 'raw'):
+                        blog_content = final_blog.raw
+                    elif isinstance(final_blog, str):
+                        blog_content = final_blog
+                    else:
+                        blog_content = str(final_blog)
+                elif hasattr(result, 'raw') and result.raw:  # type: ignore
+                    # Direct CrewOutput object
+                    blog_content = result.raw  # type: ignore
+                else:
+                    # Fallback: convert to string but log warning
+                    blog_content = str(result)
+                    logger.warning(f"⚠️ Using fallback string conversion for task {task_id}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error extracting blog content for task {task_id}: {e}")
+                blog_content = f"Error extracting blog content: {str(e)}"
+            
             active_tasks[task_id]['status'] = 'completed'
-            active_tasks[task_id]['result'] = str(result)
+            active_tasks[task_id]['result'] = blog_content  # Send only the blog content
             active_tasks[task_id]['current_step'] = 'Blog generation completed successfully!'
             active_tasks[task_id]['progress'] = 100
-            logger.info(f"✅ Task {task_id} marked as completed with result length: {len(str(result))}")
+            logger.info(f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars")
         
         logger.info(f"✅ Blog generation completed for task {task_id}")
         
@@ -621,10 +655,20 @@ async def run_blog_flow_async(flow: BlogGenerationFlow, topic: str):
     loop = asyncio.get_event_loop()
     
     def run_sync_flow():
-        return flow.kickoff({
-            'topic': topic,
-            'current_year': datetime.now().year
-        })
+        try:
+            # Set the topic and year on the flow instance before kickoff
+            flow.topic = topic
+            flow.current_year = datetime.now().year
+            
+            logger.info(f"🚀 Starting flow with topic: {topic}, year: {flow.current_year}")
+            
+            return flow.kickoff({
+                'topic': topic,
+                'current_year': datetime.now().year
+            })
+        except Exception as e:
+            logger.error(f"❌ Flow execution failed: {e}")
+            raise
     
     # Run in thread pool to avoid blocking the event loop
     result = await loop.run_in_executor(None, run_sync_flow)

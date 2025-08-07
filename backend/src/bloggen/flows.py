@@ -1,665 +1,323 @@
 """
-CrewAI Blog Generation Flow - Structured workflow with real-time status updates
+Refactored Blog Generation Flow
 
-This module implements a Flow-based approach to blog generation using CrewAI Flows.
-Instead of relying on log interception, it provides explicit control points where
-we can send meaningful, business-relevant status updates to the frontend.
-
-The flow is structured into clear phases:
-1. Research Phase - Gather information and insights on the topic
-2. Content Generation - Create the initial blog draft with images
-3. Fact Checking - Verify accuracy and add credibility
-4. Finalization - Polish and format the final blog post
-
-Each phase sends custom status updates via WebSocket to provide real-time feedback.
-The content generation phase now includes automatic image integration via Unsplash API.
-
-Cost tracking includes both console output and real-time API interception.
+A clean, modular implementation of the blog generation workflow.
+Follows our coding principles:
+- Single Responsibility: Each component has one clear purpose
+- Keep It Simple: Removed complexity and over-engineering
+- DRY: Eliminated duplicate code through proper separation
+- Self-Documenting: Clear structure and obvious intent
 """
 
 from crewai.flow.flow import Flow, listen, start
-from crewai import Agent, Task, Crew
+from crewai import Crew
 from datetime import datetime
-import time
-import os
+from typing import Optional, Callable, Dict, Any
+import logging
 
-# Database audit tracking import - full database persistence
-from core.audit_tracker import DatabaseAuditTracker as DatabaseCostTracker
+from .status_manager import StatusUpdateManager
+from .agent_factory import AgentFactory
+from .task_factory import TaskFactory
+from .tools_manager import ToolsManager
 
-# Context variables for request isolation (NEW)
-from core.context_vars import (
-    set_audit_context,
-    update_phase as set_current_phase,
-    current_audit_tracker,
-    get_context_summary
-)
+# Import LLM interceptor for audit tracker registration
+from core.llm_interceptor import _register_audit_tracker
 
-# LLM API interceptor for real-time usage tracking  
-from core.llm_interceptor import setup_llm_interceptor, connect_audit_tracker
+logger = logging.getLogger(__name__)
 
 
 class BlogGenerationFlow(Flow):
     """
-    Structured blog generation workflow with real-time status updates.
+    Simplified blog generation workflow using modular components.
     
-    This Flow orchestrates the blog generation process through distinct phases,
-    sending meaningful status updates to the frontend at each stage.
+    This refactored version demonstrates clean code principles:
+    - Single responsibility for each component
+    - Clear separation of concerns
+    - Minimal complexity and over-engineering
+    - Self-documenting structure
     """
     
-    def __init__(self, status_callback=None, user_id=None, blog_id=None):
-        """
-        Initialize the blog generation flow.
-        
-        Args:
-            status_callback: Function to call for status updates (for SSE streaming)
-            user_id: ID of the user generating the blog (for audit tracking)
-            blog_id: ID of the blog being generated (for audit tracking)
-        """
+    def __init__(self, status_callback: Optional[Callable] = None, 
+                 user_id: Optional[str] = None, blog_id: Optional[str] = None,
+                 audit_tracker: Optional[Any] = None):
+        """Initialize the blog generation flow with modular components."""
         super().__init__()
-        self.status_callback = status_callback
+        
+        # Core components following single responsibility principle
+        self.status_manager = StatusUpdateManager(status_callback)
+        self.agent_factory = AgentFactory()
+        self.task_factory = TaskFactory()
+        self.tools_manager = ToolsManager()
+        
+        # Flow configuration
         self.user_id = user_id
         self.blog_id = blog_id
-        self.topic = None
-        self.current_year = None
+        self.audit_tracker = audit_tracker
         
-        # Progress tracking
-        self.total_steps = 4
-        self.current_step = 0
+        # Flow state
+        self.topic: Optional[str] = None
+        self.current_year: Optional[int] = None
+        self.results: Dict[str, Any] = {}
         
-        # Results storage
-        self.research_results = None
-        self.initial_content = None
-        self.fact_checked_content = None
-        self.final_blog_post = None
-        
-        # Database audit tracking (permanent feature) 
-        # NOTE: FastAPI manages audit tracking via context variables
-        # This flow focuses on SSE notifications via status_callback
-        self.db_audit_tracker = None
-        
-        # Try to get audit tracker from context, but don't fail if not available
-        # The main purpose of this flow is SSE streaming, not audit tracking
-        try:
-            from core.context_vars import current_audit_tracker
-            self.db_audit_tracker = current_audit_tracker.get(None)
-        except Exception:
-            # Context not available - that's fine, audit is handled by FastAPI
-            pass
-
-    def _send_status_update(self, message, step, detail=None):
-        """
-        Send a status update via callback function.
-        
-        Args:
-            message (str): Human-readable status message
-            step (int): Current progress step (1-4)
-            detail (str, optional): Additional detail information
-        """
-        if self.status_callback:
-            # Calculate progress percentage based on steps
-            progress = min((step / self.total_steps), 1.0)
-            
-            # Create detailed status message
-            full_message = f"Phase {step}/{self.total_steps}: {message}"
-            if detail:
-                full_message += f" - {detail}"
-                
-            # Call the status callback
-            self.status_callback(f"Phase {step}", full_message, progress)
-            
-            # Small delay to ensure message delivery
-            time.sleep(0.1)
-
-    def _send_log_update(self, log_message, step="Processing"):
-        """
-        Send a log update via status callback.
-        
-        Args:
-            log_message (str): Log message to send
-            step (str): Current step name
-        """
-        if self.status_callback:
-            # Send as a detailed log update with proper step context
-            progress = min((self.current_step / self.total_steps), 1.0) if hasattr(self, 'current_step') else 0.0
-            self.status_callback(step, log_message, progress)
-
+        logger.info("🔧 Blog generation flow initialized")
+    
     @start()
     def initialize_flow(self):
-        """
-        Initialize the flow with input parameters and start the research phase.
-        
-        The inputs are available through the Flow's state after kickoff() is called.
-        
-        Returns:
-            dict: Flow initialization data
-        """
-        # Access inputs from the Flow's state (set by kickoff method)
-        flow_state = self.state if hasattr(self, 'state') else {}
-        
-        # Extract inputs from the flow state
-        topic = flow_state.get('topic') if isinstance(flow_state, dict) else None
-        current_year = flow_state.get('current_year') if isinstance(flow_state, dict) else None
-        
-        # Store for later use
-        self.topic = topic
-        self.current_year = current_year
-        
-        # Send initial log
-        self._send_log_update(f"🚀 Flow initialized for topic: '{topic}'", "Initialization")
-        self._send_log_update(f"📋 Topic: {topic}", "Initialization")
-        self._send_log_update(f"📅 Year: {current_year}", "Initialization")
-        
-        # SSE streaming is the primary notification mechanism
-        if self.status_callback:
-            self._send_log_update("✅ SSE streaming enabled - real-time updates active", "Initialization")
-        else:
-            self._send_log_update("⚠️ No status callback - SSE streaming disabled", "Initialization")
-        
-        self._send_status_update(
-            f"Starting research on '{topic}'...", 
-            1, 
-            "Initializing research agents and gathering initial insights"
+        """Initialize the blog generation flow with topic and year."""
+        self.status_manager.send_status_update(
+            "Initializing blog generation...", 
+            step=0, 
+            detail="Setting up workflow components"
         )
         
+        # Register audit tracker for this thread if available
+        if self.audit_tracker:
+            try:
+                _register_audit_tracker(
+                    self.audit_tracker,
+                    user_id=self.user_id or "unknown",
+                    request_id=f"flow_{self.blog_id}",
+                    phase="initialization"
+                )
+                logger.info(f"✅ Audit tracker registered for flow thread: {self.blog_id}")
+            except Exception as e:
+                logger.warning(f"Failed to register audit tracker: {e}")
+        
+        # Set default current year if not provided
+        if not self.current_year:
+            self.current_year = datetime.now().year
+        
         return {
-            "topic": topic,
-            "current_year": current_year,
-            "status": "initialized"
+            'topic': self.topic,
+            'current_year': self.current_year,
+            'user_id': self.user_id,
+            'blog_id': self.blog_id
         }
-
+    
     @listen(initialize_flow)
-    def research_phase(self, initialization_data):
-        """
-        Phase 1: Research and gather information on the topic.
-        
-        This phase uses the Senior Researcher agent to gather comprehensive
-        information about the topic, including recent trends, statistics, and insights.
-        
-        Args:
-            initialization_data (dict): Data from initialization
+    def research_phase(self, initialization_data: Dict[str, Any]):
+        """Execute research phase to gather information on the topic."""
+        if not self.topic or not self.current_year:
+            raise ValueError("Topic and current_year must be set before research phase")
             
-        Returns:
-            dict: Research results and insights
-        """
-        # Set phase for LLM interceptor
-        set_current_phase("research_phase")
-        
-        self._send_status_update(
-            "Conducting deep research on the topic...", 
-            1, 
-            "Senior Researcher is analyzing trends, gathering data, and finding key insights"
+        # Update audit tracker phase if available
+        if self.audit_tracker:
+            try:
+                _register_audit_tracker(
+                    self.audit_tracker,
+                    user_id=self.user_id or "unknown", 
+                    request_id=f"flow_{self.blog_id}",
+                    phase="research_phase"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update audit tracker phase: {e}")
+            
+        self.status_manager.send_status_update(
+            f"Researching '{self.topic}'...", 
+            step=1,
+            detail="Gathering latest insights and data"
         )
         
-        self._send_log_update("🔍 Creating Senior Researcher agent...", "Research")
-        self._send_log_update("👤 Agent Role: Senior Researcher", "Research")
-        self._send_log_update("🎯 Agent Goal: Uncover cutting-edge developments and insights", "Research")
-        
-        # Create Research Agent
-        researcher = Agent(
-            role='Senior Researcher',
-            goal='Uncover cutting-edge developments and insights in the given topic',
-            verbose=True,
-            backstory="""You work at a leading tech think tank.
-            Your expertise lies in identifying emerging trends and providing 
-            comprehensive analysis on complex topics. You have a knack for 
-            finding the most relevant and up-to-date information.""",
-            tools=self._get_research_tools(),
-            allow_delegation=False
-        )
-        
-        self._send_log_update("✅ Senior Researcher agent created successfully", "Research")
-        self._send_log_update("📋 Creating research task...", "Research")
-        
-        # Create Research Task
-        research_task = Task(
-            description=f"""Conduct a comprehensive research analysis on "{self.topic}".
-            Your final answer MUST include:
-            1. Current state and recent developments (as of {self.current_year})
-            2. Key statistics and data points
-            3. Main challenges and opportunities
-            4. Expert opinions and market insights
-            5. Future trends and predictions
-            
-            Focus on finding the most relevant and interesting information that would 
-            make for an engaging blog post.""",
-            expected_output="""A comprehensive research report with:
-            - 5 key insights about the topic
-            - Recent statistics and data
-            - Current trends and developments
-            - Expert quotes or opinions
-            - Future outlook and predictions""",
-            agent=researcher
-        )
-        
-        self._send_log_update("✅ Research task configured", "Research")
-        self._send_log_update("🔍 Task: Comprehensive research analysis", "Research")
-        self._send_log_update("📊 Expected: 5 key insights, statistics, trends, expert opinions", "Research")
-        
-        # Execute research
-        self._send_status_update(
-            "Gathering latest insights and trends...", 
-            1, 
-            "Analyzing market data, expert opinions, and recent developments"
-        )
-        
-        self._send_log_update("� Executing research crew to gather insights...", "Research")
-        self._send_log_update("⚡ CrewAI is now processing the research task...", "Research")
-        
-        crew = Crew(
-            agents=[researcher],
-            tasks=[research_task],
-            verbose=True
-        )
-        
-        self._send_log_update("👥 Research crew assembled", "Research")
-        self._send_log_update("🔄 Starting crew execution...", "Research")
-        
-        # Execute with cost tracking
-        research_results = crew.kickoff()
-        
-        # Track in database audit system
-        # Note: LLM calls are automatically tracked via callback system
-        # Focus on SSE streaming for user notifications
-        self._send_log_update("📊 Research phase completed, proceeding to content generation", "Research")
-
-        self.research_results = research_results
-        
-        self._send_log_update("✅ Research phase completed successfully", "Research")
-        self._send_log_update(f"📄 Research results: {len(str(research_results))} characters", "Research")
-        
-        self._send_status_update(
-            "Research completed - found valuable insights!", 
-            1, 
-            "Moving to content generation phase"
-        )
-        
-        return {
-            "research_results": str(research_results),
-            "topic": self.topic,
-            "current_year": self.current_year
-        }
-
-    @listen(research_phase)
-    def content_generation_phase(self, research_data):
-        """
-        Phase 2: Generate engaging blog content based on research.
-        
-        Uses the research findings to create a well-structured, engaging blog post
-        that incorporates the insights and data discovered in the research phase.
-        
-        Args:
-            research_data (dict): Results from the research phase
-            
-        Returns:
-            dict: Generated blog content
-        """
-        # Set phase for LLM interceptor
-        set_current_phase("content_generation_phase")
-        
-        self._send_status_update(
-            "Creating engaging blog content...", 
-            2, 
-            "Content Writer is crafting a compelling narrative based on research findings"
-        )
-        
-        self._send_log_update("✍️ Creating Content Writer agent...", "Content Generation")
-        self._send_log_update("👤 Agent Role: Tech Content Strategist & Visual Designer", "Content Generation")
-        self._send_log_update("🎯 Agent Goal: Create compelling blog posts with professional images", "Content Generation")
-        self._send_log_update("🛠️ Agent Tools: Unsplash image search capabilities", "Content Generation")
-        
-        # Create Content Writer Agent with image search capabilities
-        writer = Agent(
-            role='Tech Content Strategist & Visual Designer',
-            goal='Create compelling blog posts with professional images using available tools',
-            verbose=True,
-            backstory="""You are a tech content strategist who ALWAYS enhances articles with professional images. 
-            You have access to an unsplash_image_search tool that finds perfect images for any topic.
-            
-            CRITICAL: You MUST use the unsplash_image_search tool to add at least 2 images to every blog post.
-            Never write a blog post without calling this tool multiple times to get relevant images.
-            
-            Your process:
-            1. Write introduction
-            2. Call unsplash_image_search tool for hero image  
-            3. Write main content sections
-            4. Call unsplash_image_search tool for supporting images
-            5. Complete the article with conclusion
-            
-            You always insert the exact Markdown returned by the tool without modification.""",
-            tools=self._get_content_tools(),  # Include Unsplash and research tools
-            allow_delegation=False
-        )
-        
-        # Create Content Generation Task with image integration
-        content_task = Task(
-            description=f"""You are creating an engaging blog post about "{self.topic}" with professional images.
-
-            Research findings to incorporate:
-            {research_data['research_results']}
-            
-            STEP-BY-STEP INSTRUCTIONS:
-            
-            1. Write a compelling headline and introduction paragraph
-            
-            2. **MANDATORY**: Use the unsplash_image_search tool to find a hero image:
-               - Call: unsplash_image_search(query="{self.topic}", count=1, orientation="landscape")
-               - Insert the returned Markdown immediately after your introduction
-            
-            3. Write the main content with 3-4 sections covering key insights
-            
-            4. **MANDATORY**: Use the unsplash_image_search tool again for a supporting image:
-               - Call: unsplash_image_search(query="{self.topic} technology business", count=1, orientation="landscape")
-               - Insert the returned Markdown in the middle of your content
-            
-            5. Write your conclusion with actionable insights
-            
-            6. **OPTIONAL**: Add one more image if it enhances the content:
-               - Call: unsplash_image_search(query="innovation technology future", count=1, orientation="landscape")
-            
-            REQUIREMENTS:
-            - 800-1200 words total
-            - Professional, engaging tone
-            - Include research insights and data
-            - **YOU MUST CALL THE UNSPLASH_IMAGE_SEARCH TOOL AT LEAST 2 TIMES**
-            - Insert the exact Markdown returned by the tool (don't modify it)
-            
-            The unsplash_image_search tool will return properly formatted Markdown like:
-            ![Alt text](image-url)
-            *Photo credit*
-            
-            Just copy and paste this output directly into your blog post.""",
-            expected_output="""A complete blog post with:
-            - Compelling headline
-            - Engaging introduction
-            - **AT LEAST 2 IMAGES** inserted using the unsplash_image_search tool
-            - Well-structured body with 3-4 main sections
-            - Integration of research findings and data
-            - Professional images with proper Markdown formatting and attribution
-            - Images strategically placed to enhance content flow and engagement
-            - Strong conclusion with key takeaways
-            - Professional yet accessible tone
-            - 800-1200 words total
-            
-            CRITICAL: The output MUST contain actual images retrieved using the unsplash_image_search tool, 
-            not placeholder text or image descriptions.""",
-            agent=writer
-        )
-        
-        # Execute content generation with image integration
-        self._send_status_update(
-            "Writing compelling content and selecting images...", 
-            2, 
-            "Crafting narrative and integrating professional images from Unsplash"
-        )
-        
-        self._send_log_update("📝🖼️ Executing content generation with image integration...")
-        
-        crew = Crew(
-            agents=[writer],
-            tasks=[content_task],
-            verbose=True
-        )
-        
-        content_results = crew.kickoff()
-        
-        # Track in database audit system
-        # Note: LLM calls are automatically tracked via callback system
-        # Focus on SSE streaming for user notifications
-        self._send_log_update("📊 Content generation completed, proceeding to fact-checking", "Content Generation")
-
-        self.initial_content = content_results
-        
-        self._send_log_update("✅ Content generation with images completed successfully")
-        
-        self._send_status_update(
-            "Content with professional images completed!", 
-            2, 
-            "Proceeding to fact-checking and verification"
-        )
-        
-        return {
-            "content": str(content_results),
-            "research_data": research_data
-        }
-
-    @listen(content_generation_phase)
-    def fact_checking_phase(self, content_data):
-        """
-        Phase 3: Fact-check and verify the content accuracy.
-        
-        Reviews the generated content for accuracy, credibility, and ensures
-        all claims are well-supported and factually correct.
-        
-        Args:
-            content_data (dict): Generated content from previous phase
-            
-        Returns:
-            dict: Fact-checked and verified content
-        """
-        # Set phase for LLM interceptor
-        set_current_phase("fact_checking_phase")
-        self._send_status_update(
-            "Fact-checking and verifying information...", 
-            3, 
-            "Quality Assurance Editor is verifying claims and ensuring accuracy"
-        )
-        
-        self._send_log_update("🔍 Creating Quality Assurance Editor agent...")
-        
-        # Create Fact Checker Agent
-        fact_checker = Agent(
-            role='Quality Assurance Editor',
-            goal='Ensure all content is accurate, credible, and well-sourced',
-            verbose=True,
-            backstory="""You are a meticulous editor with a keen eye for detail. 
-            Your expertise lies in fact-checking, ensuring accuracy, and maintaining 
-            high editorial standards. You have a reputation for catching errors 
-            and improving content quality.""",
-            tools=self._get_research_tools(),  # Same tools for verification
-            allow_delegation=False
-        )
-        
-        # Create Fact Checking Task
-        fact_check_task = Task(
-            description=f"""Review and fact-check the following blog post about "{self.topic}":
-            
-            {content_data['content']}
-            
-            Your responsibilities:
-            1. Verify factual accuracy of all claims and statistics
-            2. Check for logical consistency and flow
-            3. Ensure all data points are current and relevant
-            4. Suggest improvements for clarity and credibility
-            5. Add source references where beneficial
-            6. Maintain the engaging tone while ensuring accuracy
-            
-            Return the improved, fact-checked version of the blog post.""",
-            expected_output="""A fact-checked and improved blog post with:
-            - Verified facts and statistics
-            - Improved clarity and flow
-            - Enhanced credibility
-            - Maintained engaging tone
-            - Any necessary corrections or improvements""",
-            agent=fact_checker
-        )
-        
-        # Execute fact checking
-        self._send_status_update(
-            "Verifying claims and cross-referencing sources...", 
-            3, 
-            "Ensuring all information is accurate and up-to-date"
-        )
-        
-        self._send_log_update("🔍 Executing fact-checking crew...")
-        
-        crew = Crew(
-            agents=[fact_checker],
-            tasks=[fact_check_task],
-            verbose=True
-        )
-        
-        fact_checked_results = crew.kickoff()
-        
-        # Track in database audit system
-        # Note: LLM calls are automatically tracked via callback system
-        # Focus on SSE streaming for user notifications
-        self._send_log_update("📊 Fact-checking completed, proceeding to finalization", "Fact Checking")
-
-        self.fact_checked_content = fact_checked_results
-        
-        self._send_log_update("✅ Fact-checking phase completed successfully")
-        
-        self._send_status_update(
-            "Fact-checking completed - content verified!", 
-            3, 
-            "Moving to final polishing and formatting"
-        )
-        
-        return {
-            "fact_checked_content": str(fact_checked_results),
-            "original_content": content_data
-        }
-
-    @listen(fact_checking_phase)
-    def finalization_phase(self, verified_content_data):
-        """
-        Phase 4: Finalize and polish the blog post.
-        
-        Applies final formatting, polish, and ensures the blog post is ready
-        for publication with optimal readability and engagement.
-        
-        Args:
-            verified_content_data (dict): Fact-checked content
-            
-        Returns:
-            str: Final polished blog post
-        """
-        # Set phase for LLM interceptor
-        set_current_phase("finalization_phase")
-        self._send_status_update(
-            "Finalizing and polishing your blog post...", 
-            4, 
-            "Chief Editor is applying final touches and formatting"
-        )
-        
-        self._send_log_update("✨ Creating Chief Editor agent...")
-        
-        # Create Editor Agent
-        editor = Agent(
-            role='Chief Editor',
-            goal='Transform content into polished, publication-ready blog posts',
-            verbose=True,
-            backstory="""You are an experienced Chief Editor with a track record 
-            of producing viral, engaging content. Your expertise lies in final 
-            polish, formatting, and ensuring content is optimized for readability 
-            and engagement.""",
-            tools=[],
-            allow_delegation=False
-        )
-        
-        # Create Finalization Task
-        finalization_task = Task(
-            description=f"""Polish and finalize the following blog post about "{self.topic}":
-            
-            {verified_content_data['fact_checked_content']}
-            
-            Your final polish should include:
-            1. Perfect formatting and structure
-            2. Engaging subheadings and section breaks
-            3. Optimized readability and flow
-            4. Strong call-to-action or conclusion
-            5. SEO-friendly elements (without compromising quality)
-            6. Final grammar and style review
-            
-            Deliver a publication-ready blog post that will engage and inform readers.""",
-            expected_output="""A polished, publication-ready blog post with:
-            - Perfect formatting and structure
-            - Engaging headings and subheadings
-            - Optimized readability
-            - Strong conclusion
-            - Professional presentation
-            - Ready for immediate publication""",
-            agent=editor
-        )
-        
-        # Execute finalization
-        self._send_status_update(
-            "Applying final formatting and polish...", 
-            4, 
-            "Optimizing readability and adding finishing touches"
-        )
-        
-        self._send_log_update("✨ Executing finalization crew...")
-        
-        crew = Crew(
-            agents=[editor],
-            tasks=[finalization_task],
-            verbose=True
-        )
-        
-        final_results = crew.kickoff()
-        
-        # Track in database audit system
-        # Note: LLM calls are automatically tracked via callback system
-        # Focus on SSE streaming for user notifications
-        self._send_log_update("📊 Finalization completed successfully", "Finalization")
-
-        self.final_blog_post = final_results
-
-        # Complete session
-        # Note: Session end is managed by FastAPI context
-        # Focus on SSE streaming completion notification
-        self._send_log_update("🔍 Blog generation pipeline completed successfully", "Completion")
-        
-        self._send_log_update("🎉 Blog generation completed successfully!")
-        
-        self._send_status_update(
-            "Blog post completed and ready!", 
-            4, 
-            "Your professional blog post has been generated successfully"
-        )
-        
-        return str(final_results)
-
-    def _get_research_tools(self):
-        """
-        Get the research tools for agents that need them.
-        
-        Returns:
-            list: List of research tools (SerperDevTool, ScrapeWebsiteTool)
-        """
         try:
-            from crewai_tools import SerperDevTool, ScrapeWebsiteTool
-            return [SerperDevTool(), ScrapeWebsiteTool()]
-        except ImportError:
-            # Fallback if tools are not available
-            return []
-
-    def _get_content_tools(self):
-        """
-        Get the content creation tools including Unsplash image integration.
-        
-        Returns:
-            list: List of content creation tools (UnsplashImageTool)
-        """
-        tools = []
-        
-        # Add Unsplash tool if available
-        try:
-            from .tools import create_unsplash_tool
-            unsplash_tool = create_unsplash_tool()
-            tools.append(unsplash_tool)
-            self._send_log_update(f"✅ Unsplash tool added successfully (Tool: {unsplash_tool.name})")
-        except ImportError as e:
-            # Fallback if Unsplash tool is not available
-            self._send_log_update(f"❌ Unsplash tool import failed: {str(e)}")
+            # Create research agent and task
+            research_tools = self.tools_manager.get_research_tools()
+            researcher = self.agent_factory.create_researcher(research_tools)
+            research_task = self.task_factory.create_research_task(
+                researcher, self.topic, self.current_year
+            )
+            
+            # Execute research
+            research_crew = Crew(
+                agents=[researcher],
+                tasks=[research_task],
+                verbose=True
+            )
+            
+            research_results = research_crew.kickoff()
+            self.results['research'] = research_results
+            
+            self.status_manager.send_status_update(
+                "Research completed", 
+                step=1,
+                detail="Successfully gathered comprehensive research data"
+            )
+            
+            return {
+                **initialization_data,
+                'research_results': research_results
+            }
+            
         except Exception as e:
-            self._send_log_update(f"❌ Unsplash tool creation failed: {str(e)}")
+            logger.error(f"Research phase failed: {e}")
+            self.status_manager.send_error_update(f"Research failed: {str(e)}")
+            raise
+    
+    @listen(research_phase)
+    def content_generation_phase(self, research_data: Dict[str, Any]):
+        """Generate initial blog content with automatic image integration."""
+        if not self.topic or not self.current_year:
+            raise ValueError("Topic and current_year must be set before content generation")
+            
+        # Update audit tracker phase if available
+        if self.audit_tracker:
+            try:
+                _register_audit_tracker(
+                    self.audit_tracker,
+                    user_id=self.user_id or "unknown",
+                    request_id=f"flow_{self.blog_id}",
+                    phase="content_generation_phase"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update audit tracker phase: {e}")
+            
+        self.status_manager.send_status_update(
+            "Creating blog content...", 
+            step=2,
+            detail="Writing engaging content with images"
+        )
         
-        # Add research tools for content enhancement
-        research_tools = self._get_research_tools()
-        tools.extend(research_tools)
+        try:
+            # Create content agent and task
+            content_tools = self.tools_manager.get_content_tools()
+            content_creator = self.agent_factory.create_content_creator(content_tools)
+            content_task = self.task_factory.create_content_task(
+                content_creator, self.topic, self.current_year
+            )
+            
+            # Execute content generation
+            content_crew = Crew(
+                agents=[content_creator],
+                tasks=[content_task],
+                verbose=True
+            )
+            
+            initial_content = content_crew.kickoff()
+            self.results['content'] = initial_content
+            
+            self.status_manager.send_status_update(
+                "Content generation completed", 
+                step=2,
+                detail="Blog content created with integrated images"
+            )
+            
+            return {
+                **research_data,
+                'initial_content': initial_content
+            }
+            
+        except Exception as e:
+            logger.error(f"Content generation phase failed: {e}")
+            self.status_manager.send_error_update(f"Content generation failed: {str(e)}")
+            raise
+    
+    @listen(content_generation_phase)
+    def fact_checking_phase(self, content_data: Dict[str, Any]):
+        """Verify content accuracy and credibility."""
+        if not self.topic:
+            raise ValueError("Topic must be set before fact checking phase")
+            
+        # Update audit tracker phase if available
+        if self.audit_tracker:
+            try:
+                _register_audit_tracker(
+                    self.audit_tracker,
+                    user_id=self.user_id or "unknown",
+                    request_id=f"flow_{self.blog_id}",
+                    phase="fact_checking_phase"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update audit tracker phase: {e}")
+            
+        self.status_manager.send_status_update(
+            "Fact-checking content...", 
+            step=3,
+            detail="Verifying accuracy and credibility"
+        )
         
-        self._send_log_update(f"🔧 Total tools available to agent: {len(tools)} ({[t.name for t in tools]})")
+        try:
+            # Create fact-checker agent and task
+            fact_checker = self.agent_factory.create_fact_checker()
+            fact_check_task = self.task_factory.create_fact_check_task(
+                fact_checker, self.topic
+            )
+            
+            # Execute fact checking
+            fact_check_crew = Crew(
+                agents=[fact_checker],
+                tasks=[fact_check_task],
+                verbose=True
+            )
+            
+            fact_checked_content = fact_check_crew.kickoff()
+            self.results['fact_checked'] = fact_checked_content
+            
+            self.status_manager.send_status_update(
+                "Fact-checking completed", 
+                step=3,
+                detail="Content verified for accuracy and credibility"
+            )
+            
+            return {
+                **content_data,
+                'fact_checked_content': fact_checked_content
+            }
+            
+        except Exception as e:
+            logger.error(f"Fact checking phase failed: {e}")
+            self.status_manager.send_error_update(f"Fact checking failed: {str(e)}")
+            raise
+    
+    @listen(fact_checking_phase)
+    def finalization_phase(self, verified_content_data: Dict[str, Any]):
+        """Polish and finalize the blog post for publication."""
+        if not self.topic:
+            raise ValueError("Topic must be set before finalization phase")
+            
+        # Update audit tracker phase if available
+        if self.audit_tracker:
+            try:
+                _register_audit_tracker(
+                    self.audit_tracker,
+                    user_id=self.user_id or "unknown",
+                    request_id=f"flow_{self.blog_id}",
+                    phase="finalization_phase"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update audit tracker phase: {e}")
+            
+        self.status_manager.send_status_update(
+            "Finalizing blog post...", 
+            step=4,
+            detail="Polishing content for publication"
+        )
         
-        return tools
+        try:
+            # Create finalizer agent and task
+            finalizer = self.agent_factory.create_finalizer()
+            finalization_task = self.task_factory.create_finalization_task(
+                finalizer, self.topic
+            )
+            
+            # Execute finalization
+            finalization_crew = Crew(
+                agents=[finalizer],
+                tasks=[finalization_task],
+                verbose=True
+            )
+            
+            final_blog_post = finalization_crew.kickoff()
+            self.results['final'] = final_blog_post
+            
+            # Send completion update
+            self.status_manager.send_completion_update(str(final_blog_post))
+            
+            return {
+                **verified_content_data,
+                'final_blog_post': final_blog_post,
+                'generation_complete': True
+            }
+            
+        except Exception as e:
+            logger.error(f"Finalization phase failed: {e}")
+            self.status_manager.send_error_update(f"Finalization failed: {str(e)}")
+            raise

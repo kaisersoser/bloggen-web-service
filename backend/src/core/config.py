@@ -11,6 +11,10 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import logging
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 
 @dataclass
 class DatabaseConfig:
@@ -25,6 +29,22 @@ class APIConfig:
     openai_key: Optional[str]
     serper_key: Optional[str] 
     unsplash_key: Optional[str]
+
+
+@dataclass
+class ModelsConfig:
+    """Configuration for AI models used in blog generation."""
+    # Content creation models (balanced performance/cost)
+    content_model: str = "gpt-4o-mini"
+    finalization_model: str = "gpt-4o-mini"
+    
+    # Research and reasoning models (high performance)
+    research_model: str = "gpt-4o"
+    fact_check_model: str = "gpt-4o"
+    
+    # Basic task models (cost efficient)
+    default_model: str = "gpt-4o-mini"
+    summary_model: str = "gpt-4o-mini"
 
 
 @dataclass
@@ -115,6 +135,7 @@ class UnifiedConfig:
         self.server = self._init_server()
         self.database = self._init_database()
         self.api = self._init_api()
+        self.models = self._init_models()
         self.security = self._init_security()
         
         self.logger.info(f"Configuration initialized for environment: {self.server.environment}")
@@ -158,6 +179,17 @@ class UnifiedConfig:
             openai_key=self.env.get_optional("OPENAI_API_KEY"),
             serper_key=self.env.get_optional("SERPER_API_KEY"),
             unsplash_key=self.env.get_optional("UNSPLASH_ACCESS_KEY")
+        )
+    
+    def _init_models(self) -> ModelsConfig:
+        """Initialize model configuration from environment variables."""
+        return ModelsConfig(
+            content_model=os.getenv('CONTENT_MODEL', 'gpt-4o-mini'),
+            research_model=os.getenv('RESEARCH_MODEL', 'gpt-4o'),
+            fact_check_model=os.getenv('FACT_CHECK_MODEL', 'gpt-4o'),
+            finalization_model=os.getenv('FINALIZATION_MODEL', 'gpt-4o-mini'),
+            default_model=os.getenv('DEFAULT_MODEL', 'gpt-4o-mini'),
+            summary_model=os.getenv('SUMMARY_MODEL', 'gpt-4o-mini')
         )
     
     def _init_security(self) -> SecurityConfig:

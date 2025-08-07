@@ -13,9 +13,18 @@ import asyncpg
 import json
 import os
 import uuid
+import queue
+import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import logging
+
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +35,14 @@ class EnhancedDatabaseAuditTracker:
     
     This version bypasses the Next.js API dependency and connects
     directly to Supabase PostgreSQL for reliable audit logging.
+    Uses background thread processing to handle database operations
+    from any execution context (including thread pools).
     """
+    
+    # Class-level database worker
+    _db_queue = queue.Queue()
+    _db_worker_running = False
+    _db_worker_thread = None
     
     def __init__(self, session_type: str, user_id: str, blog_id: Optional[str]):
         """Initialize the enhanced audit tracker."""
@@ -41,13 +57,172 @@ class EnhancedDatabaseAuditTracker:
         
         # Fallback logging
         self.logged_calls = []
+        
+        # Tracking variables
         self.total_cost = 0.0
         self.total_tokens = 0
         
-        logger.info(f"🔍 Enhanced DatabaseAuditTracker initialized for {session_type}")
-        logger.info(f"   User: {user_id}")
-        logger.info(f"   Blog: {blog_id}")
+        # Ensure database worker is running
+        self._ensure_db_worker()
+        
+        logger.info(f"🔍 Enhanced DatabaseAuditTracker initialized for {self.session_type}")
+        logger.info(f"   User: {self.user_id}")
+        logger.info(f"   Blog: {self.blog_id}")
         logger.info(f"   Session: {self.session_id}")
+    
+    @classmethod
+    def _ensure_db_worker(cls):
+        """Ensure database worker thread is running."""
+        if not cls._db_worker_running:
+            cls._db_worker_running = True
+            cls._db_worker_thread = threading.Thread(
+                target=cls._database_worker, 
+                daemon=True, 
+                name="AuditTrackerDBWorker"
+            )
+            cls._db_worker_thread.start()
+            logger.info("🚀 Started audit tracker database worker thread")
+    
+    @classmethod
+    def _database_worker(cls):
+        """Background thread worker that processes database operations."""
+        logger.info("💾 Audit tracker database worker started")
+        
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def process_operations():
+            while cls._db_worker_running:
+                try:
+                    # Get operation from queue with timeout
+                    operation = cls._db_queue.get(timeout=1.0)
+                    
+                    if operation['type'] == 'log_call':
+                        await cls._process_database_log(operation['data'])
+                    elif operation['type'] == 'update_blog_id':
+                        await cls._process_blog_id_update(operation['data'])
+                    
+                    cls._db_queue.task_done()
+                    
+                except queue.Empty:
+                    continue
+                except Exception as e:
+                    logger.error(f"❌ Database worker error: {e}")
+        
+        try:
+            loop.run_until_complete(process_operations())
+        except Exception as e:
+            logger.error(f"❌ Database worker loop error: {e}")
+        finally:
+            loop.close()
+            cls._db_worker_running = False
+    
+    @classmethod
+    async def _process_database_log(cls, call_data: Dict[str, Any]):
+        """Process database logging operation."""
+        try:
+            # Create temporary tracker instance for database operations
+            temp_tracker = cls.__new__(cls)
+            temp_tracker.session_id = call_data.get('session_id')
+            temp_tracker.database_enabled = False
+            temp_tracker.pool = None  # Initialize pool attribute
+            
+            pool = await temp_tracker._get_database_connection()
+            if not pool:
+                logger.warning("No database connection available for logging")
+                return
+            
+            # Calculate separate input/output costs to match Prisma schema
+            cost_per_1k_input = 0.03 if 'gpt-4' in call_data['model'] else 0.0015
+            cost_per_1k_output = 0.06 if 'gpt-4' in call_data['model'] else 0.002
+            
+            input_cost = (call_data['input_tokens'] / 1000) * cost_per_1k_input
+            output_cost = (call_data['output_tokens'] / 1000) * cost_per_1k_output
+            total_cost = input_cost + output_cost
+            
+            async with pool.acquire() as conn:
+                # Insert individual call record
+                call_id = str(uuid.uuid4())
+                await conn.execute("""
+                    INSERT INTO llm_calls (
+                        id, audit_session_id, model, input_tokens, output_tokens,
+                        input_cost, output_cost, total_cost, phase, agent_role, 
+                        call_type, timestamp
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                """,
+                    call_id,
+                    call_data['session_id'],
+                    call_data['model'],
+                    call_data['input_tokens'],
+                    call_data['output_tokens'],
+                    input_cost,
+                    output_cost,
+                    total_cost,
+                    call_data.get('phase', 'unknown'),
+                    call_data.get('agent_role', 'unknown'),
+                    'actual',
+                    call_data['timestamp'].replace(tzinfo=None)  # Remove timezone for database compatibility
+                )
+                
+                # Update session totals
+                await conn.execute("""
+                    UPDATE audit_sessions 
+                    SET total_cost = total_cost + $2,
+                        total_tokens = total_tokens + $3,
+                        call_count = call_count + 1,
+                        end_time = $4
+                    WHERE id = $1
+                """,
+                    call_data['session_id'],
+                    total_cost,
+                    call_data['input_tokens'] + call_data['output_tokens'],
+                    call_data['timestamp'].replace(tzinfo=None)  # Remove timezone for database compatibility
+                )
+            
+            logger.debug(f"✅ Logged API call to database: {call_data['model']} | ${total_cost:.4f}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to process database log: {e}")
+    
+    @classmethod
+    async def _process_blog_id_update(cls, update_data: Dict[str, Any]):
+        """Process blog ID update operation."""
+        try:
+            # Create temporary tracker instance for database operations
+            temp_tracker = cls.__new__(cls)
+            temp_tracker.session_id = update_data.get('session_id')
+            temp_tracker.database_enabled = False
+            temp_tracker.pool = None  # Initialize pool attribute
+            
+            pool = await temp_tracker._get_database_connection()
+            if not pool:
+                return
+            
+            async with pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE audit_sessions 
+                    SET blog_id = $1
+                    WHERE id = $2
+                """,
+                    update_data['blog_id'],
+                    update_data['session_id']
+                )
+            
+            logger.info(f"✅ Updated audit session with blog_id: {update_data['blog_id']}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to update blog_id: {e}")
+    
+    def _queue_database_operation(self, operation_type: str, data: Dict[str, Any]):
+        """Queue a database operation for background processing."""
+        operation = {
+            'type': operation_type,
+            'data': data,
+            'timestamp': datetime.now()  # Remove timezone for consistency
+        }
+        self._db_queue.put(operation)
+        logger.debug(f"📥 Queued {operation_type} operation")
     
     async def _get_database_connection(self) -> Optional[asyncpg.Pool]:
         """Get or create database connection pool."""
@@ -93,6 +268,7 @@ class EnhancedDatabaseAuditTracker:
                     await self._ensure_llm_calls_table_exists(conn)
                     
                     # Insert into audit_sessions table (matching existing schema)
+                    # Note: blog_id can be NULL for sessions that don't have a blog yet
                     await conn.execute("""
                         INSERT INTO audit_sessions (
                             id, session_type, user_id, blog_id, start_time, 
@@ -102,7 +278,7 @@ class EnhancedDatabaseAuditTracker:
                         self.session_id,
                         self.session_type,
                         self.user_id,
-                        self.blog_id,
+                        None,  # Set blog_id to NULL for now to avoid foreign key constraint
                         datetime.now(),  # Remove timezone for database compatibility
                         0.0,
                         0,
@@ -147,22 +323,25 @@ class EnhancedDatabaseAuditTracker:
         except Exception as e:
             logger.error(f"❌ Failed to create llm_calls table: {e}")
     
-    async def track_api_call(self, model: str, input_tokens: int, output_tokens: int, 
-                           phase: str, agent_role: str):
-        """Track an API call with proper async handling."""
+    def track_api_call(self, model: str, input_tokens: int, output_tokens: int, 
+                      cost: Optional[float] = None, phase: str = "unknown", agent_role: str = "unknown"):
+        """Track an API call with proper sync/async handling."""
         try:
             total_tokens = input_tokens + output_tokens
             
-            # Calculate cost (simplified pricing)
-            cost_per_1k_input = 0.03 if 'gpt-4' in model else 0.0015
-            cost_per_1k_output = 0.06 if 'gpt-4' in model else 0.002
+            # Calculate cost if not provided
+            if cost is None:
+                cost_per_1k_input = 0.03 if 'gpt-4' in model else 0.0015
+                cost_per_1k_output = 0.06 if 'gpt-4' in model else 0.002
+                
+                estimated_cost = (
+                    (input_tokens / 1000) * cost_per_1k_input +
+                    (output_tokens / 1000) * cost_per_1k_output
+                )
+            else:
+                estimated_cost = cost
             
-            estimated_cost = (
-                (input_tokens / 1000) * cost_per_1k_input +
-                (output_tokens / 1000) * cost_per_1k_output
-            )
-            
-            # Update totals
+            # Update totals immediately (thread-safe for basic operations)
             self.total_cost += estimated_cost
             self.total_tokens += total_tokens
             
@@ -178,17 +357,47 @@ class EnhancedDatabaseAuditTracker:
                 'output_tokens': output_tokens,
                 'total_tokens': total_tokens,
                 'cost': estimated_cost,
-                'timestamp': datetime.now(timezone.utc).isoformat()
+                'timestamp': datetime.now()  # Remove timezone for database compatibility
             }
             self.logged_calls.append(call_data)
             
-            # Try to log to database
-            await self._log_to_database(call_data)
+            # Schedule async database logging (non-blocking)
+            self._schedule_database_log(call_data)
             
             logger.info(f"Intercepted actual API call: {model} - {total_tokens} tokens")
             
         except Exception as e:
             logger.error(f"❌ Failed to track API call: {e}")
+    
+    def _schedule_database_log(self, call_data: Dict[str, Any]):
+        """Schedule database logging via background thread queue."""
+        try:
+            # Add session_id to call_data for background processing
+            call_data['session_id'] = self.session_id
+            
+            # Queue the database operation (works from any thread context)
+            self._queue_database_operation('log_call', call_data)
+            
+            logger.debug(f"📤 Scheduled database log for {call_data['model']}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to schedule database log: {e}")
+    
+    async def update_blog_id(self, blog_id: str):
+        """Update the blog_id for this audit session once the blog is created."""
+        try:
+            self.blog_id = blog_id
+            
+            # Queue the blog_id update operation
+            self._queue_database_operation('update_blog_id', {
+                'session_id': self.session_id,
+                'blog_id': blog_id
+            })
+            
+            logger.info(f"📤 Scheduled blog_id update for session {self.session_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to schedule blog_id update: {e}")
     
     async def _log_to_database(self, call_data: Dict[str, Any]):
         """Log call data to database if available."""
@@ -279,19 +488,15 @@ class EnhancedDatabaseAuditTracker:
                     pass
     
     def track_llm_call(self, *args, **kwargs):
-        """Sync wrapper that creates an async task."""
+        """Sync wrapper for backward compatibility."""
         # This is called by the sync LLM interceptor
-        # We need to handle it properly in the async context
+        # Just delegate to our sync track_api_call method
         try:
-            # Try to get the current event loop
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If we're already in an async context, create a task
-                task = loop.create_task(self.track_api_call(*args, **kwargs))
-                logger.debug("Created async task for LLM call tracking")
+            if len(args) >= 5:
+                self.track_api_call(args[0], args[1], args[2], args[3], args[4])
             else:
-                # If not in async context, run synchronously
-                loop.run_until_complete(self.track_api_call(*args, **kwargs))
+                # Fallback to basic logging
+                logger.info(f"💰 LLM Call (fallback): {args} {kwargs}")
         except Exception as e:
             logger.error(f"Failed to track LLM call: {e}")
             # Fallback to basic logging
@@ -308,5 +513,5 @@ class EnhancedDatabaseAuditTracker:
             'total_tokens': self.total_tokens,
             'call_count': len(self.logged_calls),
             'database_enabled': self.database_enabled,
-            'calls': self.logged_calls
+            'logged_calls': self.logged_calls
         }
