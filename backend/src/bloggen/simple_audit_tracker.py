@@ -9,6 +9,9 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import logging
 
+# Set up logger for this module
+logger = logging.getLogger(__name__)
+
 class SimpleCostTracker:
     """
     Simplified cost tracker for development and testing.
@@ -134,32 +137,15 @@ class SimpleCostTracker:
 
     def _calculate_openai_cost(self, model: str, input_tokens: int, output_tokens: int):
         """Calculate cost based on OpenAI pricing."""
-        # OpenAI pricing (per 1,000 tokens) - Updated pricing as of 2024
-        pricing = {
-            'gpt-4o': {
-                'input': 0.0025,   # $0.0025 per 1K input tokens
-                'output': 0.010    # $0.010 per 1K output tokens
-            },
-            'gpt-4o-mini': {
-                'input': 0.000150, # $0.00015 per 1K input tokens  
-                'output': 0.000600 # $0.0006 per 1K output tokens
-            },
-            'gpt-4-turbo': {
-                'input': 0.010,    # $0.010 per 1K input tokens
-                'output': 0.030    # $0.030 per 1K output tokens
-            },
-            'gpt-4': {
-                'input': 0.030,    # $0.030 per 1K input tokens
-                'output': 0.060    # $0.060 per 1K output tokens
-            },
-            'gpt-3.5-turbo': {
-                'input': 0.0015,   # $0.0015 per 1K input tokens
-                'output': 0.002    # $0.002 per 1K output tokens
-            }
-        }
-        
-        # Default to gpt-4o pricing if model not found
-        model_pricing = pricing.get(model, pricing['gpt-4o'])
+        # Use centralized pricing from constants
+        try:
+            from .constants import OPENAI_PRICING, normalize_model_name
+            normalized_model = normalize_model_name(model)
+            model_pricing = OPENAI_PRICING.get(normalized_model, OPENAI_PRICING['gpt-4o-mini'])
+        except ImportError as e:
+            logger.error(f"Failed to import centralized pricing constants: {e}")
+            # This should not happen in production - indicates missing dependency
+            raise RuntimeError("Centralized pricing configuration not available")
         
         # Calculate costs (convert to per-token pricing)
         input_cost = (input_tokens / 1000) * model_pricing['input']
@@ -189,8 +175,8 @@ class SimpleCostTracker:
         # Output estimation based on response length
         estimated_output_tokens = max(content_length // 4, 100)
         
-        # Default to gpt-4o for estimation
-        model = "gpt-4o"
+        # Default to gpt-4o-mini for estimation
+        model = "gpt-4o-mini"
         
         # Track this as an estimated call
         import asyncio
@@ -219,7 +205,7 @@ class SimpleCostTracker:
         estimated_output = 50  # tokens for title
         
         await self.track_llm_call(
-            model="gpt-4o",
+            model="gpt-4o-mini",  # Use gpt-4o-mini for title generation
             input_tokens=estimated_input,
             output_tokens=estimated_output,
             phase="title_generation",

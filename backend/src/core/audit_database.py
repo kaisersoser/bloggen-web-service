@@ -2,7 +2,18 @@
 Supabase/Prisma Database Integration for Audit Logging
 
 Integrates with the existing Supabase database and Prisma schema
-for persistent audit logging of LLM costs and usage patterns.
+for             # Calculate individual costs using centralized pricing
+            try:
+                from bloggen.constants import OPENAI_PRICING, normalize_model_name
+                normalized_model = normalize_model_name(model)
+                pricing = OPENAI_PRICING.get(normalized_model, OPENAI_PRICING.get('gpt-4o-mini', {'input': 0.10, 'output': 0.40}))
+            except ImportError as e:
+                logger.error(f"Failed to import centralized pricing constants: {e}")
+                # This should not happen in production - indicates missing dependency
+                raise RuntimeError("Centralized pricing configuration not available")
+            
+            input_cost = (input_tokens / 1000) * pricing['input']
+            output_cost = (output_tokens / 1000) * pricing['output']logging of LLM costs and usage patterns.
 """
 
 from datetime import datetime
@@ -129,15 +140,19 @@ class SupabaseAuditManager:
         try:
             # Calculate individual costs
             try:
-                from bloggen.constants import OPENAI_PRICING
+                from bloggen.constants import OPENAI_PRICING, normalize_model_name
             except ImportError:
                 # Fallback pricing if constants not available
                 OPENAI_PRICING = {
                     'gpt-4': {'input': 0.03, 'output': 0.06},
-                    'gpt-3.5-turbo': {'input': 0.001, 'output': 0.002}
+                    'gpt-3.5-turbo': {'input': 0.001, 'output': 0.002},
+                    'gpt-4o-mini': {'input': 0.0001, 'output': 0.0004}
                 }
+                def normalize_model_name(model):
+                    return model.lower()
             
-            pricing = OPENAI_PRICING.get(model, OPENAI_PRICING['gpt-3.5-turbo'])
+            normalized_model = normalize_model_name(model)
+            pricing = OPENAI_PRICING.get(normalized_model, OPENAI_PRICING.get('gpt-4o-mini', {'input': 0.0001, 'output': 0.0004}))
             input_cost = (input_tokens / 1000) * pricing['input']
             output_cost = (output_tokens / 1000) * pricing['output']
             

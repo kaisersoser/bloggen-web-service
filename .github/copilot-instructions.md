@@ -1,5 +1,49 @@
 # CrewAI Blog Generation Service - AI Agent Instructions
 
+## Code Quality Principles
+
+### Principles of Writing Good Code
+
+#### 1. Clarity Over Cleverness
+- Prioritize readability and understanding over clever tricks.
+- Code should be easy to follow by other developers (or your future self).
+
+#### 2. Keep It Simple (KISS)
+- Solve problems using the simplest possible solution.
+- Avoid over-engineering and unnecessary abstraction.
+
+#### 3. Don't Repeat Yourself (DRY)
+- Reuse code through functions, classes, or modules.
+- Eliminate duplicate logic to reduce maintenance overhead.
+
+#### 4. Single Responsibility Principle
+- Each function, class, or module should have one clear purpose.
+- Improves modularity and testability.
+
+#### 5. Write Self-Documenting Code
+- Use descriptive names for variables, functions, and classes.
+- Structure code to make its intent obvious without needing excessive comments.
+
+#### 6. Test Thoroughly
+- Write unit and integration tests for critical code paths.
+- Use tests to verify correctness and catch regressions early.
+
+#### 7. Refactor Often
+- Regularly revisit and improve existing code.
+- Clean up code as you go to prevent technical debt.
+
+#### 8. Follow Consistent Style
+- Use a consistent code style and follow language conventions.
+- Prefer automated tools (linters, formatters) to enforce style.
+
+#### 9. Use the Right Tools and Patterns
+- Apply appropriate design patterns where they improve structure and clarity.
+- Leverage modern development tools and best practices.
+
+#### 10. Code with Collaboration in Mind
+- Write code as if someone else will read and modify it.
+- Leave helpful comments where logic is complex or non-obvious.
+
 ## Architecture Overview
 
 This is a **full-stack AI blog generation service** using CrewAI Flows, Next.js with authentication, and real-time streaming. The system orchestrates multiple AI agents (researcher, content creator, fact checker, finalizer) to collaboratively generate high-quality blogs with automatic image integration.

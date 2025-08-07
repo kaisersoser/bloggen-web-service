@@ -27,11 +27,20 @@ OPENAI_PRICING = {
     "gpt-4o-mini": {
         "input": 0.00015,
         "output": 0.0006
+    },
+    # Remove GPT-4.1 series - using real OpenAI models instead
+    "gpt-4o": {
+        "input": 0.0025,
+        "output": 0.01
+    },
+    "gpt-4o-mini": {
+        "input": 0.00015,
+        "output": 0.0006
     }
 }
 
 # Default model for cost estimation
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_MODEL = "gpt-4o-mini"
 
 # Model name normalization mapping
 MODEL_NAME_MAPPING = {
@@ -65,29 +74,42 @@ def normalize_model_name(model: str) -> str:
     elif "gpt-3.5" in model:
         return "gpt-3.5-turbo"
     else:
-        return "gpt-3.5-turbo"
+        return "gpt-4o-mini"  # Default to most efficient model
 
-def calculate_openai_cost(model: str, input_tokens: int, output_tokens: int) -> tuple[float, float, float]:
+def calculate_openai_cost(model: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0) -> tuple[float, float, float, float]:
     """
-    Calculate cost based on OpenAI pricing.
+    Calculate cost based on OpenAI pricing with support for cached input.
     
     Args:
         model: Model name
         input_tokens: Number of input tokens
         output_tokens: Number of output tokens
+        cached_tokens: Number of cached input tokens (default: 0)
         
     Returns:
-        Tuple of (input_cost, output_cost, total_cost)
+        Tuple of (input_cost, cached_cost, output_cost, total_cost)
     """
     model_key = normalize_model_name(model)
     
     if model_key not in OPENAI_PRICING:
-        model_key = "gpt-3.5-turbo"
+        model_key = "gpt-4o-mini"  # Default to most efficient model
         
     pricing = OPENAI_PRICING[model_key]
     
     input_cost = (input_tokens / 1000) * pricing["input"]
     output_cost = (output_tokens / 1000) * pricing["output"]
-    total_cost = input_cost + output_cost
     
+    # Calculate cached input cost if supported
+    cached_cost = 0.0
+    if cached_tokens > 0 and "cached_input" in pricing:
+        cached_cost = (cached_tokens / 1000) * pricing["cached_input"]
+    
+    total_cost = input_cost + cached_cost + output_cost
+    
+    return input_cost, cached_cost, output_cost, total_cost
+
+# Legacy function for backward compatibility
+def calculate_openai_cost_legacy(model: str, input_tokens: int, output_tokens: int) -> tuple[float, float, float]:
+    """Legacy cost calculation function for backward compatibility."""
+    input_cost, _, output_cost, total_cost = calculate_openai_cost(model, input_tokens, output_tokens)
     return input_cost, output_cost, total_cost
