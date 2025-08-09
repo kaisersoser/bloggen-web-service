@@ -5,7 +5,7 @@ Follows Single Responsibility Principle - only creates and configures tasks.
 """
 
 from crewai import Task, Agent
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,8 +15,9 @@ class TaskFactory:
     """Factory for creating specialized tasks for blog generation phases."""
     
     @staticmethod
-    def create_research_task(agent: Agent, topic: str, current_year: int) -> Task:
+    def create_research_task(agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None) -> Task:
         """Create a research task for gathering information on a topic."""
+        extra = ("\n\nUSER DIRECTIVES (priority unless they conflict with sourcing rules):\n" + instructions.strip()) if instructions else ""
         return Task(
             description=f"""Conduct comprehensive research on '{topic}' with focus on {current_year} developments.
 
@@ -40,7 +41,7 @@ class TaskFactory:
             - Do NOT hallucinate URLs; if a claim cannot be sourced, explicitly mark it as UNSOURCED and minimize such claims.
 
             Ensure all information is current, credible, and relevant to {current_year}.
-            Focus on actionable insights that would be valuable to readers.
+            Focus on actionable insights that would be valuable to readers.{extra}
             """,
             agent=agent,
             expected_output="""A comprehensive research report containing:
@@ -53,8 +54,9 @@ class TaskFactory:
         )
     
     @staticmethod
-    def create_content_task(agent: Agent, topic: str, current_year: int) -> Task:
+    def create_content_task(agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None) -> Task:
         """Create a content creation task for writing blog posts."""
+        extra = ("\n\nUSER DIRECTIVES (priority unless they conflict with factual accuracy / sourcing):\n" + instructions.strip()) if instructions else ""
         return Task(
             description=f"""Create an engaging, SEO-optimized blog post about '{topic}' for {current_year}.
             
@@ -71,7 +73,7 @@ class TaskFactory:
             10. If a claim from research lacks a link, either add one via new search (using tools) or omit the claim.
             
             Use the research findings to create content that provides real value to readers.
-            Include practical examples and actionable advice.
+            Include practical examples and actionable advice.{extra}
             """,
             agent=agent,
             expected_output="""A complete blog post with:
@@ -86,8 +88,9 @@ class TaskFactory:
         )
 
     @staticmethod
-    def create_fact_check_task(agent: Agent, topic: str) -> Task:
+    def create_fact_check_task(agent: Agent, topic: str, instructions: Optional[str] = None) -> Task:
         """Create a fact-checking task for verifying content accuracy with live re-validation."""
+        extra = ("\n\nUSER ORIGINAL DIRECTIVES (retain intent while enforcing verification):\n" + instructions.strip()) if instructions else ""
         return Task(
             description=f"""Thoroughly fact-check the blog post about '{topic}'.
 
@@ -105,7 +108,7 @@ class TaskFactory:
             5. Flag outdated (>2 years) data unless historically framed
             6. Provide a concise correction log summarizing changes
 
-            Output MUST keep existing structure but update references accordingly.
+            Output MUST keep existing structure but update references accordingly.{extra}
             """,
             agent=agent,
             expected_output="""A fact-checked version with:
@@ -117,8 +120,9 @@ class TaskFactory:
         )
 
     @staticmethod
-    def create_finalization_task(agent: Agent, topic: str) -> Task:
+    def create_finalization_task(agent: Agent, topic: str, instructions: Optional[str] = None) -> Task:
         """Create a finalization task for polishing content."""
+        extra = ("\n\nUSER DIRECTIVES (final polish should respect these preferences):\n" + instructions.strip()) if instructions else ""
         return Task(
             description=f"""Finalize the blog post about '{topic}' for publication.
             
@@ -135,7 +139,7 @@ class TaskFactory:
             10. Do NOT remove links; only fix formatting or obvious duplicates.
             
             Deliver a publication-ready blog post that engages readers
-            and provides exceptional value.
+            and provides exceptional value.{extra}
             """,
             agent=agent,
             expected_output="""A polished, publication-ready blog post with:

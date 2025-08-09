@@ -249,7 +249,7 @@ class BlogGenerationFlow(Flow):
             tools = self.tools_manager.get_research_tools()
             agent = self.agent_factory.create_researcher(tools)
             task = self.task_factory.create_research_task(
-                agent, topic, year
+                agent, topic, year, self.instructions
             )
             result = self._execute(agent, task)
             self.flow_state.results["research"] = result
@@ -272,7 +272,7 @@ class BlogGenerationFlow(Flow):
             tools = self.tools_manager.get_content_tools()
             agent = self.agent_factory.create_content_creator(tools)
             task = self.task_factory.create_content_task(
-                agent, topic, year
+                agent, topic, year, self.instructions
             )
             draft = self._execute(agent, task)
             self.flow_state.results["content"] = draft
@@ -293,7 +293,7 @@ class BlogGenerationFlow(Flow):
             topic = cast(str, self.flow_state.topic)
             tools = self.tools_manager.get_research_tools()
             agent = self.agent_factory.create_fact_checker(tools)
-            task = self.task_factory.create_fact_check_task(agent, topic)
+            task = self.task_factory.create_fact_check_task(agent, topic, self.instructions)
             checked = self._execute(agent, task)
             self.flow_state.results["fact_checked"] = checked
             self._status("Fact-check complete", step=3, detail="Content validated")
@@ -312,7 +312,7 @@ class BlogGenerationFlow(Flow):
         try:
             topic = cast(str, self.flow_state.topic)
             agent = self.agent_factory.create_finalizer()
-            task = self.task_factory.create_finalization_task(agent, topic)
+            task = self.task_factory.create_finalization_task(agent, topic, self.instructions)
             final_post = self._execute(agent, task)
             self.flow_state.results["final"] = final_post
             self._complete(str(final_post))

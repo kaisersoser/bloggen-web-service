@@ -50,6 +50,7 @@ from core.context_vars import (
 from core.config import config, get_cors_origins
 from core import DatabaseAuditTracker, EnhancedDatabaseAuditTracker  # Use refactored version
 from core.llm_interceptor import setup_llm_interceptor
+from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # for serper cost patch
 from core.logging_utils import setup_api_logger
 
 # Blog generation
@@ -74,6 +75,21 @@ async def lifespan(app: FastAPI):
     setup_llm_interceptor()
     logger.info("✅ Context-aware LLM interceptor initialized")
     
+    # Patch historical serper_api zero-cost entries (best-effort)
+    try:
+        async def _pool_provider():
+            tracker = EnhancedDatabaseAuditTracker(session_type="startup_patch", user_id="system", blog_id=None)
+            return await tracker._get_database_connection()  # type: ignore
+        updated = await EnhancedDatabaseAuditTracker.patch_serper_api_costs(_pool_provider)
+        if updated:
+            logger.info(f"🔧 Patched {updated} historical serper_api call(s) to cost 0.001")
+        # Normalize legacy phase names to current canonical phases
+        phase_updates = await EnhancedDatabaseAuditTracker.normalize_phase_names(_pool_provider)
+        if phase_updates:
+            logger.info(f"🔧 Normalized legacy phase names: {phase_updates}")
+    except Exception as e:
+        logger.warning(f"Serper cost patch failed (startup continues): {e}")
+
     logger.info("✅ FastAPI application startup complete")
     
     yield  # Application runs here

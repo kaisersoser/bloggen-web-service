@@ -43,7 +43,7 @@ export default function BlogGenerator() {
     handleBulkDeleteBlogs,
     confirmDeleteBlog,
     handleNewBlog,
-    handleDeleteCurrentItem,
+  // handleDeleteCurrentItem removed (Delete action bar button deprecated)
     setShowDeleteDialog,
     setBlogToDelete,
     setIsDeleting,
@@ -135,15 +135,7 @@ export default function BlogGenerator() {
                         New Blog
                       </Button>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Button
-                        variant="destructive"
-                        onClick={handleDeleteCurrentItem}
-                        disabled={isDeleting}
-                      >
-                        {isDeleting ? 'Deleting...' : currentJob.status === 'in_progress' ? 'Cancel Generation' : currentJob.status === 'failed' ? 'Remove Failed Job' : 'Delete Blog'}
-                      </Button>
-                    </div>
+                    {/* Delete/Cancel button removed per updated UX: deletion via blog cards only */}
                   </div>
                 </div>
               )}
