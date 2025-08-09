@@ -407,12 +407,17 @@ class EnhancedDatabaseAuditTracker:
                 return
             
             # Calculate separate input/output costs to match Prisma schema
-            cost_per_1k_input = 0.03 if 'gpt-4' in call_data['model'] else 0.0015
-            cost_per_1k_output = 0.06 if 'gpt-4' in call_data['model'] else 0.002
-            
-            input_cost = (call_data['input_tokens'] / 1000) * cost_per_1k_input
-            output_cost = (call_data['output_tokens'] / 1000) * cost_per_1k_output
-            total_cost = input_cost + output_cost
+            if call_data['model'] == 'serper_api':
+                # Flat fee per call per requirements
+                input_cost = 0.0
+                output_cost = 0.0
+                total_cost = 0.001
+            else:
+                cost_per_1k_input = 0.03 if 'gpt-4' in call_data['model'] else 0.0015
+                cost_per_1k_output = 0.06 if 'gpt-4' in call_data['model'] else 0.002
+                input_cost = (call_data['input_tokens'] / 1000) * cost_per_1k_input
+                output_cost = (call_data['output_tokens'] / 1000) * cost_per_1k_output
+                total_cost = input_cost + output_cost
             
             async with pool.acquire() as conn:
                 # Insert into llm_calls table with Prisma-compatible schema
@@ -515,3 +520,128 @@ class EnhancedDatabaseAuditTracker:
             'database_enabled': self.database_enabled,
             'logged_calls': self.logged_calls
         }
+
+    # ------------------------------------------------------------------
+    # Retrospective Cost Patch for serper_api calls with zero cost
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def patch_serper_api_costs(pool_provider) -> int:
+        """Backfill cost for existing serper_api rows with zero total_cost.
+
+        Args:
+            pool_provider: Callable returning an asyncpg pool or pool instance.
+        Returns:
+            int: number of rows updated.
+        """
+        updated = 0
+        try:
+            pool = await pool_provider()
+            if not pool:
+                return 0
+            async with pool.acquire() as conn:
+                # Update any serper_api calls that still have zero cost
+                res = await conn.execute("""
+                    UPDATE llm_calls
+                    SET input_cost = 0.0,
+                        output_cost = 0.0,
+                        total_cost = 0.001
+                    WHERE model = 'serper_api' AND total_cost = 0.0
+                """)
+                # asyncpg returns command tag like 'UPDATE <count>'
+                if isinstance(res, str) and res.startswith('UPDATE'):
+                    try:
+                        updated = int(res.split()[-1])
+                    except Exception:
+                        updated = 0
+            if updated:
+                logger.info(f"🔄 Patched {updated} serper_api call(s) with flat cost 0.001")
+            else:
+                logger.info("ℹ️ No serper_api calls required cost patch")
+        except Exception as e:
+            logger.error(f"❌ Failed to patch serper_api costs: {e}")
+        return updated
+
+    # ------------------------------------------------------------------
+    # Phase Name Normalization Patch
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def normalize_phase_names(pool_provider) -> Dict[str, int]:
+        """Normalize legacy phase names in llm_calls to current canonical set.
+
+        Canonical phases currently in use:
+            initialization, research, content_generation, fact_checking, finalization
+
+        Historical / legacy variants will be mapped to the most appropriate
+        current phase. Matching is performed case-insensitively. Already
+        canonical names are left untouched. Unknown / unlisted phases remain
+        unchanged so historical diagnostics are not lost.
+
+        Args:
+            pool_provider: Callable returning an asyncpg pool (or None)
+        Returns:
+            dict mapping canonical phase -> number of rows updated
+        """
+        results: Dict[str, int] = {}
+        try:
+            pool = await pool_provider()
+            if not pool:
+                return results
+            # Flat variant -> canonical mapping (all lower-case for comparison)
+            variant_map = {
+                # Initialization
+                'init': 'initialization',
+                'initialize': 'initialization',
+                'initial': 'initialization',
+                'initialization_phase': 'initialization',
+                'setup': 'initialization',
+                # Research
+                'research_phase': 'research',
+                'researching': 'research',
+                'research-phase': 'research',
+                # Content generation
+                'content_generation_phase': 'content_generation',
+                'content-generation': 'content_generation',
+                'draft': 'content_generation',
+                'drafting': 'content_generation',
+                'content': 'content_generation',
+                'generation': 'content_generation',
+                'writing': 'content_generation',
+                # Fact checking
+                'fact_checking_phase': 'fact_checking',
+                'fact-checking': 'fact_checking',
+                'fact_check': 'fact_checking',
+                'factcheck': 'fact_checking',
+                'validation': 'fact_checking',
+                'verify': 'fact_checking',
+                # Finalization
+                'finalization_phase': 'finalization',
+                'finalize': 'finalization',
+                'finalizing': 'finalization',
+                'final': 'finalization',
+            }
+            async with pool.acquire() as conn:
+                for variant, canonical in variant_map.items():
+                    try:
+                        res = await conn.execute(
+                            """
+                            UPDATE llm_calls
+                            SET phase = $1
+                            WHERE LOWER(phase) = $2 AND phase <> $1
+                            """,
+                            canonical,
+                            variant
+                        )
+                        if isinstance(res, str) and res.startswith('UPDATE'):
+                            count = int(res.split()[-1]) if res.split()[-1].isdigit() else 0
+                            if count:
+                                results[canonical] = results.get(canonical, 0) + count
+                    except Exception as inner_e:
+                        logger.warning(f"Phase normalization sub-update failed ({variant} -> {canonical}): {inner_e}")
+            if results:
+                summary = ', '.join(f"{k}={v}" for k, v in results.items())
+                logger.info(f"🔄 Phase normalization complete: {summary}")
+            else:
+                logger.info("ℹ️ No legacy phase names required normalization")
+        except Exception as e:
+            logger.error(f"❌ Failed to normalize phase names: {e}")
+        return results

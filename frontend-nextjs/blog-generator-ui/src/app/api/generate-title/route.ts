@@ -2,7 +2,28 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import https from 'https'
+import fs from 'fs'
+import path from 'path'
 import jwt from 'jsonwebtoken'
+
+// Force Node.js runtime (not Edge) so we can use custom https.Agent
+export const runtime = 'nodejs'
+
+async function fetchWithTLSFallback(url: string, opts: any) {
+  // 1. Attempt with provided options (may include permissive agent)
+  try {
+    const res = await fetch(url, opts)
+    if (res.ok) return res
+    return res // propagate non-OK for caller handling
+  } catch (err: any) {
+    // 2. If certificate verification failed, retry with most permissive settings
+    if (err?.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || /certificate/i.test(String(err?.message))) {
+      const insecureAgent = new https.Agent({ rejectUnauthorized: false })
+      return await fetch(url, { ...opts, agent: insecureAgent })
+    }
+    throw err
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,22 +60,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Backend configuration error" }, { status: 500 })
     }
 
-    // Configure HTTPS agent to ignore self-signed certificates for local development
-    const httpsAgent = new https.Agent({
-      rejectUnauthorized: false
-    })
+    // Attempt to build a CA-backed agent if local certs available; fallback to permissive
+    let httpsAgent: https.Agent | undefined
+    try {
+      const explicitCert = process.env.LOCAL_DEV_CERT && fs.existsSync(process.env.LOCAL_DEV_CERT)
+      const certPathCandidates = [
+        process.env.LOCAL_DEV_CERT || '',
+        path.join(process.cwd(), 'certs', 'localhost.pem'),
+        path.join(process.cwd(), '..', 'certs', 'localhost.pem')
+      ].filter(p => p && fs.existsSync(p))
+      if (explicitCert || certPathCandidates.length) {
+        const certPath = explicitCert ? process.env.LOCAL_DEV_CERT! : certPathCandidates[0]
+        const ca = fs.readFileSync(certPath)
+        httpsAgent = new https.Agent({ ca, rejectUnauthorized: true })
+      } else if (process.env.NODE_ENV !== 'production') {
+        httpsAgent = new https.Agent({ rejectUnauthorized: false })
+      }
+    } catch (e) {
+      console.warn('TLS agent setup failed; falling back to insecure dev agent:', e)
+      if (process.env.NODE_ENV !== 'production') {
+        httpsAgent = new https.Agent({ rejectUnauthorized: false })
+      }
+    }
 
     // Make request to backend
-    const backendResponse = await fetch(`${process.env.API_BASE_URL}/generate-title`, {
+    const fetchOpts: any = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${backendJWT}`,
       },
       body: JSON.stringify({ instructions }),
-      // @ts-expect-error - agent is valid for node.js fetch
-      agent: httpsAgent,
-    })
+    }
+    if (httpsAgent) {
+      fetchOpts.agent = httpsAgent
+    }
+
+    const backendUrl = `${process.env.API_BASE_URL}/generate-title`
+  const backendResponse = await fetchWithTLSFallback(backendUrl, fetchOpts)
 
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text()

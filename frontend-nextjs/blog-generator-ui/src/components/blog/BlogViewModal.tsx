@@ -4,7 +4,7 @@ import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Download, Copy, FileText, FileImage, FileCode, X, CheckCircle } from 'lucide-react';
+import { Download, Copy, FileText, FileImage, FileCode, CheckCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { BlogData } from '@/types/blog';
