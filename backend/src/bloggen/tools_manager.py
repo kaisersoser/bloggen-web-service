@@ -55,7 +55,7 @@ class ToolsManager:
                                 input_tokens=0,
                                 output_tokens=0,
                                 cost=0.001,
-                                phase='research_phase',
+                                phase='research',
                                 agent_role='serper_tool'
                             )
                         except Exception:

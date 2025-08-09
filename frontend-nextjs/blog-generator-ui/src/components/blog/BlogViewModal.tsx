@@ -135,12 +135,26 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
+                    // Unwrap image-only paragraphs to avoid invalid <div> within <p>
+                    p: ({ node, children, ...props }) => {
+                      const onlyChild = (node as any)?.children?.[0];
+                      if (
+                        (node as any)?.children?.length === 1 &&
+                        onlyChild?.tagName === 'img'
+                      ) {
+                        return <>{children}</>; // fragment instead of <p>
+                      }
+                      return (
+                        <p className="mb-4 leading-relaxed text-gray-700" {...props}>
+                          {children}
+                        </p>
+                      );
+                    },
                     img: ({ src, alt, title }) => {
                       const imageSrc = typeof src === 'string' ? src : '/placeholder-image.svg';
-                      const isExternalImage = imageSrc.startsWith('http') || imageSrc.startsWith('https');
-                      
+                      const isExternalImage = imageSrc.startsWith('http');
                       return (
-                        <div className="my-8 text-center">
+                        <figure className="my-8 text-center">
                           <div className="relative inline-block max-w-full">
                             <Image
                               src={imageSrc}
@@ -152,16 +166,16 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
                               unoptimized={isExternalImage}
                               loading="lazy"
                               onError={(e) => {
-                                e.currentTarget.src = '/placeholder-image.svg';
+                                (e.currentTarget as HTMLImageElement).src = '/placeholder-image.svg';
                               }}
                             />
                           </div>
                           {title && (
-                            <em className="block text-sm text-gray-500 mt-2 italic">
+                            <figcaption className="mt-2 text-sm text-gray-500 italic">
                               {title}
-                            </em>
+                            </figcaption>
                           )}
-                        </div>
+                        </figure>
                       );
                     },
                     h1: ({ children, ...props }) => (
@@ -183,11 +197,6 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
                       <h4 className="text-lg font-semibold mb-2 mt-4 text-gray-800" {...props}>
                         {children}
                       </h4>
-                    ),
-                    p: ({ children, ...props }) => (
-                      <p className="mb-4 leading-relaxed text-gray-700" {...props}>
-                        {children}
-                      </p>
                     ),
                     ul: ({ children, ...props }) => (
                       <ul className="mb-4 ml-6 list-disc space-y-1 text-gray-700" {...props}>

@@ -55,6 +55,7 @@ from core.logging_utils import setup_api_logger
 
 # Blog generation
 from bloggen.flows import BlogGenerationFlow
+from bloggen.topic_utils import generate_concise_topic
 
 # Authentication (we'll migrate this next)
 # from auth_middleware import AuthMiddleware
@@ -476,52 +477,13 @@ async def generate_title(
             topic=f"Title: {request.instructions[:50]}..."
         )
         
-        # Initialize OpenAI client
-        client = openai.OpenAI(api_key=openai_api_key)
-        
-        # Generate title using OpenAI
-        response = client.chat.completions.create(
-            model=config.models.default_model,  # Use gpt-4o-mini for basic title generation
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that creates short, engaging blog titles. Extract the core topic from user instructions and create a concise title (5-10 words max). Remove any instruction words like 'Generate', 'Write', 'Create', 'blog about', etc. Focus only on the main subject. Return only the title, nothing else."
-                },
-                {
-                    "role": "user",
-                    "content": f"Extract the core topic and create a short blog title from: \"{request.instructions}\""
-                }
-            ],
-            max_tokens=25,
-            temperature=0.5,
+        # Generate concise topic using shared utility (handles heuristic + OpenAI refinement)
+        final_title = generate_concise_topic(
+            request.instructions,
+            openai_api_key=openai_api_key,
+            model=config.models.default_model,
         )
-        
-        # Extract generated title
-        generated_title = response.choices[0].message.content
-        if not generated_title:
-            raise HTTPException(
-                status_code=500,
-                detail="No title generated"
-            )
-        
-        # Clean and format the title
-        clean_title = generated_title.strip().replace('"', '').replace("'", "")
-        formatted_title = clean_title.title()
-        
-        # Fix title case for common words
-        lowercase_words = ['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in', 'nor', 'of', 'on', 'or', 'so', 'the', 'to', 'up', 'yet']
-        words = formatted_title.split()
-        
-        for i, word in enumerate(words):
-            if i > 0 and word.lower() in lowercase_words:
-                words[i] = word.lower()
-            elif i == 0:  # Always capitalize first word
-                words[i] = word.capitalize()
-        
-        final_title = ' '.join(words)
-        
         logger.info(f"✅ Title generated for user {user.id}: {final_title}")
-        
         return TitleGenerationResponse(title=final_title, success=True)
         
     except openai.OpenAIError as e:
