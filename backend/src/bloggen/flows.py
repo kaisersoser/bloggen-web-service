@@ -25,6 +25,7 @@ from .status_manager import StatusUpdateManager
 from .agent_factory import AgentFactory
 from .task_factory import TaskFactory
 from .tools_manager import ToolsManager
+from .topic_utils import generate_concise_topic
 from core.llm_interceptor import _register_audit_tracker
 from core.config import config  # reuse existing config for model + key
 
@@ -155,62 +156,28 @@ class BlogGenerationFlow(Flow):
             raise ValueError("Topic must be set before starting the flow")
 
     def _auto_generate_topic(self) -> None:
-        """Generate a topic from instructions if absent.
+        """Generate a topic from instructions if absent using shared utility.
 
-        Uses existing configuration & OpenAI client similar to title generation endpoint.
-        Safe no-op if topic already present or no instructions available.
+        Safe no-op if topic already present. Falls back to heuristic when
+        OpenAI not configured/available.
         """
-        if self.flow_state.topic:  # already set
+        if self.flow_state.topic:
             return
         raw_instructions = (self.flow_state.instructions or "").strip()
         if not raw_instructions:
-            # No basis for generation; fallback generic (still lets flow proceed)
-            self.flow_state.topic = "AI Blog Post"
-            logger.warning("Auto-topic generation skipped (no instructions); using fallback 'AI Blog Post'.")
-            return
-        if openai is None:
-            self.flow_state.topic = raw_instructions[:60].strip() or "AI Blog Post"
-            logger.warning("OpenAI lib missing; using truncated instructions as topic: %s", self.flow_state.topic)
+            self.flow_state.topic = "AI Blog Topic"
+            logger.warning("Auto-topic generation skipped (no instructions); using fallback 'AI Blog Topic'.")
             return
         try:
-            api_key = config.api.openai_key or os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise RuntimeError("OpenAI API key not configured")
-            client = openai.OpenAI(api_key=api_key)  # type: ignore[attr-defined]
-            response = client.chat.completions.create(
+            generated = generate_concise_topic(
+                raw_instructions,
+                openai_api_key=config.api.openai_key,
                 model=config.models.default_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You create concise (5-10 words), engaging blog titles. "
-                            "Return ONLY the title without quotes."),
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Generate a short blog title for: {raw_instructions}",
-                    },
-                ],
-                max_tokens=25,
-                temperature=0.5,
             )
-            generated = response.choices[0].message.content if response.choices else None
-            if not generated:
-                raise RuntimeError("No title generated")
-            clean = generated.strip().replace('"', '').replace("'", "")
-            # Title case adjustments similar to endpoint logic
-            lowercase_words = {'a','an','and','as','at','but','by','for','if','in','nor','of','on','or','so','the','to','up','yet'}
-            words = clean.title().split()
-            for i, w in enumerate(words):
-                if i > 0 and w.lower() in lowercase_words:
-                    words[i] = w.lower()
-                elif i == 0:
-                    words[i] = w.capitalize()
-            final_title = ' '.join(words)
-            self.flow_state.topic = final_title
-            logger.info("Auto-generated topic: %s", final_title)
+            self.flow_state.topic = generated
+            logger.info("Auto-generated topic: %s", generated)
         except Exception as e:  # pragma: no cover
-            fallback = raw_instructions[:60].strip() or "AI Blog Post"
+            fallback = raw_instructions[:60].strip() or "AI Blog Topic"
             self.flow_state.topic = fallback
             logger.error("Auto topic generation failed (%s); using fallback '%s'", e, fallback)
 

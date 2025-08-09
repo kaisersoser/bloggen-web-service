@@ -66,11 +66,20 @@ class TaskFactory:
             3. Content: Informative, engaging, and actionable
             4. SEO: Natural keyword integration
             5. Length: 1500-2000 words
-            6. Images: Include relevant image suggestions with descriptions
+                        6. IMAGES (MANDATORY): You MUST call the unsplash_image_search tool AT LEAST TWICE:
+                             - First: hero/cover image capturing the overarching theme (query should include core concept + context words)
+                             - Second (and optionally third): supporting image(s) for a key subsection (e.g., statistics, architecture, workflow)
+                             For EACH tool call:
+                                 * Use focused, descriptive multi-word queries (avoid generic single-word queries)
+                                 * Insert returned Markdown image block(s) directly into appropriate section locations (not all grouped at bottom)
+                                 * Ensure alt text is concise & descriptive (accessibility) and attribution block is preserved
+                             Total images in final draft: Minimum 2 (ideal 2-3). If the tool returns placeholders, still include them.
             7. Tone: Professional yet conversational
             8. SOURCING: Preserve all validated source links from research; any fact carried over must retain its markdown link.
             9. REFERENCES: End with a 'References' section (numbered) mirroring unique sources actually cited in the body.
             10. If a claim from research lacks a link, either add one via new search (using tools) or omit the claim.
+                        11. Place the first image after the introduction paragraph; subsequent image(s) near the most relevant section.
+                        12. Do NOT put images inside code blocks or lists; each image block separated by a blank line.
             
             Use the research findings to create content that provides real value to readers.
             Include practical examples and actionable advice.{extra}
@@ -137,6 +146,8 @@ class TaskFactory:
             8. Validate that every factual claim retains a hyperlink; no orphan references.
             9. Ensure 'References' section exists, numbered, unique, sorted by first appearance.
             10. Do NOT remove links; only fix formatting or obvious duplicates.
+            11. IMAGE PRESERVATION: Keep all inserted Unsplash image markdown blocks. Improve alt text only if it becomes clearer (retain attribution lines). Do NOT delete images unless they are clear duplicates.
+            12. Ensure first image placement remains after opening context; adjust spacing if needed (one blank line before & after).
             
             Deliver a publication-ready blog post that engages readers
             and provides exceptional value.{extra}

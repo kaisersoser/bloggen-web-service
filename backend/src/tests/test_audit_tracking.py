@@ -50,7 +50,7 @@ async def test_audit_tracking():
             model="gpt-4o",
             input_tokens=1500,
             output_tokens=800,
-            phase="research_phase",
+            phase="research",
             agent_role="researcher",
             call_type="actual"
         )
@@ -61,7 +61,7 @@ async def test_audit_tracking():
             model="gpt-4o",
             input_tokens=2200,
             output_tokens=1200,
-            phase="content_generation_phase",
+            phase="content_generation",
             agent_role="content_writer",
             call_type="actual"
         )
@@ -72,7 +72,7 @@ async def test_audit_tracking():
             model="gpt-4o",
             input_tokens=1800,
             output_tokens=600,
-            phase="fact_checking_phase",
+            phase="fact_checking",
             agent_role="fact_checker",
             call_type="actual"
         )

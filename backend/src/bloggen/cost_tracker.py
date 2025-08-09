@@ -326,7 +326,7 @@ def track_blog_generation_cost(phase_name: str = "blog_generation"):
     Context manager for tracking blog generation costs.
     
     Usage:
-        with track_blog_generation_cost("research_phase") as tracker:
+        with track_blog_generation_cost("research") as tracker:
             result = crew.kickoff()
         
         tracker.print_cost_summary()
