@@ -4,18 +4,11 @@ import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { 
-  Download, 
-  Copy, 
-  FileText, 
-  FileImage, 
-  FileCode, 
-  X,
-  CheckCircle 
-} from 'lucide-react';
+import { Download, Copy, FileText, FileImage, FileCode, X, CheckCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { BlogData } from '@/types/blog';
+import { exportBlog, BlogExportFormat } from '@/lib/exporters/blogExport';
 
 interface BlogViewModalProps {
   blog: BlogData | null;
@@ -25,7 +18,7 @@ interface BlogViewModalProps {
 
 export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
   const [copySuccess, setCopySuccess] = useState(false);
-  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<BlogExportFormat | null>(null);
 
   const handleCopy = async () => {
     if (!blog?.content) return;
@@ -39,142 +32,12 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
     }
   };
 
-  const generateHTML = (content: string, title: string) => {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <style>
-        body {
-            font-family: 'Georgia', 'Times New Roman', serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 20px;
-            color: #333;
-        }
-        h1, h2, h3, h4, h5, h6 {
-            color: #2c3e50;
-            margin-top: 2em;
-            margin-bottom: 1em;
-        }
-        h1 {
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 10px;
-        }
-        img {
-            max-width: 100%;
-            height: auto;
-            margin: 20px 0;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        blockquote {
-            border-left: 4px solid #3498db;
-            padding-left: 20px;
-            margin: 20px 0;
-            background-color: #f8f9fa;
-            padding: 15px 20px;
-            border-radius: 4px;
-        }
-        code {
-            background-color: #f1f1f1;
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
-        }
-        pre {
-            background-color: #f8f8f8;
-            padding: 15px;
-            border-radius: 5px;
-            overflow-x: auto;
-        }
-        @media print {
-            body { margin: 0; padding: 20px; }
-            @page { size: A4; margin: 2cm; }
-        }
-    </style>
-</head>
-<body>
-    ${content}
-</body>
-</html>`;
-  };
-
-  const downloadFile = async (format: 'pdf' | 'md' | 'html' | 'docx') => {
-    if (!blog?.content) return;
-    
+  const downloadFile = async (format: BlogExportFormat) => {
+    if (!blog) return;
     setDownloading(format);
-    
-    try {
-      const filename = `${blog.topic.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_blog`;
-      
-      switch (format) {
-        case 'md':
-          downloadText(blog.content, `${filename}.md`, 'text/markdown');
-          break;
-          
-        case 'html':
-          const htmlContent = generateHTML(blog.content, blog.topic);
-          downloadText(htmlContent, `${filename}.html`, 'text/html');
-          break;
-          
-        case 'pdf':
-          await downloadPDF(blog.content, blog.topic);
-          break;
-          
-        case 'docx':
-          await downloadDocx(blog.content, blog.topic, filename);
-          break;
-      }
-    } catch (error) {
-      console.error(`Error downloading ${format}:`, error);
-    } finally {
-      setDownloading(null);
-    }
-  };
-
-  const downloadText = (content: string, filename: string, mimeType: string) => {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadPDF = async (content: string, title: string) => {
-    // For PDF generation, we'll use the browser's print functionality
-    // Create a new window with the formatted content
-    const htmlContent = generateHTML(content, title);
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      
-      // Wait for content to load then trigger print
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print();
-          printWindow.close();
-        }, 500);
-      };
-    }
-  };
-
-  const downloadDocx = async (content: string, title: string, filename: string) => {
-    // For Word document, we'll create a simple RTF file which Word can open
-    const rtfContent = `{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times New Roman;}}
-\\f0\\fs24 {\\b ${title}}\\par\\par
-${content.replace(/\n/g, '\\par ')}
-}`;
-    
-    downloadText(rtfContent, `${filename}.rtf`, 'application/rtf');
+    try { await exportBlog({ format, blog }); }
+    catch (e) { console.error('Export failed:', e); }
+    finally { setDownloading(null); }
   };
 
   if (!blog) return null;
@@ -250,9 +113,7 @@ ${content.replace(/\n/g, '\\par ')}
               </div>
             </div>
             
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
+            {/* Single close handled by dialog overlay (removed extra X button) */}
           </div>
         </DialogHeader>
 

@@ -1,8 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Terminal, Minimize2, Maximize2 } from 'lucide-react';
 import { JobState, LogEntry } from '@/types/blog';
+import { BlogGenerationConsole } from '@/components/blog/BlogGenerationConsole';
 
 interface BlogGenerationViewProps {
   job: JobState | null;
@@ -11,50 +9,6 @@ interface BlogGenerationViewProps {
 }
 
 export function BlogGenerationView({ job, isGenerating, logs = [] }: BlogGenerationViewProps) {
-  const [consoleCollapsed, setConsoleCollapsed] = useState(false);
-  const logsRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll logs to bottom
-  useEffect(() => {
-    if (logsRef.current) {
-      logsRef.current.scrollTop = logsRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  // Format timestamp for display
-  const formatTime = (timestamp: string) => {
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString('en-US', { 
-        hour12: false, 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit' 
-      });
-    } catch {
-      return '';
-    }
-  };
-
-  // Get step color
-  const getStepColor = (step: string) => {
-    switch (step.toLowerCase()) {
-      case 'initialization':
-        return 'text-blue-400';
-      case 'research':
-        return 'text-yellow-400';
-      case 'content generation':
-        return 'text-green-400';
-      case 'fact checking':
-        return 'text-purple-400';
-      case 'finalization':
-        return 'text-cyan-400';
-      case 'processing':
-        return 'text-gray-400';
-      default:
-        return 'text-gray-300';
-    }
-  };
 
   if (!job && !isGenerating) {
     return (
@@ -73,73 +27,7 @@ export function BlogGenerationView({ job, isGenerating, logs = [] }: BlogGenerat
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900">
-      {/* CrewAI Console */}
-      {(isGenerating || logs.length > 0) && (
-        <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center space-x-2">
-              <Terminal className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">CrewAI Generation Console</span>
-              {isGenerating && (
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs text-green-600 dark:text-green-400">Live</span>
-                </div>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setConsoleCollapsed(!consoleCollapsed)}
-              className="w-8 h-8 p-0"
-            >
-              {consoleCollapsed ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
-            </Button>
-          </div>
-          
-          {!consoleCollapsed && (
-            <div 
-              ref={logsRef}
-              className="h-64 overflow-y-auto bg-black dark:bg-gray-950 p-4 font-mono text-sm"
-            >
-              {logs.length === 0 && isGenerating ? (
-                <div className="text-gray-400">
-                  <span className="animate-pulse">Initializing CrewAI workflow...</span>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {logs.map((log, index) => (
-                    <div key={index} className="flex items-start space-x-3">
-                      <span className="text-gray-500 text-xs mt-0.5 w-20 flex-shrink-0">
-                        {formatTime(log.timestamp)}
-                      </span>
-                      <span className={`text-xs font-semibold w-24 flex-shrink-0 ${getStepColor(log.step)}`}>
-                        [{log.step}]
-                      </span>
-                      <span className="text-gray-300 dark:text-gray-400 leading-relaxed">
-                        {log.message}
-                      </span>
-                    </div>
-                  ))}
-                  {isGenerating && (
-                    <div className="flex items-start space-x-3">
-                      <span className="text-gray-500 text-xs mt-0.5 w-20 flex-shrink-0">
-                        {formatTime(new Date().toISOString())}
-                      </span>
-                      <span className="text-blue-400 text-xs font-semibold w-24 flex-shrink-0">
-                        [SYSTEM]
-                      </span>
-                      <span className="text-gray-300 dark:text-gray-400">
-                        <span className="animate-pulse">Processing...</span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+  <BlogGenerationConsole isGenerating={isGenerating} logs={logs} />
 
       {/* Blog Content Area */}
       <div className="flex-1 overflow-auto">

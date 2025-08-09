@@ -5,7 +5,7 @@ Manages and provides tools for different phases of blog generation.
 Follows Single Responsibility Principle - only manages tool creation and access.
 """
 
-from typing import List, Any
+from typing import List, Any, Optional, Callable
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 class ToolsManager:
     """Manages tools for different phases of blog generation."""
     
-    def __init__(self):
+    def __init__(self, audit_tracker: Optional[Any] = None):
         self._research_tools = None
         self._content_tools = None
+        self.audit_tracker = audit_tracker
     
     def get_research_tools(self) -> List[Any]:
         """Get tools for research phase."""
@@ -37,7 +38,37 @@ class ToolsManager:
         # Try to load external research tools from crewai_tools
         try:
             from crewai_tools import SerperDevTool, ScrapeWebsiteTool
-            tools.extend([SerperDevTool(), ScrapeWebsiteTool()])
+
+            audit_tracker = self.audit_tracker
+
+            if audit_tracker and hasattr(audit_tracker, 'track_api_call'):
+                # Define an instrumented subclass so we don't mutate pydantic attributes
+                class InstrumentedSerperDevTool(SerperDevTool):  # type: ignore
+                    def _run(self, *args, **kwargs):  # override underlying execution hook
+                        # Support positional first arg as search_query
+                        if args and 'search_query' not in kwargs:
+                            kwargs['search_query'] = args[0]
+                        result = super()._run(**kwargs)
+                        try:
+                            audit_tracker.track_api_call(
+                                model='serper_api',
+                                input_tokens=0,
+                                output_tokens=0,
+                                cost=0.001,
+                                phase='research_phase',
+                                agent_role='serper_tool'
+                            )
+                        except Exception:
+                            logger.debug("Serper cost tracking failed", exc_info=True)
+                        return result
+
+                serper_tool = InstrumentedSerperDevTool()
+                logger.info("🧪 Using instrumented SerperDevTool subclass for cost tracking")
+            else:
+                serper_tool = SerperDevTool()
+                logger.info("ℹ️ Using standard SerperDevTool (no audit tracker detected)")
+
+            tools.extend([serper_tool, ScrapeWebsiteTool()])
             logger.debug("✅ External research tools loaded")
         except ImportError as e:
             logger.warning(f"External research tools not available: {e}")
@@ -48,6 +79,10 @@ class ToolsManager:
         # The system will still work, just without web research capabilities
         logger.info(f"Loaded {len(tools)} research tools")
         return tools
+
+    # --- Internal Helpers -------------------------------------------------
+    def _instrument_serper_tool(self, tool: Any) -> None:  # legacy no-op (kept for backward refs)
+        return
     
     def _load_content_tools(self) -> List[Any]:
         """Load content generation tools with proper error handling."""

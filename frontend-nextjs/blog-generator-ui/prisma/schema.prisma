@@ -78,20 +78,9 @@ model Blog {
   updatedAt     DateTime       @updatedAt @map("updated_at")
   completedAt   DateTime?      @map("completed_at")
   auditSessions AuditSession[]
-  logs          BlogLog[]
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("blogs")
-}
-
-model BlogLog {
-  id        String   @id @default(cuid())
-  blogId    String   @map("blog_id")
-  log       String
-  timestamp DateTime @default(now())
-  blog      Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
-
-  @@map("blog_logs")
 }
 
 model AuditSession {

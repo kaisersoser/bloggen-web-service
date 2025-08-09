@@ -29,10 +29,10 @@ This implementation provides a complete authentication system with:
 ## Setup Instructions
 
 ### 1. Environment Variables
-Update your `.env.local` file:
+Update your `.env.local` file (and mirror the `DATABASE_URL` entry in `backend/.env` so backend audit logging uses the same database):
 
 ```bash
-# Database
+# Database (must match value in backend/.env)
 DATABASE_URL="postgresql://username:password@localhost:5432/bloggen_db?schema=public"
 
 # NextAuth.js

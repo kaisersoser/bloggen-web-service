@@ -79,8 +79,9 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    // Process data for analytics
-    const dailyCosts: { [key: string]: number } = {};
+  // Process data for analytics
+  const dailyLLMCosts: { [key: string]: number } = {};
+  const dailySerperCosts: { [key: string]: number } = {};
     const phaseCosts: { [key: string]: number } = {};
     const modelCosts: { [key: string]: number } = {};
     const userRoleCosts: { [key: string]: number } = {};
@@ -92,11 +93,17 @@ export async function GET(req: NextRequest) {
     auditSessions.forEach((session: AuditSessionData) => {
       const dateKey = session.createdAt.toISOString().split('T')[0];
       
-      // Daily costs
-      if (!dailyCosts[dateKey]) {
-        dailyCosts[dateKey] = 0;
-      }
-      dailyCosts[dateKey] += session.totalCost;
+      // Per-call accumulation for daily LLM vs Serper API costs
+      session.llmCalls.forEach((call: { phase: string; model: string; totalCost: number }) => {
+        const isSerper = call.model === 'serper_api';
+        if (isSerper) {
+          if (!dailySerperCosts[dateKey]) dailySerperCosts[dateKey] = 0;
+          dailySerperCosts[dateKey] += call.totalCost;
+        } else {
+          if (!dailyLLMCosts[dateKey]) dailyLLMCosts[dateKey] = 0;
+          dailyLLMCosts[dateKey] += call.totalCost;
+        }
+      });
       
       // Session totals
       totalCost += session.totalCost;
@@ -127,16 +134,28 @@ export async function GET(req: NextRequest) {
     });
 
     // Format daily costs for charting (fill missing dates with 0)
-    const chartData = [];
+    const chartData: Array<{ date: string; totalCost: number; llmCost: number; serperCost: number }> = [];
     for (let i = days - 1; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateKey = date.toISOString().split('T')[0];
+      const llmCost = dailyLLMCosts[dateKey] || 0;
+      const serperCost = dailySerperCosts[dateKey] || 0;
       chartData.push({
         date: dateKey,
-        cost: dailyCosts[dateKey] || 0
+        totalCost: llmCost + serperCost,
+        llmCost,
+        serperCost
       });
     }
+
+    // Aggregate totals by model for llm vs serper
+    let serperCostTotal = 0;
+    let llmCostTotal = 0;
+    Object.entries(modelCosts).forEach(([model, cost]) => {
+      if (model === 'serper_api') serperCostTotal += cost;
+      else llmCostTotal += cost;
+    });
 
     return NextResponse.json({
       summary: {
@@ -144,6 +163,8 @@ export async function GET(req: NextRequest) {
         totalTokens,
         totalCalls,
         totalSessions: auditSessions.length,
+        serperCost: serperCostTotal,
+        llmCost: llmCostTotal,
         dateRange: {
           from: fromDate.toISOString(),
           to: new Date().toISOString()
