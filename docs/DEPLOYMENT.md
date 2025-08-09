@@ -164,7 +164,7 @@ curl https://your-backend.railway.app/debug/config
 - [ ] Set `PRODUCTION_DOMAINS` with all allowed domains (HTTPS required)
 - [ ] Update `NEXTAUTH_URL` to match frontend URL (HTTPS required)
 - [ ] Use production-grade `NEXTAUTH_SECRET`
-- [ ] Configure database connection for production
+- [ ] Configure database connection for production (set identical `DATABASE_URL` in frontend and backend env files)
 - [ ] Set up proper logging
 - [ ] **Verify all URLs use HTTPS (HTTP will be rejected)**
 - [ ] Test HTTPS enforcement

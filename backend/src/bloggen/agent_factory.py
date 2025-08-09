@@ -51,8 +51,8 @@ class AgentFactory:
         )
     
     @staticmethod
-    def create_fact_checker() -> Agent:
-        """Create a fact-checking agent for verifying content accuracy."""
+    def create_fact_checker(tools: List[Any]) -> Agent:
+        """Create a fact-checking agent for verifying content accuracy with live web validation."""
         return Agent(
             role='Senior Fact Checker',
             goal='Verify the accuracy of claims and ensure content credibility',
@@ -61,7 +61,7 @@ class AgentFactory:
             journalism and content verification. Your sharp eye for detail and commitment to
             accuracy ensures that all published content meets the highest standards of
             credibility and reliability.""",
-            tools=[],
+            tools=tools,  # Provide web search tools for live source re-validation
             allow_delegation=False,
             llm=config.models.fact_check_model  # Use gpt-4o for fact checking
         )

@@ -124,6 +124,13 @@ The authentication system integrates with your Supabase database:
 - Blog generation counts are tracked per user
 - Role-based permissions are enforced based on database records
 
+Important: Ensure the SAME `DATABASE_URL` value exists in both `frontend-nextjs/blog-generator-ui/.env.local` and `backend/.env`. The backend relies on it for:
+- Audit session + llm_calls logging (cost + Serper tracking)
+- Admin analytics aggregation
+- Any direct schema inspection or diagnostics
+
+If the backend `.env` is missing or has a different value you may see missing Serper or LLM call rows even though the frontend DB is populated.
+
 ## Next Steps
 
 1. ✅ Authentication middleware implemented

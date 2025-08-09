@@ -14,6 +14,8 @@ interface AuditAnalytics {
     totalTokens: number;
     totalCalls: number;
     totalSessions: number;
+    serperCost?: number;
+    llmCost?: number;
     dateRange: {
       from: string;
       to: string;
@@ -21,7 +23,9 @@ interface AuditAnalytics {
   };
   chartData: Array<{
     date: string;
-    cost: number;
+    totalCost: number;
+    llmCost: number;
+    serperCost: number;
   }>;
   breakdowns: {
     byPhase: Array<{
@@ -170,8 +174,8 @@ export default function AdminAuditPage() {
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+  {/* Summary Cards */}
+  <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -181,6 +185,30 @@ export default function AdminAuditPage() {
                 </p>
               </div>
               <div className="text-green-500">💰</div>
+            </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">LLM Cost</p>
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  ${((analytics.summary.llmCost ?? analytics.summary.totalCost - (analytics.summary.serperCost || 0))).toFixed(4)}
+                </p>
+              </div>
+              <div className="text-blue-500">🧠</div>
+            </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Serper Cost</p>
+                <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                  ${((analytics.summary.serperCost) || 0).toFixed(4)}
+                </p>
+              </div>
+              <div className="text-purple-500">🔎</div>
             </div>
           </Card>
 
@@ -223,7 +251,7 @@ export default function AdminAuditPage() {
 
         {/* Cost Over Time Chart */}
         <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Cost Trends Over Time</h2>
+          <h2 className="text-xl font-semibold mb-4">Cost Trends Over Time (Total vs LLM vs Serper)</h2>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={analytics.chartData}>
@@ -239,15 +267,11 @@ export default function AdminAuditPage() {
                 />
                 <Tooltip 
                   labelFormatter={(value: string) => new Date(value).toLocaleDateString()}
-                  formatter={(value: number) => [`$${value.toFixed(4)}`, 'Cost']}
+                  formatter={(value: number, name: string) => [`$${value.toFixed(4)}`, name]}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="cost" 
-                  stroke="#0088FE" 
-                  strokeWidth={2}
-                  dot={{ fill: '#0088FE', strokeWidth: 2, r: 4 }}
-                />
+                <Line type="monotone" dataKey="totalCost" name="Total" stroke="#0088FE" strokeWidth={2} dot={{ fill: '#0088FE', strokeWidth: 2, r: 3 }} />
+                <Line type="monotone" dataKey="llmCost" name="LLM" stroke="#34D399" strokeWidth={2} dot={{ fill: '#34D399', strokeWidth: 2, r: 3 }} />
+                <Line type="monotone" dataKey="serperCost" name="Serper" stroke="#A855F7" strokeWidth={2} dot={{ fill: '#A855F7', strokeWidth: 2, r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>

@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
+import { canUserGenerate, remainingGenerations } from '@/config/constants'
 
 export function useAuth(requireAuth = true) {
   const { data: session, status } = useSession()
@@ -27,31 +28,18 @@ export function useAuth(requireAuth = true) {
 export function useRoleCheck() {
   const { session } = useAuth()
 
-  const hasRole = (role: string) => {
-    return session?.user?.role === role
-  }
+  const hasRole = (role: string) => session?.user?.role === role
 
   const canGenerateBlog = () => {
     if (!session) return false
-    
     const user = session.user
-    if (user.role === 'PREMIUM' || user.role === 'ADMIN') {
-      return true
-    }
-    
-    // Free users have a limit of 50 blogs per month (updated for testing)
-    return user.monthlyGenerations < 50
+    return canUserGenerate(user.role, user.monthlyGenerations)
   }
 
   const getRemainingGenerations = () => {
     if (!session) return 0
-    
     const user = session.user
-    if (user.role === 'PREMIUM' || user.role === 'ADMIN') {
-      return Infinity
-    }
-    
-    return Math.max(0, 50 - user.monthlyGenerations)
+    return remainingGenerations(user.role, user.monthlyGenerations)
   }
 
   return {

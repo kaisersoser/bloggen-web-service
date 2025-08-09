@@ -114,8 +114,13 @@ security = HTTPBearer()
 # =============================================================================
 
 class BlogGenerationRequest(BaseModel):
-    """Request model for blog generation."""
-    topic: str = Field(..., min_length=3, max_length=200, description="Blog topic")
+    """Request model for blog generation.
+
+    topic becomes optional; if absent/blank, the backend will auto-generate
+    a topic from provided instructions (leveraging flow auto-topic logic).
+    """
+    topic: Optional[str] = Field(None, max_length=200, description="Blog topic (optional; auto-generated if omitted)")
+    instructions: Optional[str] = Field(None, max_length=2000, description="Full user + config built instructions")
     task_id: Optional[str] = Field(None, description="Optional task ID")
 
 class BlogGenerationResponse(BaseModel):
@@ -259,6 +264,7 @@ async def generate_blog(
     request_id = str(uuid.uuid4())
     
     # Set request context for this async task tree
+    normalized_topic = (request.topic or "").strip() or None
     set_request_context(
         request_id=request_id,
         task_id=task_id,
@@ -266,13 +272,13 @@ async def generate_blog(
         user_email=user.email,
         user_role=user.role,
         blog_id=task_id,  # Use task_id as blog_id
-        topic=request.topic
+        topic=normalized_topic or "<auto>"
     )
     
     # Create task record
     active_tasks[task_id] = {
         'id': task_id,
-        'topic': request.topic,
+        'topic': normalized_topic or '<auto-generating>',
         'status': 'queued',
         'created_at': datetime.utcnow().isoformat(),
         'current_step': 'Queued for processing',
@@ -281,15 +287,17 @@ async def generate_blog(
         'user_id': user.id,
         'user_email': user.email,
         'user_role': user.role,
-        'request_id': request_id
+        'request_id': request_id,
+        'instructions': (request.instructions or '').strip() or None
     }
     
     # Start background blog generation
     background_tasks.add_task(
         async_blog_generation,
         task_id=task_id,
-        topic=request.topic,
-        user_id=user.id
+        topic=normalized_topic,  # may be None for auto-generation
+        user_id=user.id,
+        instructions=(request.instructions or '').strip() or None
     )
     
     logger.info(f"🚀 Blog generation started: {task_id} for user {user.id}")
@@ -517,7 +525,7 @@ async def generate_title(
 # Background Tasks
 # =============================================================================
 
-async def async_blog_generation(task_id: str, topic: str, user_id: str):
+async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str, instructions: Optional[str] = None):
     """
     Async blog generation with context preservation.
     
@@ -537,7 +545,7 @@ async def async_blog_generation(task_id: str, topic: str, user_id: str):
             user_email=f"{user_id}@context.restored",  # Placeholder since we don't have email
             user_role="PREMIUM",  # Assume premium for background tasks
             blog_id=task_id,
-            topic=topic
+            topic=topic or '<auto>'
         )
         
         # Update task status
@@ -581,10 +589,12 @@ async def async_blog_generation(task_id: str, topic: str, user_id: str):
             status_callback=update_task_status,
             user_id=user_id,
             blog_id=task_id,
-            audit_tracker=audit_tracker  # Pass audit tracker directly for thread execution
+            audit_tracker=audit_tracker,
+            topic=topic,  # may be None
+            instructions=instructions
         )
-        
-        # Execute the flow with proper inputs
+
+        # Execute the flow with proper inputs (topic may be None for auto-generation)
         result = await run_blog_flow_async(flow, topic)
         
         # End the audit session
@@ -617,6 +627,10 @@ async def async_blog_generation(task_id: str, topic: str, user_id: str):
                 logger.error(f"❌ Error extracting blog content for task {task_id}: {e}")
                 blog_content = f"Error extracting blog content: {str(e)}"
             
+            # Update topic if it was auto-generated
+            if (not topic or not topic.strip()) and getattr(flow, 'topic', None):
+                active_tasks[task_id]['topic'] = flow.topic
+
             active_tasks[task_id]['status'] = 'completed'
             active_tasks[task_id]['result'] = blog_content  # Send only the blog content
             active_tasks[task_id]['current_step'] = 'Blog generation completed successfully!'
@@ -643,36 +657,36 @@ async def async_blog_generation(task_id: str, topic: str, user_id: str):
             active_tasks[task_id]['error'] = str(e)
             active_tasks[task_id]['current_step'] = f'Error: {str(e)}'
 
-async def run_blog_flow_async(flow: BlogGenerationFlow, topic: str):
+async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
+    """Run the blog generation flow asynchronously using a thread pool.
+
+    Parameters:
+      flow: BlogGenerationFlow instance already configured (may have instructions & audit tracker)
+      topic: Optional topic. If None or empty, the flow will auto-generate one during initialization.
     """
-    Run the blog generation flow in an async context.
-    
-    For now, we'll run the sync flow in a thread pool.
-    Later, we'll convert the flow to be fully async.
-    """
-    # For now, run the sync flow in a thread pool
-    # TODO: Convert BlogGenerationFlow to be fully async
     loop = asyncio.get_event_loop()
-    
+
     def run_sync_flow():
         try:
-            # Set the topic and year on the flow instance before kickoff
-            flow.topic = topic
-            flow.current_year = datetime.now().year
-            
-            logger.info(f"🚀 Starting flow with topic: {topic}, year: {flow.current_year}")
-            
+            # Only set topic if provided (preserve None for auto-generation logic)
+            if topic and topic.strip():
+                flow.topic = topic.strip()
+            # Always ensure current year present
+            if not flow.current_year:
+                flow.current_year = datetime.now().year
+
+            log_topic = flow.topic if flow.topic else '<auto>'
+            logger.info(f"🚀 Starting flow with topic: {log_topic}, year: {flow.current_year}")
+
             return flow.kickoff({
-                'topic': topic,
-                'current_year': datetime.now().year
+                'topic': flow.topic or '',  # kickoff context; flow handles auto-generation internally
+                'current_year': flow.current_year,
             })
         except Exception as e:
             logger.error(f"❌ Flow execution failed: {e}")
             raise
-    
-    # Run in thread pool to avoid blocking the event loop
-    result = await loop.run_in_executor(None, run_sync_flow)
-    return result
+
+    return await loop.run_in_executor(None, run_sync_flow)
 
 # =============================================================================
 # Development Server

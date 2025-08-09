@@ -78,29 +78,19 @@ export function useBlogManagement() {
     }
   }, []);
 
-  const convertBlogToJob = useCallback((blog: BlogData): JobState => {
-    return {
-      id: blog.id,
-      topic: blog.topic,
-      instructions: blog.instructions || '',
-      status: blog.status.toLowerCase() as JobState['status'],
-      progress: blog.progress,
-      currentStep: blog.currentStep || 'Completed',
-      logs: [],
-      blogContent: blog.content || '',
-      error: blog.error ? {
-        error_type: 'generation_error',
-        user_message: blog.error,
-        technical_details: blog.error,
-        is_recoverable: false,
-        suggestions: [],
-        timestamp: new Date().toISOString(),
-        severity: 'error'
-      } as const : null,
-      createdAt: new Date(blog.createdAt).toISOString(),
-      completedAt: blog.completedAt ? new Date(blog.completedAt).toISOString() : undefined
-    };
-  }, []);
+  const convertBlogToJob = useCallback((blog: BlogData): JobState => ({
+    id: blog.id,
+    topic: blog.topic,
+    instructions: blog.instructions || '',
+    status: blog.status.toLowerCase() as JobState['status'],
+    progress: blog.progress,
+    currentStep: blog.currentStep || 'Completed',
+    logs: [],
+    blogContent: blog.content || '',
+    error: blog.error,
+    createdAt: blog.createdAt,
+    completedAt: blog.completedAt || undefined
+  }), []);
 
   const addTemporaryJob = useCallback((job: JobState) => {
     setJobs(prevJobs => {

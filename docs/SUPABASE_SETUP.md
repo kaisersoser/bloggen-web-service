@@ -4,7 +4,12 @@
 
 ### 1. Update Environment Variables
 
-Replace the placeholder values in your `.env.local` file with your actual Supabase credentials:
+Set the database URL in BOTH environments:
+
+- Frontend: `frontend-nextjs/blog-generator-ui/.env.local` (used by Prisma + NextAuth)
+- Backend: `backend/.env` (used by audit tracker, direct DB access, cost analytics)
+
+Replace the placeholder values in your `.env.local` (and mirror the same value in `backend/.env`) with your actual Supabase credentials:
 
 ```bash
 # Database - Supabase
@@ -28,7 +33,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
 
 ### 3. Database URL Format
 
-Your `DATABASE_URL` should look like this:
+Your `DATABASE_URL` should look like this (place the SAME value in `frontend-nextjs/blog-generator-ui/.env.local` and `backend/.env`):
 ```
 postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres?schema=public
 ```
@@ -73,9 +78,9 @@ FOR ALL USING (auth.uid()::text = "userId");
 
 ## 🔧 Manual Setup Steps
 
-### Step 1: Update .env.local
+### Step 1: Update .env.local and backend/.env
 
-Replace these values with your actual Supabase credentials:
+Replace these values with your actual Supabase credentials (duplicate the DATABASE_URL line in `backend/.env` so both services point to the same database):
 
 ```bash
 # Replace [YOUR-PROJECT-REF] with your project reference
@@ -136,7 +141,7 @@ Visit `http://localhost:3001/blog` to test authentication!
 ## 🔍 Troubleshooting
 
 **Database Connection Issues:**
-- Verify your DATABASE_URL is correct
+- Verify your DATABASE_URL is correct and identical in BOTH `frontend-nextjs/blog-generator-ui/.env.local` and `backend/.env`
 - Check that your Supabase project is active
 - Ensure your database password is correct
 
