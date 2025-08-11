@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, Settings } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { blogService } from '@/lib/services/blog';
+import { ChevronDown, ChevronUp, Send, Settings } from 'lucide-react';
 
 export interface PromptConfig {
   tone: 'creative-funny' | 'basic-info' | 'deep-research';
@@ -416,8 +418,8 @@ export function ChatPromptInput({
       </div>
 
       {/* Character counter and status */}
-      <div className="flex justify-between items-center mt-2 px-1">
-        <div className="flex items-center gap-2">
+      <div className="flex justify-between items-start mt-2 px-1 gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="text-xs text-gray-500">
             {userInput.length} characters
           </div>
@@ -432,9 +434,35 @@ export function ChatPromptInput({
           
           {/* Generated title preview */}
           {!isGeneratingTitle && generatedTitle && !hasExplicitTitle(userInput.trim()) && (
-            <div className="flex items-center gap-1 text-xs text-green-600">
-              <span>✓ Generated title:</span>
-              <span className="font-medium max-w-[200px] truncate">{generatedTitle}</span>
+            <div className="flex items-start gap-1 text-xs text-green-600 min-w-0 flex-1">
+              <span className="flex-shrink-0">✓ Generated title:</span>
+              {(() => {
+                const titleWordCount = generatedTitle.split(/\s+/).length;
+                const shouldShowTooltip = titleWordCount > 20;
+                
+                if (shouldShowTooltip) {
+                  return (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="font-medium max-w-[300px] truncate cursor-help">
+                            {generatedTitle}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm p-3">
+                          <p className="text-sm">{generatedTitle}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  );
+                } else {
+                  return (
+                    <span className="font-medium break-words leading-tight">
+                      {generatedTitle}
+                    </span>
+                  );
+                }
+              })()}
             </div>
           )}
         </div>

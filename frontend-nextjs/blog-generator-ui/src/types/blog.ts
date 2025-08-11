@@ -5,6 +5,7 @@ export interface ApiBlogDto {
   topic: string;
   instructions: string | null;
   content: string | null;
+  heroImageUrl?: string | null;
   status: string;
   progress?: number;
   currentStep?: string | null;
@@ -21,6 +22,7 @@ export interface BlogData {
   topic: string;
   instructions: string | null;
   content: string | null;
+  heroImageUrl?: string | null;
   status: string;
   progress: number;
   currentStep: string | null;
@@ -60,6 +62,7 @@ export interface SSEUpdate {
   message?: string;
   timestamp?: string;
   step?: string;
+  hero_image_url?: string;
 }
 
 export interface LogEntry {
@@ -127,6 +130,7 @@ export function mapApiBlog(dto: ApiBlogDto): BlogData {
     topic: dto.topic,
     instructions: dto.instructions,
     content: dto.content,
+  heroImageUrl: dto.heroImageUrl ?? null,
     status: dto.status,
     progress: dto.progress ?? 0,
     currentStep: dto.currentStep || null,

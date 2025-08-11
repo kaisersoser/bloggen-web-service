@@ -28,6 +28,8 @@ from .tools_manager import ToolsManager
 from .topic_utils import generate_concise_topic
 from core.llm_interceptor import _register_audit_tracker
 from core.config import config  # reuse existing config for model + key
+from core.crewai_rate_limiter import CrewAIRateLimitManager
+from core.rate_limit_config import BlogGenRateLimitConfig
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,23 @@ class BlogGenerationFlow(Flow):
         self.agent_factory = AgentFactory()
         self.task_factory = TaskFactory()
         self.tools_manager = ToolsManager(audit_tracker=audit_tracker)
+        
+        # Initialize rate limiting based on configuration
+        if config.rate_limit.enabled:
+            # Convert main config to BlogGenRateLimitConfig
+            rate_config = BlogGenRateLimitConfig(
+                tokens_per_minute=config.rate_limit.tokens_per_minute,
+                requests_per_minute=config.rate_limit.requests_per_minute,
+                max_retries=config.rate_limit.max_retries,
+                base_delay=config.rate_limit.base_delay,
+                max_delay=config.rate_limit.max_delay,
+                enable_chunking=config.rate_limit.enable_chunking
+            )
+            self.rate_limiter = CrewAIRateLimitManager(rate_config)
+            logger.info(f"Rate limiting enabled: {config.rate_limit.tokens_per_minute} TPM, {config.rate_limit.requests_per_minute} RPM")
+        else:
+            self.rate_limiter = None
+            logger.info("Rate limiting disabled")
 
     # Mutable state already created pre-super
 
@@ -147,9 +166,47 @@ class BlogGenerationFlow(Flow):
     def _complete(self, final_content: str) -> None:
         self.status_manager.send_completion_update(final_content)
 
-    def _execute(self, agent, task) -> Any:
+    def _execute(self, agent, task, phase_name: str = "unknown") -> Any:
+        """Execute crew with optional rate limiting and error handling"""
         crew = Crew(agents=[agent], tasks=[task], verbose=True)
-        return crew.kickoff()
+        
+        # If rate limiting is disabled, use direct execution
+        if not self.rate_limiter:
+            logger.info(f"Executing {phase_name} without rate limiting")
+            return crew.kickoff()
+        
+        # Use asyncio to run the rate-limited execution
+        import asyncio
+        
+        async def execute_with_rate_limiting():
+            if self.rate_limiter is None:
+                raise RuntimeError("Rate limiter not initialized")
+            return await self.rate_limiter.execute_crew_with_rate_limiting(
+                crew=crew,
+                inputs={
+                    'topic': self.flow_state.topic or '',
+                    'current_year': self.flow_state.current_year or datetime.now().year
+                },
+                phase_name=phase_name,
+                max_retries=config.rate_limit.max_retries
+            )
+        
+        # Run the async function
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If already in async context, schedule as task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, execute_with_rate_limiting())
+                    return future.result(timeout=300)  # 5 minute timeout
+            else:
+                return asyncio.run(execute_with_rate_limiting())
+        except Exception as e:
+            logger.error(f"Rate-limited execution failed for {phase_name}: {e}")
+            # Fallback to direct execution if rate limiting fails
+            logger.warning(f"Falling back to direct execution for {phase_name}")
+            return crew.kickoff()
 
     def _require_topic(self) -> None:
         if not self.flow_state.topic:
@@ -218,7 +275,7 @@ class BlogGenerationFlow(Flow):
             task = self.task_factory.create_research_task(
                 agent, topic, year, self.instructions
             )
-            result = self._execute(agent, task)
+            result = self._execute(agent, task, "research")
             self.flow_state.results["research"] = result
             self._status("Research completed", step=1, detail="Sources gathered")
             return {**init_data, "research_results": result}
@@ -241,7 +298,7 @@ class BlogGenerationFlow(Flow):
             task = self.task_factory.create_content_task(
                 agent, topic, year, self.instructions
             )
-            draft = self._execute(agent, task)
+            draft = self._execute(agent, task, "content_generation")
             self.flow_state.results["content"] = draft
             self._status("Content draft complete", step=2, detail="Draft ready")
             return {**research_data, "initial_content": draft}
@@ -261,7 +318,7 @@ class BlogGenerationFlow(Flow):
             tools = self.tools_manager.get_research_tools()
             agent = self.agent_factory.create_fact_checker(tools)
             task = self.task_factory.create_fact_check_task(agent, topic, self.instructions)
-            checked = self._execute(agent, task)
+            checked = self._execute(agent, task, "fact_checking")
             self.flow_state.results["fact_checked"] = checked
             self._status("Fact-check complete", step=3, detail="Content validated")
             return {**content_data, "fact_checked_content": checked}
@@ -280,7 +337,7 @@ class BlogGenerationFlow(Flow):
             topic = cast(str, self.flow_state.topic)
             agent = self.agent_factory.create_finalizer()
             task = self.task_factory.create_finalization_task(agent, topic, self.instructions)
-            final_post = self._execute(agent, task)
+            final_post = self._execute(agent, task, "finalization")
             self.flow_state.results["final"] = final_post
             self._complete(str(final_post))
             return {**verified_content, "final_blog_post": final_post, "generation_complete": True}

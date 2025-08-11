@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 })
     }
 
-    const { blog_id, status, content, error } = await request.json()
+  const { blog_id, status, content, error, hero_image_url } = await request.json()
 
     if (!blog_id) {
       return NextResponse.json({ error: "Blog ID is required" }, { status: 400 })
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     // Update blog status in database
     if (status === 'completed' && content) {
-      await BlogService.updateBlogStatus(blog_id, 'COMPLETED', 100, 'Blog generation complete', content)
+  await BlogService.updateBlogStatus(blog_id, 'COMPLETED', 100, 'Blog generation complete', content, undefined, hero_image_url || undefined)
       
       // Generation count is incremented automatically in updateBlogStatus
       return NextResponse.json({ 

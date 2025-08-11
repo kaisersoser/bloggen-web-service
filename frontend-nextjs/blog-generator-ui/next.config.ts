@@ -21,6 +21,20 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      // Placeholder service used by OpenAI image tool fallback
+      {
+        protocol: 'https',
+        hostname: 'placehold.co',
+        port: '',
+        pathname: '/**',
+      },
+      // Common OpenAI image blob host (may vary by region)
+      {
+        protocol: 'https',
+        hostname: 'oaidalleapiprodscus.blob.core.windows.net',
+        port: '',
+        pathname: '/**',
+      },
     ],
   },
   

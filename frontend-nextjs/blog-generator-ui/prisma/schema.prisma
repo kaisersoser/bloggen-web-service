@@ -70,6 +70,7 @@ model Blog {
   topic         String
   instructions  String?
   content       String?
+  heroImageUrl  String?        @map("hero_image_url")
   status        BlogStatus     @default(QUEUED)
   progress      Int            @default(0)
   currentStep   String?        @map("current_step")

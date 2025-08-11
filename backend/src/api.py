@@ -4,7 +4,7 @@ Legacy Flask API Module - Refactored with Clean Code Principles
 
 This module provides backward compatibility for the old Flask API while
 demonstrating clean code principles. The main FastAPI application in
-fastapi_main.py should be used for new development.
+main.py should be used for new development.
 
 Applied Principles:
 - Single Responsibility Principle: Each class has one clear purpose
@@ -257,7 +257,7 @@ class LegacyFlaskAPI:
         """Run Flask development server with proper configuration."""
         try:
             logger.info("Starting Legacy Flask API development server")
-            logger.warning("⚠️  This is the legacy API. Use fastapi_main.py for new development.")
+            logger.warning("⚠️  This is the legacy API. Use main.py for new development.")
             
             self.app.run(
                 host='127.0.0.1',

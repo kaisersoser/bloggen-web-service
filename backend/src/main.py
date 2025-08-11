@@ -48,9 +48,8 @@ from core.context_vars import (
 
 # Core imports
 from core.config import config, get_cors_origins
-from core import DatabaseAuditTracker, EnhancedDatabaseAuditTracker  # Use refactored version
 from core.llm_interceptor import setup_llm_interceptor
-from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # for serper cost patch
+from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # unified import
 from core.logging_utils import setup_api_logger
 
 # Blog generation
@@ -70,6 +69,22 @@ async def lifespan(app: FastAPI):
     FastAPI lifespan event handler for startup and shutdown.
     """
     # Startup
+    # Ensure logger initialized (may not yet be assigned at import time in some execution orders)
+    global logger
+    if 'logger' not in globals() or logger is None:
+        try:
+            from core.logging_utils import setup_api_logger as _setup_logger
+            logger = _setup_logger("main")  # type: ignore
+        except Exception:
+            # Fallback basic logger
+            import logging as _logging
+            logger = _logging.getLogger("main")  # type: ignore
+            if not logger.handlers:
+                _handler = _logging.StreamHandler()
+                _handler.setFormatter(_logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+                logger.addHandler(_handler)
+            logger.setLevel(_logging.INFO)
+
     logger.info("🚀 Starting FastAPI Blog Generation Service")
     
     # Set up LLM interceptor with context variables
@@ -121,7 +136,7 @@ app.add_middleware(
 active_tasks: Dict[str, Dict[str, Any]] = {}
 
 # Logger
-logger = setup_api_logger("fastapi_main")
+logger = setup_api_logger("main")
 
 # Security
 security = HTTPBearer()
@@ -343,101 +358,68 @@ async def get_task_status(
     return TaskStatus(**task)
 
 @app.get("/stream/{task_id}")
-async def stream_task_updates(
-    task_id: str,
-    token: str,
-    request: Request
-):
-    """
-    Server-Sent Events stream for real-time task updates.
-    
-    Uses query parameter authentication since EventSource doesn't support
-    custom headers for JWT tokens.
-    """
-    try:
-        # Authenticate user from query token
-        user = await get_current_user_from_query_token(token)
-        
-        # Check if task exists
-        if task_id not in active_tasks:
-            raise HTTPException(status_code=404, detail="Task not found")
-        
-        task = active_tasks[task_id]
-        
-        # Check if user owns this task (or is admin)
-        if task['user_id'] != user.id and user.role != 'ADMIN':
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        logger.info(f"🔗 SSE stream connected for task {task_id} by user {user.id}")
-        
-    except Exception as e:
-        logger.error(f"❌ SSE authentication failed: {e}")
-        raise HTTPException(status_code=401, detail="Authentication failed")
-    
+async def stream_task(task_id: str, token: str):
+    """SSE stream for a specific task with early hero image updates."""
+    # Authenticate via query token
+    user = await get_current_user_from_query_token(token)
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task = active_tasks[task_id]
+    if task['user_id'] != user.id and user.role != 'ADMIN':
+        raise HTTPException(status_code=403, detail="Access denied")
+
     async def event_generator():
-        """Generate SSE events for task updates."""
+        last_sent_status = None
+        last_sent_step = None
+        last_sent_progress = None
+        last_sent_hero = None
         try:
-            last_sent_step = None
-            last_sent_status = None
-            last_sent_progress = None
-            
             while True:
                 if task_id not in active_tasks:
                     break
-                    
                 current_task = active_tasks[task_id]
-                status = current_task['status']
-                step = current_task['current_step']
+                status = current_task.get('status')
+                step = current_task.get('current_step')
                 progress = current_task.get('progress', 0)
-                
-                # Only send update if something actually changed
+                hero_url = current_task.get('hero_image_url')
                 has_changes = (
-                    status != last_sent_status or 
-                    step != last_sent_step or 
-                    progress != last_sent_progress
+                    status != last_sent_status or
+                    step != last_sent_step or
+                    progress != last_sent_progress or
+                    hero_url != last_sent_hero
                 )
-                
                 if has_changes:
-                    logger.info(f"📡 SSE: Sending update for task {task_id} - Status: {status}, Step: {step}")
-                    
-                    # For completed status, include the result in the same message
+                    payload: Dict[str, Any] = {
+                        'status': status,
+                        'step': step,
+                        'progress': progress,
+                        'timestamp': datetime.utcnow().isoformat()
+                    }
+                    if hero_url:
+                        payload['hero_image_url'] = hero_url
                     if status == 'completed' and current_task.get('result'):
-                        logger.info(f"📡 SSE: Sending completion with result for task {task_id}")
-                        yield f"data: {{\"status\": \"completed\", \"step\": \"{step}\", \"progress\": {progress}, \"timestamp\": \"{datetime.utcnow().isoformat()}\", \"result\": {json.dumps(current_task['result'])}}}\n\n"
-                    elif status == 'failed' and current_task.get('error'):
-                        logger.info(f"📡 SSE: Sending failure with error for task {task_id}")
-                        yield f"data: {{\"status\": \"failed\", \"step\": \"{step}\", \"progress\": {progress}, \"timestamp\": \"{datetime.utcnow().isoformat()}\", \"error\": {json.dumps(current_task['error'])}}}\n\n"
-                    else:
-                        # Regular status update
-                        yield f"data: {{\"status\": \"{status}\", \"step\": \"{step}\", \"progress\": {progress}, \"timestamp\": \"{datetime.utcnow().isoformat()}\"}}\n\n"
-                    
-                    # Update last sent values
+                        payload['result'] = current_task['result']
+                    if status == 'failed' and current_task.get('error'):
+                        payload['error'] = current_task['error']
+                    yield f"data: {json.dumps(payload)}\n\n"
                     last_sent_status = status
                     last_sent_step = step
                     last_sent_progress = progress
-                
-                # Break the loop if task is complete
+                    last_sent_hero = hero_url
                 if status in ['completed', 'failed']:
                     break
-                
-                # Wait before checking for changes again (reduced frequency)
                 await asyncio.sleep(0.5)
-                
         except asyncio.CancelledError:
             logger.info(f"SSE stream cancelled for task {task_id}")
         except Exception as e:
             logger.error(f"Error in SSE stream for task {task_id}: {e}")
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+    })
 
 @app.post("/generate-title", response_model=TitleGenerationResponse)
 async def generate_title(
@@ -572,20 +554,49 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             instructions=instructions
         )
 
+        async def hero_image_task():
+            """Generate hero image in parallel once topic becomes available."""
+            try:
+                # Wait for topic (poll) or give up after 30 * 0.3s = 9s
+                for _ in range(30):
+                    if getattr(flow, 'topic', None):
+                        break
+                    await asyncio.sleep(0.3)
+                final_topic = getattr(flow, 'topic', None) or topic or 'AI Blog'
+                update_phase('image_generation')
+                from bloggen.tools.openai_image_tool import OpenAIImageTool
+                from bloggen.tools.unsplash_tool import UnsplashImageTool
+                prompt = f"High quality, modern illustrative hero image representing: {final_topic}"
+                hero_tool = OpenAIImageTool(audit_tracker=audit_tracker)
+                hero_result = hero_tool.run(prompt)
+                hero_url = hero_result.get('url') if isinstance(hero_result, dict) else None
+                if not hero_url or 'placeholder' in (hero_url or ''):
+                    try:
+                        unsplash_tool = UnsplashImageTool()
+                        unsplash_res = unsplash_tool.run(final_topic)
+                        if isinstance(unsplash_res, dict):
+                            hero_url = unsplash_res.get('url') or hero_url
+                    except Exception:
+                        logger.debug('Unsplash fallback failed', exc_info=True)
+                if hero_url and task_id in active_tasks and active_tasks[task_id].get('status') != 'failed':
+                    active_tasks[task_id]['hero_image_url'] = hero_url
+                    if active_tasks[task_id]['status'] != 'completed':
+                        active_tasks[task_id]['current_step'] = 'Hero image ready'
+                update_phase('finalization')
+            except Exception as e:
+                logger.debug(f"Parallel hero image generation failed for task {task_id}: {e}", exc_info=True)
+
+        # Start hero image generation concurrently
+        hero_task = asyncio.create_task(hero_image_task())
+
         # Execute the flow with proper inputs (topic may be None for auto-generation)
         result = await run_blog_flow_async(flow, topic)
-        
-        # End the audit session
-        await audit_tracker.end_session()
-        
-        # Update task with completion
+
+        # Update task with flow result prior to hero image generation
         if task_id in active_tasks:
-            # Extract just the final blog content, not the entire flow result
             blog_content = "Blog generation completed, but content extraction failed."
-            
             try:
                 if isinstance(result, dict) and 'final_blog_post' in result:
-                    # Get the final blog post content
                     final_blog = result['final_blog_post']
                     if hasattr(final_blog, 'raw'):
                         blog_content = final_blog.raw
@@ -594,26 +605,36 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                     else:
                         blog_content = str(final_blog)
                 elif hasattr(result, 'raw') and result.raw:  # type: ignore
-                    # Direct CrewOutput object
                     blog_content = result.raw  # type: ignore
                 else:
-                    # Fallback: convert to string but log warning
                     blog_content = str(result)
                     logger.warning(f"⚠️ Using fallback string conversion for task {task_id}")
-                    
             except Exception as e:
                 logger.error(f"❌ Error extracting blog content for task {task_id}: {e}")
                 blog_content = f"Error extracting blog content: {str(e)}"
-            
-            # Update topic if it was auto-generated
+
+            # Update topic if auto-generated
             if (not topic or not topic.strip()) and getattr(flow, 'topic', None):
                 active_tasks[task_id]['topic'] = flow.topic
 
-            active_tasks[task_id]['status'] = 'completed'
-            active_tasks[task_id]['result'] = blog_content  # Send only the blog content
-            active_tasks[task_id]['current_step'] = 'Blog generation completed successfully!'
-            active_tasks[task_id]['progress'] = 100
-            logger.info(f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars")
+            # Await hero task (still parallelized with flow) to keep guarantee hero appears before completion
+            try:
+                await asyncio.wait_for(hero_task, timeout=15)
+            except asyncio.TimeoutError:
+                logger.warning(f"Hero image generation timeout for task {task_id}; completing without it")
+            except Exception:
+                logger.debug("Hero image coroutine error", exc_info=True)
+
+            # Mark completion after hero attempt
+            if task_id in active_tasks and active_tasks[task_id]['status'] != 'failed':
+                active_tasks[task_id]['status'] = 'completed'
+                active_tasks[task_id]['result'] = blog_content
+                active_tasks[task_id]['current_step'] = 'Blog generation completed successfully!'
+                active_tasks[task_id]['progress'] = 100
+                logger.info(f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars")
+
+        # End the audit session AFTER hero image to include its cost
+        await audit_tracker.end_session()
         
         logger.info(f"✅ Blog generation completed for task {task_id}")
         
@@ -672,7 +693,7 @@ async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "fastapi_main:app",
+        "main:app",
         host="0.0.0.0",
         port=5000,  # Standard port for backend API
         reload=True,

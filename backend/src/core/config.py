@@ -65,6 +65,18 @@ class ServerConfig:
 
 
 @dataclass
+class RateLimitConfig:
+    """Rate limiting configuration"""
+    enabled: bool = True
+    tokens_per_minute: int = 30000
+    requests_per_minute: int = 3500
+    max_retries: int = 5
+    base_delay: float = 1.0
+    max_delay: float = 60.0
+    enable_chunking: bool = True
+
+
+@dataclass
 class PathConfig:
     """File system paths configuration"""
     base_dir: Path
@@ -137,6 +149,7 @@ class UnifiedConfig:
         self.api = self._init_api()
         self.models = self._init_models()
         self.security = self._init_security()
+        self.rate_limit = self._init_rate_limit()
         
         self.logger.info(f"Configuration initialized for environment: {self.server.environment}")
     
@@ -198,6 +211,18 @@ class UnifiedConfig:
             secret_key=self.env.get_string("SECRET_KEY", "dev-secret-key-change-in-production"),
             nextauth_secret=self.env.get_optional("NEXTAUTH_SECRET"),
             nextauth_url=self.env.get_string("NEXTAUTH_URL", "http://localhost:3001")
+        )
+    
+    def _init_rate_limit(self) -> RateLimitConfig:
+        """Initialize rate limiting configuration"""
+        return RateLimitConfig(
+            enabled=self.env.get_string("RATE_LIMIT_ENABLED", "true").lower() == "true",
+            tokens_per_minute=self.env.get_int("RATE_LIMIT_TOKENS_PER_MINUTE", 30000),
+            requests_per_minute=self.env.get_int("RATE_LIMIT_REQUESTS_PER_MINUTE", 3500),
+            max_retries=self.env.get_int("RATE_LIMIT_MAX_RETRIES", 5),
+            base_delay=float(self.env.get_string("RATE_LIMIT_BASE_DELAY", "1.0")),
+            max_delay=float(self.env.get_string("RATE_LIMIT_MAX_DELAY", "60.0")),
+            enable_chunking=self.env.get_string("RATE_LIMIT_ENABLE_CHUNKING", "true").lower() == "true"
         )
     
     def get_cors_origins(self) -> List[str]:

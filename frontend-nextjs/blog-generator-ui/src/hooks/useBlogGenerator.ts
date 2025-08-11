@@ -40,15 +40,15 @@ export function useBlogGenerator() {
   useEffect(() => { setGenerationError(null); }, [currentJobId]);
   useEffect(() => () => { if (activeConnectionId) { closeConnection(); setActiveConnectionId(null); } }, [activeConnectionId, closeConnection]);
 
-  const handleTaskCompletion = useCallback(async (taskId: string, content: string) => {
+  const handleTaskCompletion = useCallback(async (taskId: string, content: string, heroImageUrl?: string) => {
     updateJob(taskId, { status: 'completed', currentStep: 'Blog generation complete!', progress: 100, blogContent: content, completedAt: new Date().toISOString() });
     if (activeConnectionId === taskId) setActiveConnectionId(null);
     const job = jobs.find(j => j.id === taskId);
     if (job) {
-      const blogData: BlogData = { id: taskId, userId: '', topic: job.topic, instructions: job.instructions, content, status: 'completed', progress: 100, currentStep: 'Blog generation complete!', error: null, createdAt: typeof job.createdAt === 'string' ? job.createdAt : new Date(job.createdAt).toISOString(), updatedAt: new Date().toISOString(), completedAt: new Date().toISOString() };
+      const blogData: BlogData = { id: taskId, userId: '', topic: job.topic, instructions: job.instructions, content, status: 'completed', progress: 100, currentStep: 'Blog generation complete!', error: null, createdAt: typeof job.createdAt === 'string' ? job.createdAt : new Date(job.createdAt).toISOString(), updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), heroImageUrl: heroImageUrl || null } as any;
       setSelectedBlog(blogData); setShowBlogModal(true);
     }
-    try { await blogService.updateBlogCompletion(taskId, 'completed', content); await Promise.all([refetchStats(), fetchPreviousBlogs()]); }
+    try { await blogService.updateBlogCompletion(taskId, 'completed', content, undefined, heroImageUrl); await Promise.all([refetchStats(), fetchPreviousBlogs()]); }
     catch (err) { console.error('Failed to persist completion:', err); updateJob(taskId, { status: 'failed', currentStep: 'Failed to save blog', error: { error_type: 'save_error', user_message: 'Blog saved locally but persistence failed.', technical_details: err instanceof Error ? err.message : 'Unknown save error', is_recoverable: true, suggestions: ['Refresh the page','Try again later'], timestamp: new Date().toISOString(), severity: 'error' } }); }
   }, [activeConnectionId, jobs, updateJob, refetchStats, fetchPreviousBlogs]);
 
