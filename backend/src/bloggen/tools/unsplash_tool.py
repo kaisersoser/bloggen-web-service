@@ -106,6 +106,7 @@ class UnsplashImageTool(BaseTool):
         try:
             # Clean and enhance the search query
             clean_query = self._enhance_search_query(query)
+            logging.info(f"Searching Unsplash for: '{clean_query}' (original: '{query}')")
             
             url = f"{self._base_url}/search/photos"
             headers = {
@@ -121,14 +122,48 @@ class UnsplashImageTool(BaseTool):
                 'content_filter': 'high'  # Family-friendly content
             }
             
+            logging.debug(f"Unsplash API request: {url} with params: {params}")
+            
             response = requests.get(url, headers=headers, params=params, timeout=10)
+            
+            # Log response status for debugging
+            logging.info(f"Unsplash API response: {response.status_code}")
+            
+            if response.status_code == 401:
+                logging.error("Unsplash API authentication failed - check UNSPLASH_ACCESS_KEY")
+                return []
+            elif response.status_code == 403:
+                logging.error("Unsplash API rate limit exceeded or access forbidden")
+                return []
+            
             response.raise_for_status()
             
             data = response.json()
-            return data.get('results', [])
+            results = data.get('results', [])
+            
+            logging.info(f"Unsplash returned {len(results)} images")
+            
+            # Validate that we have proper image data
+            valid_results = []
+            for i, result in enumerate(results):
+                if (result.get('urls') and 
+                    result.get('user') and 
+                    any(result['urls'].get(key) for key in ['regular', 'full', 'raw', 'small'])):
+                    valid_results.append(result)
+                else:
+                    logging.warning(f"Skipping invalid image result {i}: missing required fields")
+            
+            logging.info(f"Found {len(valid_results)} valid images out of {len(results)} returned")
+            return valid_results
             
         except requests.exceptions.RequestException as e:
             logging.error(f"Unsplash API request failed: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                logging.error(f"Response status: {e.response.status_code}")
+                try:
+                    logging.error(f"Response body: {e.response.text}")
+                except:
+                    pass
             return []
         except Exception as e:
             logging.error(f"Unexpected error in Unsplash search: {str(e)}")
@@ -158,12 +193,32 @@ class UnsplashImageTool(BaseTool):
         
         for i, image in enumerate(images):
             try:
-                # Get image details
-                image_url = image['urls']['regular']  # Good quality, reasonable size
+                # Validate image data structure
+                if not image.get('urls') or not image.get('user'):
+                    logging.warning(f"Invalid image data structure from Unsplash API for image {i}")
+                    continue
+                
+                # Get image details with fallbacks
+                image_url = (
+                    image['urls'].get('regular') or 
+                    image['urls'].get('full') or 
+                    image['urls'].get('raw') or 
+                    image['urls'].get('small')
+                )
+                
+                if not image_url:
+                    logging.warning(f"No valid image URL found in Unsplash response for image {i}")
+                    continue
+                
+                # Validate URL format
+                if not image_url.startswith(('http://', 'https://')):
+                    logging.warning(f"Invalid image URL format: {image_url}")
+                    continue
+                
                 alt_text = image.get('alt_description', '') or image.get('description', '') or f"Image related to {query}"
-                photographer = image['user']['name']
-                photographer_url = image['user']['links']['html']
-                photo_url = image['links']['html']
+                photographer = image['user'].get('name', 'Unknown photographer')
+                photographer_url = image['user'].get('links', {}).get('html', '#')
+                photo_url = image.get('links', {}).get('html', '#')
                 
                 # Clean alt text
                 alt_text = self._clean_alt_text(alt_text, query)
@@ -185,9 +240,14 @@ class UnsplashImageTool(BaseTool):
                 
                 markdown_images.append(markdown.strip())
                 
-            except KeyError as e:
-                logging.error(f"Missing expected field in Unsplash response: {str(e)}")
+            except (KeyError, TypeError) as e:
+                logging.error(f"Error processing Unsplash image {i}: {str(e)}")
+                logging.debug(f"Image data: {image}")
                 continue
+        
+        if not markdown_images:
+            logging.warning("No valid images could be processed from Unsplash response")
+            return self._generate_placeholder_images(query, 1, "landscape")
         
         return '\n\n'.join(markdown_images)
     
@@ -209,10 +269,9 @@ class UnsplashImageTool(BaseTool):
     
     def _generate_placeholder_images(self, query: str, count: int, orientation: str) -> str:
         """Generate placeholder images when Unsplash is unavailable."""
-        # Use Unsplash Source API as fallback (doesn't require auth)
         placeholders = []
         
-        # Map orientation to dimensions
+        # Map orientation to dimensions for placeholder service
         dimensions = {
             'landscape': '800x450',
             'portrait': '600x800', 
@@ -221,23 +280,24 @@ class UnsplashImageTool(BaseTool):
         
         size = dimensions.get(orientation, '800x450')
         
-        # Generate search terms for placeholder
-        search_terms = query.replace(' ', ',')
+        # Clean query for URL encoding
+        clean_query = query.replace(' ', '+').replace(',', '+')
         
         for i in range(count):
-            placeholder_url = f"https://source.unsplash.com/{size}/?{search_terms}"
-            alt_text = f"Professional image related to {query}"
+            # Use placeholder.com as it's more reliable than deprecated Unsplash source API
+            placeholder_url = f"https://via.placeholder.com/{size}/4A90A4/FFFFFF?text={clean_query}"
+            alt_text = f"Placeholder image for {query}"
             
             if count == 1:
                 markdown = f"""
 ![{alt_text}]({placeholder_url} "{alt_text}")
 
-*Image from Unsplash*
+*Placeholder image - Unsplash API unavailable*
 """
             else:
                 markdown = f"""
 ![{alt_text}]({placeholder_url} "{alt_text}")
-*Image from Unsplash*
+*Placeholder image - Unsplash API unavailable*
 """
             
             placeholders.append(markdown.strip())

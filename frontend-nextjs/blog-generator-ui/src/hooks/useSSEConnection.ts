@@ -9,7 +9,7 @@ export function useSSEConnection() {
   const connectToTaskStream = useCallback(async (
     taskId: string,
     onUpdate: (taskId: string, updates: Partial<JobState>) => void,
-    onCompletion: (taskId: string, content: string) => void,
+    onCompletion: (taskId: string, content: string, heroImageUrl?: string) => void,
     onError: (taskId: string, error: string) => void,
     onLogUpdate?: (taskId: string, log: LogEntry) => void
   ): Promise<EventSource> => {
@@ -49,10 +49,10 @@ export function useSSEConnection() {
                 progress: data.progress || 0
               });
             }
-            if (data.status === 'completed' && data.result) {
+      if (data.status === 'completed' && data.result) {
               if (!completedTasksRef.current.has(taskId)) {
                 completedTasksRef.current.add(taskId);
-                onCompletion(taskId, data.result);
+        onCompletion(taskId, data.result, (data as any).hero_image_url);
               }
               eventSource.close();
             }

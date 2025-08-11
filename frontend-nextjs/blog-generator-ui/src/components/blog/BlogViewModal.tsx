@@ -1,5 +1,5 @@
 "use client"
-import { useState } from 'react';
+import { useState, Children, cloneElement } from 'react';
 import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Download, Copy, FileText, FileImage, FileCode, CheckCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkUnwrapImages from 'remark-unwrap-images';
 import { BlogData } from '@/types/blog';
 import { exportBlog, BlogExportFormat } from '@/lib/exporters/blogExport';
 
@@ -131,51 +132,89 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
               lineHeight: '1.6',
               color: '#333'
             }}>
+              {/* Optional Hero Image (stored separately from markdown) */}
+              {blog.heroImageUrl && (
+                <figure className="mb-10 -mt-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={blog.heroImageUrl}
+                    alt={blog.topic + ' hero image'}
+                    className="w-full h-auto rounded-xl shadow-md object-cover max-h-[420px]"
+                    loading="eager"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = '/placeholder-image.jpg'
+                    }}
+                  />
+                  <figcaption className="mt-2 text-sm text-gray-500 italic">Hero image – AI generated / Unsplash fallback</figcaption>
+                </figure>
+              )}
               <div className="prose prose-lg max-w-none">
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
+                  remarkPlugins={[remarkGfm, remarkUnwrapImages]}
                   components={{
-                    // Unwrap image-only paragraphs to avoid invalid <div> within <p>
                     p: ({ node, children, ...props }) => {
-                      const onlyChild = (node as any)?.children?.[0];
-                      if (
-                        (node as any)?.children?.length === 1 &&
-                        onlyChild?.tagName === 'img'
-                      ) {
-                        return <>{children}</>; // fragment instead of <p>
+                      const rawChildren = (node as any)?.children || [];
+                      if (rawChildren.length === 0) return null;
+                      const onlyImages = rawChildren.every((ch: any) => {
+                        if (ch.type === 'image') return true;
+                        if (ch.type === 'text') return (ch.value || '').trim() === '';
+                        return false;
+                      });
+                      if (onlyImages) {
+                        // Wrap each image element (already rendered inline) in a figure for block layout
+                        const figures = Children.map(children, (child: any, idx) => {
+                          if (!child) return null;
+                          if (child.type === 'img' || (child.props && child.props.alt !== undefined)) {
+                            const alt = child.props?.alt;
+                            const title = child.props?.title;
+                            return (
+                              <figure key={idx} className="my-8 text-center">
+                                {cloneElement(child, {
+                                  className: (child.props?.className || '') + ' mx-auto rounded-lg shadow-md max-w-full h-auto',
+                                  loading: 'lazy'
+                                })}
+                                {(title || alt) && (
+                                  <figcaption className="mt-2 text-sm text-gray-500 italic">
+                                    {title || alt}
+                                  </figcaption>
+                                )}
+                              </figure>
+                            );
+                          }
+                          return child;
+                        });
+                        return <>{figures}</>;
                       }
-                      return (
-                        <p className="mb-4 leading-relaxed text-gray-700" {...props}>
-                          {children}
-                        </p>
-                      );
+                      return <p className="mb-4 leading-relaxed text-gray-700" {...props}>{children}</p>;
                     },
-                    img: ({ src, alt, title }) => {
+                    img: ({ src, alt }) => {
                       const imageSrc = typeof src === 'string' ? src : '/placeholder-image.svg';
-                      const isExternalImage = imageSrc.startsWith('http');
+                      const external = imageSrc.startsWith('http');
+                      const isInline = alt?.startsWith('inline:');
+                      const finalAlt = isInline ? alt?.replace(/^inline:/, '') : alt;
                       return (
-                        <figure className="my-8 text-center">
-                          <div className="relative inline-block max-w-full">
-                            <Image
-                              src={imageSrc}
-                              alt={alt || 'Blog image'}
-                              width={800}
-                              height={400}
-                              className="rounded-lg shadow-md max-w-full h-auto"
-                              style={{ maxHeight: '400px', objectFit: 'cover' }}
-                              unoptimized={isExternalImage}
-                              loading="lazy"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).src = '/placeholder-image.svg';
-                              }}
-                            />
-                          </div>
-                          {title && (
-                            <figcaption className="mt-2 text-sm text-gray-500 italic">
-                              {title}
-                            </figcaption>
-                          )}
-                        </figure>
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={imageSrc}
+                          alt={finalAlt || 'Image'}
+                          className={
+                            isInline
+                              ? 'inline-block align-text-bottom mx-1 h-6 w-6 object-contain'
+                              : 'mx-auto block w-full max-w-full rounded-lg shadow-md object-cover'
+                          }
+                          loading={isInline ? 'lazy' : 'lazy'}
+                          {...(external ? { referrerPolicy: 'no-referrer' } : {})}
+                          onLoad={(e) => {
+                            const el = e.currentTarget
+                            el.dataset.loaded = 'true'
+                          }}
+                          onError={(e) => {
+                            const el = e.currentTarget as HTMLImageElement
+                            if (el.src.endsWith('placeholder-image.svg') || el.dataset.failed) return
+                            el.dataset.failed = 'true'
+                            el.src = '/placeholder-image.svg'
+                          }}
+                        />
                       );
                     },
                     h1: ({ children, ...props }) => (

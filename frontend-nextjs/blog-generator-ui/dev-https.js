@@ -16,6 +16,13 @@ const httpsOptions = {
 app.prepare().then(() => {
   createServer(httpsOptions, (req, res) => {
     const parsedUrl = parse(req.url, true)
+    // Development fallback: some clients request '/layout.css' (missing the '/_next/static/css/app/' prefix)
+    // which results in a 404. Provide a simple redirect to the real compiled CSS output.
+    if (parsedUrl.pathname && parsedUrl.pathname === '/layout.css') {
+      res.writeHead(302, { Location: '/_next/static/css/app/layout.css' })
+      res.end()
+      return
+    }
     handle(req, res, parsedUrl)
   }).listen(3001, '0.0.0.0', (err) => {
     if (err) throw err

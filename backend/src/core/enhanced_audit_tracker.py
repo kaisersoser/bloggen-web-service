@@ -618,6 +618,10 @@ class EnhancedDatabaseAuditTracker:
                 'finalize': 'finalization',
                 'finalizing': 'finalization',
                 'final': 'finalization',
+                    # Image generation
+                    'images': 'image_generation',
+                    'image': 'image_generation',
+                    'imagegen': 'image_generation'
             }
             async with pool.acquire() as conn:
                 for variant, canonical in variant_map.items():

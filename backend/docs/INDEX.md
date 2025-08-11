@@ -37,7 +37,7 @@ Backend tests are located in [`../src/tests/`](../src/tests/) and include:
 ## 📋 Quick Reference
 
 ### Key Backend Components
-- **API Layer**: Flask/FastAPI endpoints in `src/api.py` and `src/fastapi_main.py`
+- **API Layer**: Flask/FastAPI endpoints in `src/api.py` and `src/main.py`
 - **Core Infrastructure**: Database, audit tracking, and LLM interceptors in `src/core/`
 - **Blog Generation**: CrewAI flows and agent orchestration in `src/bloggen/`
 - **Tools**: Custom tools for image integration and content enhancement

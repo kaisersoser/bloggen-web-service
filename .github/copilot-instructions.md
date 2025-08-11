@@ -1,5 +1,24 @@
 # CrewAI Blog Generation Service - AI Agent Instructions
 
+## 🚨 CRITICAL DEVELOPMENT RULES 🚨
+
+### ⚠️ Rule #1: Virtual Environment Requirement
+**ALWAYS activate the virtual environment before running Python scripts in Agent mode**
+- Backend Python environment: `source backend/.venv/bin/activate` (Linux/Mac) or `backend\.venv\Scripts\activate` (Windows)
+- Running Python scripts without the virtual environment WILL FAIL
+- This includes testing, debugging, and any Python script execution
+- Example: `cd backend && source .venv/bin/activate && python src/main.py`
+
+### ⚠️ Rule #2: Major Changes Approval Process
+**DO NOT make major changes without comprehensive planning and approval**
+- **Major changes** include: New features, architectural changes, database schema changes, API modifications, authentication changes
+- **Process**: 
+  1. Provide a detailed plan with scope, impact analysis, and implementation steps
+  2. Wait for explicit approval before proceeding
+  3. Break down large changes into smaller, reviewable chunks
+- **Minor changes** (bug fixes, small improvements, configuration tweaks) can proceed without approval
+- When in doubt, ask for clarification before implementing
+
 ## Code Quality Principles
 
 ### Principles of Writing Good Code

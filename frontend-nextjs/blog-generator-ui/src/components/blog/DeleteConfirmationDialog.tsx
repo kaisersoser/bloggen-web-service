@@ -30,18 +30,18 @@ export function DeleteConfirmationDialog({
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Delete Blog Forever?</DialogTitle>
-          <DialogDescription className="space-y-3 pt-2">
-            <p>
-              Are you sure you want to permanently delete the blog:
-            </p>
-            <div className="font-semibold text-gray-900 bg-gray-100 p-3 rounded border-l-4 border-red-500">
-              &quot;{blogTopic}&quot;
-            </div>
-            <p className="text-red-600 font-medium">
-              ⚠️ This action cannot be undone. The generated blog content will be lost forever.
-            </p>
+          <DialogDescription>
+            Are you sure you want to permanently delete this blog?
           </DialogDescription>
         </DialogHeader>
+        <div className="space-y-3 pt-2">
+          <div className="font-semibold text-gray-900 bg-gray-100 p-3 rounded border-l-4 border-red-500">
+            &quot;{blogTopic}&quot;
+          </div>
+          <p className="text-red-600 font-medium text-sm">
+            ⚠️ This action cannot be undone. The generated blog content will be lost forever.
+          </p>
+        </div>
         <DialogFooter className="gap-2">
           <Button
             variant="outline"

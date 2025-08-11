@@ -8,7 +8,7 @@ Scan Location: `/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backen
 - **Total Python files**: 49
 - **Active modules**: 35  
 - **Potentially unused**: 13
-- **Entry points**: 2 (`fastapi_main.py`, `api.py`)
+- **Entry points**: 2 (`main.py`, `api.py`)
 
 ## 🗂️ FILE CATEGORIZATION
 
@@ -16,7 +16,7 @@ Scan Location: `/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backen
 These are main application files that serve as entry points:
 
 ```
-✅ fastapi_main.py        # FastAPI application entry point (ACTIVE)
+✅ main.py                # FastAPI application entry point (ACTIVE)
 ✅ api.py                 # Flask API fallback entry point 
 ```
 
@@ -46,7 +46,7 @@ Modern FastAPI implementation modules that appear unused:
 ❓ api/sse.py            # Server-sent events
 ```
 
-**Action Required**: These should be imported by `fastapi_main.py` - investigate why they appear unused
+**Action Required**: These should be imported by `main.py` - investigate why they appear unused
 
 ### ⚙️ CONFIG MODULES - LIKELY SAFE TO DELETE  
 Duplicate configuration modules:
@@ -64,7 +64,7 @@ Duplicate configuration modules:
 
 **FastAPI Investigation Result**: The `api/` directory modules are **COMPLETELY UNUSED**. 
 
-- `fastapi_main.py` defines routes inline, not using modular structure
+- `main.py` defines routes inline, not using modular structure
 - No imports found for any `api.*` modules across the entire codebase
 - The `api/` directory appears to be an abandoned modular design
 
@@ -123,7 +123,7 @@ rm -rf src/config/
 
 ```
 src/
-├── fastapi_main.py          # ✅ FastAPI entry point (active)
+├── main.py                  # ✅ FastAPI entry point (active)
 ├── api.py                   # ✅ Flask fallback (backup entry point)
 ├── core/                    # ✅ Reusable infrastructure
 └── bloggen/                 # ✅ Blog generation domain logic
@@ -147,7 +147,7 @@ rm -rf src/config/
 
 ### INVESTIGATE BEFORE DELETING
 
-1. **Check FastAPI imports**: Verify `fastapi_main.py` imports `api/*` modules
+1. **Check FastAPI imports**: Verify `main.py` imports `api/*` modules
 2. **Runtime imports**: Check for dynamic imports or registrations
 3. **Legacy vs Modern**: Determine if `api.py` (Flask) is still needed
 
@@ -163,13 +163,13 @@ Keep these until verification complete:
 
 ```bash
 # Check FastAPI router imports
-grep -rn "from.*api.*import" src/fastapi_main.py
+grep -rn "from.*api.*import" src/main.py
 
 # Check for dynamic imports  
 grep -rn "importlib\|__import__" src/
 
 # Check entry point usage
-python -m src.fastapi_main --help 2>/dev/null || echo "No CLI help"
+python -m src.main --help 2>/dev/null || echo "No CLI help"
 python -m src.api --help 2>/dev/null || echo "No CLI help"
 ```
 

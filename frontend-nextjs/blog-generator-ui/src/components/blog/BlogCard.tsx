@@ -8,6 +8,7 @@ interface BlogData {
   topic: string
   instructions: string | null
   content: string | null
+  heroImageUrl?: string | null
   status: string
   progress: number
   currentStep: string | null
@@ -92,16 +93,20 @@ export function BlogCard({ blog, onClick, onDelete }: BlogCardProps) {
     <div
       className="group relative cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-lg"
     >
-      <div 
-        className="relative overflow-hidden rounded-xl bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6 shadow-md border border-gray-100 hover:border-blue-200"
-        style={{ 
-          height: '280px', // Fixed height
-          width: '100%'     // Fixed width (responsive within grid)
+      <div
+        className="relative overflow-hidden rounded-xl p-6 shadow-md border border-gray-100 hover:border-blue-200 bg-gradient-to-br from-blue-50 via-white to-purple-50"
+        style={{
+          height: '280px',
+          width: '100%',
+          backgroundImage: blog.heroImageUrl ? `url(${blog.heroImageUrl})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundBlendMode: blog.heroImageUrl ? 'overlay' : undefined
         }}
         onClick={() => onClick(blog)}
       >
         {/* Glossy overlay effect */}
-        <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-white/55 to-white/10 backdrop-blur-[2px] pointer-events-none"></div>
         
         {/* Delete Button - Top Right Corner */}
         {onDelete && (
