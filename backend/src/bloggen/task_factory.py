@@ -55,45 +55,74 @@ class TaskFactory:
     
     @staticmethod
     def create_content_task(agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None) -> Task:
-        """Create a content creation task for writing blog posts."""
+        """Create a content creation task for writing blog posts with mandatory image enforcement."""
         extra = ("\n\nUSER DIRECTIVES (priority unless they conflict with factual accuracy / sourcing):\n" + instructions.strip()) if instructions else ""
         return Task(
-            description=f"""Create an engaging, SEO-optimized blog post about '{topic}' for {current_year}.
+            description=f"""🚨 MANDATORY TOOL USAGE TASK: Create an engaging blog post about '{topic}' for {current_year}.
             
-            Requirements:
+            ⚠️ CRITICAL IMAGE REQUIREMENT: This task REQUIRES you to call image tools 2-3 times. Follow this EXACT workflow:
+            
+            STEP 1: Write compelling introduction paragraph
+            STEP 2: 🔧 CALL unsplash_image_search("{{topic}} hero visual concept")
+            STEP 3: Insert the returned image markdown immediately after introduction
+            STEP 4: Write main content sections (2-3 sections minimum)
+            STEP 5: 🔧 CALL unsplash_image_search("{{topic}} supporting visual")
+            STEP 6: Insert the second image markdown in the middle section
+            STEP 7: Continue writing remaining content sections
+            STEP 8: 🔧 CALL openai_image_generate("{{topic}} illustration concept") for third image
+            STEP 9: Insert third image if content is substantial (1500+ words)
+            
+            🚨 IMAGE ENFORCEMENT - FOLLOW EXACTLY:
+            - MINIMUM 2 IMAGES REQUIRED (preferably 3 for blogs >1500 words)
+            - FIRST IMAGE: Use unsplash_image_search with descriptive multi-word query
+            - SECOND IMAGE: Use unsplash_image_search with different supporting concept
+            - THIRD IMAGE (optional): Use openai_image_generate for illustration/diagram
+            - NEVER create fake image URLs (no source.unsplash.com, no manual links)
+            - ONLY use images returned by actual tool calls
+            - If Unsplash returns no results, immediately try openai_image_generate as fallback
+            
+            ❌ PROHIBITED ACTIONS:
+            - Creating manual image URLs
+            - Using placeholder image services
+            - Skipping image tool calls
+            - Including fewer than 2 images
+            
+            ✅ REQUIRED ACTIONS:
+            - Call unsplash_image_search at least twice with different queries
+            - Use openai_image_generate if Unsplash fails or for third image
+            - Include ALL returned image markdown blocks in appropriate locations
+            - Ensure each image has proper attribution and alt text
+            
+            Content Requirements:
             1. Title: Compelling and SEO-friendly
-            2. Structure: Clear headers and subheadings
-            3. Content: Informative, engaging, and actionable
-            4. SEO: Natural keyword integration
-            5. Length: 1500-2000 words
-                        6. IMAGES (MANDATORY): You MUST call the unsplash_image_search tool AT LEAST TWICE:
-                             - First: hero/cover image capturing the overarching theme (query should include core concept + context words)
-                             - Second (and optionally third): supporting image(s) for a key subsection (e.g., statistics, architecture, workflow)
-                             For EACH tool call:
-                                 * Use focused, descriptive multi-word queries (avoid generic single-word queries)
-                                 * Insert returned Markdown image block(s) directly into appropriate section locations (not all grouped at bottom)
-                                 * Ensure alt text is concise & descriptive (accessibility) and attribution block is preserved
-                             Total images in final draft: Minimum 2 (ideal 2-3). If the tool returns placeholders, still include them.
-            7. Tone: Professional yet conversational
-            8. SOURCING: Preserve all validated source links from research; any fact carried over must retain its markdown link.
-            9. REFERENCES: End with a 'References' section (numbered) mirroring unique sources actually cited in the body.
-            10. If a claim from research lacks a link, either add one via new search (using tools) or omit the claim.
-                        11. Place the first image after the introduction paragraph; subsequent image(s) near the most relevant section.
-                        12. Do NOT put images inside code blocks or lists; each image block separated by a blank line.
+            2. Structure: Clear headers and subheadings (minimum 4-5 sections)
+            3. Content: Informative, engaging, and actionable (1500-2000 words)
+            4. SEO: Natural keyword integration throughout
+            5. IMAGES: EXACTLY 2-3 images using MANDATORY tool calls (as detailed above)
+            6. Tone: Professional yet conversational
+            7. SOURCING: Preserve all validated source links from research
+            8. REFERENCES: End with numbered 'References' section
+            9. Place first image after introduction, others distributed through content
+            10. Do NOT put images inside code blocks or lists
             
-            Use the research findings to create content that provides real value to readers.
-            Include practical examples and actionable advice.{extra}
+            🚨 FAILURE TO CALL IMAGE TOOLS 2-3 TIMES WILL RESULT IN TASK REJECTION{extra}
             """,
             agent=agent,
-            expected_output="""A complete blog post with:
-            - SEO-optimized title and meta description
-            - Well-structured content with headers
-            - Engaging introduction and conclusion
-            - Actionable insights and examples (each factually grounded claim linked)
-            - Image suggestions with descriptions
-            - Natural keyword integration
-            - Inline markdown hyperlinks for every sourced fact
-            - Final 'References' section: numbered unique sources referenced above (no duplicates)"""
+            expected_output="""A complete blog post with MANDATORY TOOL USAGE COMPLIANCE:
+            - SEO-optimized title and compelling introduction
+            - Well-structured content with clear headers (4-5 sections minimum)
+            - EXACTLY 2-3 IMAGES from verified tool calls (unsplash_image_search/openai_image_generate)
+            - First image: Hero image after introduction (from unsplash_image_search)
+            - Second image: Supporting image in middle content (from unsplash_image_search)
+            - Third image (if applicable): Illustration/diagram (from openai_image_generate)
+            - ALL images must have proper markdown formatting and attribution
+            - Actionable insights and examples with inline source links
+            - Natural keyword integration throughout content
+            - Final 'References' section with numbered, unique sources
+            
+            🚨 CRITICAL: Output MUST contain 2-3 actual images from tool calls. No manual URLs allowed.
+            🚨 CRITICAL: Use only tool-generated image markdown blocks, never create fake URLs.
+            🚨 CRITICAL: If fewer than 2 images included, task will be considered FAILED."""
         )
 
     @staticmethod
@@ -162,4 +191,34 @@ class TaskFactory:
             - Professional presentation
             - Inline citations preserved & cleaned
             - Final 'References' section (numbered, unique, valid URLs)"""
+        )
+
+    @staticmethod
+    def create_image_enhancement_task(agent: Agent, content: str, topic: str) -> Task:
+        """Create a task to add missing images to existing content."""
+        return Task(
+            description=f"""🎨 IMAGE ENHANCEMENT: Add missing images to existing blog content about '{topic}'.
+            
+            CRITICAL: The provided content may be missing adequate images. Your task is to:
+            
+            1. Review the existing content structure and identify optimal image placement
+            2. CALL unsplash_image_search to find 1-2 relevant images for the content
+            3. Insert the returned image markdown blocks in appropriate locations
+            4. Ensure images enhance the content and match the topic theme
+            5. Do NOT modify the existing text content - only add images
+            
+            IMAGE REQUIREMENTS:
+            - Use descriptive, multi-word queries for unsplash_image_search
+            - Insert images between sections where they add value
+            - Include proper alt text and attribution
+            - Do NOT create manual image URLs or placeholders
+            
+            Return the enhanced content with properly formatted image markdown blocks added.""",
+            agent=agent,
+            expected_output="""Enhanced content with:
+            - Original text content preserved
+            - 1-2 new images from unsplash_image_search tool calls
+            - Images placed strategically between content sections
+            - Proper markdown formatting for all images
+            - Alt text and attribution maintained"""
         )

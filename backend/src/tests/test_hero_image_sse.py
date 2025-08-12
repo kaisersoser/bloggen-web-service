@@ -35,7 +35,7 @@ def test_hero_image_stream_early(monkeypatch):
     async def fake_user(*args, **kwargs):  # type: ignore
         return await get_current_user(DummyCreds(token))  # type: ignore
 
-    monkeypatch.setattr("main.get_current_user", fake_user)
+    monkeypatch.setattr("src.main.get_current_user", fake_user)
 
     client = TestClient(app)
 

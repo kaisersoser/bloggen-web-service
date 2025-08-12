@@ -91,7 +91,7 @@ class ToolsManager:
         try:
             from bloggen.tools import UnsplashImageTool
             from bloggen.tools.openai_image_tool import OpenAIImageTool
-            tools.append(UnsplashImageTool())
+            tools.append(UnsplashImageTool(audit_tracker=self.audit_tracker))
             tools.append(OpenAIImageTool(audit_tracker=self.audit_tracker))
             logger.debug("✅ UnsplashImageTool + OpenAIImageTool loaded")
         except ImportError as e:

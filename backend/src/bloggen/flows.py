@@ -12,6 +12,9 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Optional, cast
 import logging
 import os
+import asyncio
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 
 try:  # Optional import; flow should not hard fail if OpenAI missing
     import openai  # type: ignore
@@ -26,6 +29,8 @@ from .agent_factory import AgentFactory
 from .task_factory import TaskFactory
 from .tools_manager import ToolsManager
 from .topic_utils import generate_concise_topic
+from .content_validator import ContentValidator
+from .flow_post_processor import FlowPostProcessor
 from core.llm_interceptor import _register_audit_tracker
 from core.config import config  # reuse existing config for model + key
 from core.crewai_rate_limiter import CrewAIRateLimitManager
@@ -298,7 +303,17 @@ class BlogGenerationFlow(Flow):
             task = self.task_factory.create_content_task(
                 agent, topic, year, self.instructions
             )
+            
+            # Start parallel image generation for common blog concepts
+            self._status("Generating draft content...", step=2, detail="Content + parallel image generation")
+            image_futures = self._start_parallel_image_generation(topic)
+            
+            # Execute main content generation
             draft = self._execute(agent, task, "content_generation")
+            
+            # Wait for parallel image generation to complete (if any started)
+            self._complete_parallel_image_generation(image_futures)
+            
             self.flow_state.results["content"] = draft
             self._status("Content draft complete", step=2, detail="Draft ready")
             return {**research_data, "initial_content": draft}
@@ -308,6 +323,70 @@ class BlogGenerationFlow(Flow):
             raise
 
     @listen(content_generation_phase)
+    def content_validation_phase(self, content_data: Dict[str, Any]) -> Dict[str, Any]:  # Phase 2.5
+        """Validate and clean content to ensure proper image tool usage."""
+        self._require_topic()
+        self._status("Validating content...", step=2, detail="Checking image sources")
+        self._update_audit_phase("content_validation")
+        
+        try:
+            initial_content = content_data.get("initial_content", "")
+            content_str = str(initial_content)
+            
+            # Validate content
+            validation = ContentValidator.validate_content(content_str)
+            ContentValidator.log_validation_results(validation, "Content Validation")
+            
+            # If deprecated images found, clean them and regenerate if needed
+            if validation['deprecated_images'] > 0:
+                logger.warning(f"⚠️ Found {validation['deprecated_images']} deprecated image sources, cleaning content")
+                cleaned_content = ContentValidator.clean_deprecated_images(content_str)
+                
+                # If we removed images and have tools available, try to regenerate proper images
+                if validation['total_images'] > validation['valid_images']:
+                    self._status("Regenerating images...", step=2, detail="Using proper image tools")
+                    try:
+                        # Get content creation tools and agent
+                        tools = self.tools_manager.get_content_tools()
+                        agent = self.agent_factory.create_content_creator(tools)
+                        
+                        # Create a task specifically for adding images to existing content
+                        image_task = self.task_factory.create_image_enhancement_task(
+                            agent, cleaned_content, self.flow_state.topic or ""
+                        )
+                        
+                        # Execute image enhancement
+                        enhanced_content = self._execute(agent, image_task, "image_enhancement")
+                        
+                        # Re-validate the enhanced content
+                        final_validation = ContentValidator.validate_content(str(enhanced_content))
+                        ContentValidator.log_validation_results(final_validation, "Post-Enhancement")
+                        
+                        self.flow_state.results["content"] = enhanced_content
+                        validated_content = enhanced_content
+                        
+                    except Exception as e:
+                        logger.error(f"Image enhancement failed: {e}")
+                        # Fall back to cleaned content
+                        self.flow_state.results["content"] = cleaned_content
+                        validated_content = cleaned_content
+                else:
+                    self.flow_state.results["content"] = cleaned_content
+                    validated_content = cleaned_content
+            else:
+                # Content is valid as-is
+                logger.info("✅ Content validation passed - no deprecated images found")
+                validated_content = initial_content
+            
+            self._status("Content validation complete", step=2, detail="Ready for fact-checking")
+            return {**content_data, "initial_content": validated_content, "validated_content": validated_content}
+            
+        except Exception as e:  # pragma: no cover
+            logger.exception("Content validation failed")
+            # Fall back to original content if validation fails
+            return content_data
+
+    @listen(content_validation_phase)
     def fact_checking_phase(self, content_data: Dict[str, Any]) -> Dict[str, Any]:  # Phase 3
         self._require_topic()
         self.flow_state.current_phase = "fact_checking"
@@ -338,12 +417,103 @@ class BlogGenerationFlow(Flow):
             agent = self.agent_factory.create_finalizer()
             task = self.task_factory.create_finalization_task(agent, topic, self.instructions)
             final_post = self._execute(agent, task, "finalization")
-            self.flow_state.results["final"] = final_post
-            self._complete(str(final_post))
-            return {**verified_content, "final_blog_post": final_post, "generation_complete": True}
+            
+            # Post-process to ensure proper image usage and clean deprecated sources
+            processed_post = FlowPostProcessor.process_blog_content(
+                content=str(final_post),
+                topic=topic,
+                force_tool_usage=True
+            )
+            
+            # Ensure adequate images (2-3) - inject missing images if necessary
+            from .mandatory_image_injector import create_mandatory_image_injector
+            image_injector = create_mandatory_image_injector()
+            final_content = image_injector.ensure_adequate_images(processed_post, topic)
+            
+            self.flow_state.results["final"] = final_content
+            self._complete(final_content)
+            return {**verified_content, "final_blog_post": final_content, "generation_complete": True}
         except Exception as e:  # pragma: no cover
             logger.exception("Finalization failed")
             self._error(f"Finalization failed: {e}")
             raise
+
+    def _start_parallel_image_generation(self, topic: str) -> Dict[str, Any]:
+        """Start parallel AI image generation for common blog concepts."""
+        try:
+            # Only run parallel generation if we have OpenAI configured
+            tools = self.tools_manager.get_content_tools()
+            openai_tool = next((tool for tool in tools if hasattr(tool, 'name') and tool.name == "openai_image_generate"), None)
+            
+            if not openai_tool or not hasattr(openai_tool, '_api_key') or not openai_tool._api_key:
+                logger.info("OpenAI image tool not available, skipping parallel generation")
+                return {}
+            
+            # Generate common image concepts for the topic
+            image_concepts = self._generate_image_concepts(topic)
+            
+            futures = {}
+            with ThreadPoolExecutor(max_workers=2) as executor:  # Limit to 2 parallel images
+                for concept_name, prompt in image_concepts.items():
+                    try:
+                        future = executor.submit(self._generate_single_ai_image, openai_tool, prompt)
+                        futures[concept_name] = future
+                        logger.info(f"Started parallel image generation for: {concept_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to start image generation for {concept_name}: {e}")
+            
+            return futures
+            
+        except Exception as e:
+            logger.warning(f"Parallel image generation setup failed: {e}")
+            return {}
+    
+    def _complete_parallel_image_generation(self, image_futures: Dict[str, Any]) -> None:
+        """Complete parallel image generation and log results."""
+        if not image_futures:
+            return
+            
+        for concept_name, future in image_futures.items():
+            try:
+                # Wait for completion with timeout
+                result = future.result(timeout=30)
+                if result and "![" in result:
+                    logger.info(f"✅ Parallel image generated for {concept_name}")
+                else:
+                    logger.warning(f"⚠️ Parallel image generation failed for {concept_name}")
+            except concurrent.futures.TimeoutError:
+                logger.warning(f"⏰ Parallel image generation timed out for {concept_name}")
+            except Exception as e:
+                logger.warning(f"❌ Parallel image generation error for {concept_name}: {e}")
+    
+    def _generate_image_concepts(self, topic: str) -> Dict[str, str]:
+        """Generate image concepts based on the blog topic."""
+        # Extract key concepts for image generation
+        topic_lower = topic.lower()
+        concepts = {}
+        
+        # Hero image concept
+        concepts["hero"] = f"Professional illustration of {topic}, clean modern style, high-tech aesthetic"
+        
+        # Add topic-specific concepts
+        if any(word in topic_lower for word in ["ai", "artificial intelligence", "machine learning"]):
+            concepts["ai_concept"] = "Artificial intelligence brain network, neural connections, futuristic technology"
+        elif any(word in topic_lower for word in ["data", "analytics", "visualization"]):
+            concepts["data_concept"] = "Data visualization charts and graphs, modern dashboard, analytics interface"
+        elif any(word in topic_lower for word in ["business", "strategy", "management"]):
+            concepts["business_concept"] = "Professional business meeting, modern office environment, collaboration"
+        elif any(word in topic_lower for word in ["technology", "tech", "software"]):
+            concepts["tech_concept"] = "Modern technology interface, clean software design, digital innovation"
+        
+        return concepts
+    
+    def _generate_single_ai_image(self, openai_tool, prompt: str) -> str:
+        """Generate a single AI image using the OpenAI tool."""
+        try:
+            result = openai_tool._run(prompt=prompt, size="1024x1024", aspect="square")
+            return result
+        except Exception as e:
+            logger.error(f"AI image generation failed for prompt '{prompt[:50]}...': {e}")
+            return ""
 
 __all__ = ["BlogGenerationFlow"]
