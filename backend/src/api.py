@@ -146,14 +146,17 @@ class BlogGenerationService:
             if not BLOG_GENERATION_AVAILABLE:
                 raise BlogGenError("Blog generation system not available")
             
-            # Create and execute blog generation flow
-            flow = BlogGenerationFlow()
+            # Create and execute blog generation flow with proper configuration
+            # (like main.py does)
+            flow = BlogGenerationFlow(
+                user_id="legacy_api_user",
+                blog_id=f"legacy_{request_data.topic.replace(' ', '_')}",
+                topic=request_data.topic,
+                current_year=request_data.current_year or 2025
+            )
             
             # Execute the flow (this is synchronous, unlike the FastAPI async version)
-            result = flow.kickoff({
-                'topic': request_data.topic,
-                'current_year': request_data.current_year
-            })
+            result = flow.kickoff()
             
             logger.info("Blog generation completed successfully")
             

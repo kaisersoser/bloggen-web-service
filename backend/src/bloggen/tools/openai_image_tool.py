@@ -50,10 +50,16 @@ class OpenAIImageTool(BaseTool):
         try:
             import openai
             client = openai.OpenAI(api_key=self._api_key)  # type: ignore[attr-defined]
+            
+            # Validate size parameter for DALL-E 3
+            valid_sizes = ["1024x1024", "1024x1792", "1792x1024"]
+            final_size = size if size in valid_sizes else "1024x1024"
+            
             resp = client.images.generate(
-                model="gpt-image-1",  # current unified image model
+                model="dall-e-3",  # Use latest DALL-E model for highest quality
                 prompt=final_prompt,
-                size="1024x1024",  # keep fixed to satisfy typing & consistency
+                size=final_size,  # type: ignore[arg-type]
+                quality="standard",  # Balance between quality and cost
                 n=1,
                 response_format="url",
             )
@@ -65,24 +71,16 @@ class OpenAIImageTool(BaseTool):
             # Track cost (approx per image). Adjust if pricing changes.
             try:
                 if self._audit_tracker and hasattr(self._audit_tracker, 'track_api_call'):
-                    # Deduplicate cost logging per session/model
-                    flag_name = '_logged_image_models'
-                    logged = getattr(self._audit_tracker, flag_name, set())
-                    if 'openai_image' not in logged:
-                        try:
-                            image_cost = float(os.getenv('OPENAI_IMAGE_FLAT_COST', '0.04'))
-                        except ValueError:
-                            image_cost = 0.04
-                        self._audit_tracker.track_api_call(
-                            model='openai_image',
-                            input_tokens=0,
-                            output_tokens=0,
-                            cost=image_cost,
-                            phase='image_generation',
-                            agent_role='image_tool'
-                        )
-                        logged.add('openai_image')
-                        setattr(self._audit_tracker, flag_name, logged)
+                    # Track each image generation individually
+                    image_cost = float(os.getenv('OPENAI_IMAGE_FLAT_COST', '0.04'))
+                    self._audit_tracker.track_api_call(
+                        model='dall-e-3',
+                        input_tokens=len(final_prompt.split()),  # Approximate token count
+                        output_tokens=1,  # One image generated
+                        cost=image_cost,
+                        phase='image_generation',
+                        agent_role='openai_image_tool'
+                    )
             except Exception:
                 logger.debug("Image cost tracking failed", exc_info=True)
             return markdown

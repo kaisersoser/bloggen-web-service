@@ -40,9 +40,12 @@ class UnsplashImageTool(BaseTool):
     )
     args_schema: Type[BaseModel] = UnsplashSearchInput
     
-    def __init__(self, access_key: Optional[str] = None, **kwargs):
-        """Initialize the Unsplash tool with API credentials."""
+    def __init__(self, access_key: Optional[str] = None, audit_tracker=None, **kwargs):
+        """Initialize the Unsplash tool with API credentials and audit tracking."""
         super().__init__(**kwargs)
+        
+        # Store audit tracker for tracking API usage
+        self._audit_tracker = audit_tracker
         
         # Explicitly load environment variables
         try:
@@ -125,6 +128,21 @@ class UnsplashImageTool(BaseTool):
             logging.debug(f"Unsplash API request: {url} with params: {params}")
             
             response = requests.get(url, headers=headers, params=params, timeout=10)
+            
+            # Track Unsplash API usage in audit system
+            try:
+                if self._audit_tracker and hasattr(self._audit_tracker, 'track_api_call'):
+                    # Estimate minimal cost for Unsplash API calls (free tier tracking)
+                    self._audit_tracker.track_api_call(
+                        model='unsplash_api',
+                        input_tokens=len(clean_query.split()),  # Query complexity
+                        output_tokens=len(response.content) // 100,  # Response size estimate
+                        cost=0.0,  # Unsplash has a free tier
+                        phase='image_search',
+                        agent_role='unsplash_image_tool'
+                    )
+            except Exception:
+                logging.debug("Unsplash usage tracking failed", exc_info=True)
             
             # Log response status for debugging
             logging.info(f"Unsplash API response: {response.status_code}")

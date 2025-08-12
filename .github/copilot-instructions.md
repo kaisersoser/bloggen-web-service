@@ -19,6 +19,13 @@
 - **Minor changes** (bug fixes, small improvements, configuration tweaks) can proceed without approval
 - When in doubt, ask for clarification before implementing
 
+### ⚠️ Rule #3: Test File Organization
+**ALWAYS place test files in the proper directory structure**
+- **Backend test files**: Must be placed in `backend/src/tests/` directory
+- **Frontend test files**: Must be placed in appropriate test directories within the frontend structure
+- **NO test files** should be created directly in the `backend/` root directory
+- Example: Create `backend/src/tests/test_my_feature.py` NOT `backend/test_my_feature.py`
+
 ## Code Quality Principles
 
 ### Principles of Writing Good Code
