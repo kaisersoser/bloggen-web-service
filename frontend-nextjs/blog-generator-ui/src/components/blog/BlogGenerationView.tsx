@@ -10,7 +10,10 @@ interface BlogGenerationViewProps {
 
 export function BlogGenerationView({ job, isGenerating, logs = [] }: BlogGenerationViewProps) {
 
-  if (!job && !isGenerating) {
+  // Show console if generating OR if there's any job (in progress, completed, or failed)
+  const shouldShowConsole = isGenerating || job;
+
+  if (!shouldShowConsole) {
     return (
       <div className="flex-1 flex items-center justify-center text-center py-20">
         <div className="max-w-md">

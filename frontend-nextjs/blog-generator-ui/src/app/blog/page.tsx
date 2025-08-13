@@ -11,6 +11,7 @@ import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
+import { useOptimizedBlogs } from "@/hooks/useOptimizedBlogs";
 import { signIn } from "next-auth/react";
 
 export default function BlogGenerator() {
@@ -51,6 +52,9 @@ export default function BlogGenerator() {
     setSelectedBlog,
     setShowBlogModal
   } = useBlogGenerator();
+
+  // Phase 1: React Query for background caching only (completely non-intrusive)
+  useOptimizedBlogs(); // Just cache in background, don't use the data yet
 
   // Loading state while authenticating
   if (isLoading) {

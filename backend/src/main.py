@@ -340,6 +340,29 @@ async def generate_blog(
         message="Blog generation started. Connect to SSE stream for real-time updates."
     )
 
+@app.get("/tasks/active")
+async def get_active_tasks(user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Get all active tasks for the current user."""
+    user_tasks = []
+    
+    for task_id, task_data in active_tasks.items():
+        # Check if user owns this task
+        if task_data.get('user_id') == user.id:
+            user_tasks.append({
+                "id": task_id,
+                "topic": task_data.get('topic', ''),
+                "status": task_data.get('status', 'queued'),
+                "created_at": task_data.get('created_at', ''),
+                "current_step": task_data.get('current_step', ''),
+                "result": task_data.get('result'),
+                "error": task_data.get('error'),
+                "user_id": task_data.get('user_id', ''),
+                "user_email": task_data.get('user_email', ''),
+                "user_role": task_data.get('user_role', '')
+            })
+    
+    return {"tasks": user_tasks}
+
 @app.get("/tasks/{task_id}")
 async def get_task_status(
     task_id: str,
@@ -698,5 +721,6 @@ if __name__ == "__main__":
         port=5000,  # Standard port for backend API
         reload=True,
         ssl_keyfile="/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src/localhost-key.pem",
-        ssl_certfile="/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src/localhost.pem"
+        ssl_certfile="/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src/localhost.pem",
+        access_log=False  # Disable repetitive access logs to keep focus on essential logs
     )
