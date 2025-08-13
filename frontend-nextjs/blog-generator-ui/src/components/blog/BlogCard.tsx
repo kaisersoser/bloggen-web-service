@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo, useCallback } from "react"
 
 interface BlogData {
   id: string
@@ -25,7 +25,7 @@ interface BlogCardProps {
   variant?: "default" | "compact"
 }
 
-// Function to generate AI summary of blog content
+// Memoized function to generate AI summary of blog content
 const generateSummary = (content: string | null): string => {
   if (!content) return "No content available"
   
@@ -54,40 +54,74 @@ const generateSummary = (content: string | null): string => {
   return summary.length > 3 ? summary + "..." : "Blog content available"
 }
 
-export function BlogCard({ blog, onClick, onDelete }: BlogCardProps) {
+// Memoized status helper functions
+const getStatusColor = (status: string) => {
+  switch (status.toUpperCase()) {
+    case 'COMPLETED':
+      return 'bg-green-100 text-green-800'
+    case 'FAILED':
+      return 'bg-red-100 text-red-800'
+    case 'IN_PROGRESS':
+      return 'bg-blue-100 text-blue-800'
+    default:
+      return 'bg-gray-100 text-gray-800'
+  }
+}
+
+const getStatusLabel = (status: string) => {
+  switch (status.toUpperCase()) {
+    case 'COMPLETED':
+      return 'Complete'
+    case 'FAILED':
+      return 'Failed'
+    case 'IN_PROGRESS':
+      return 'In Progress'
+    default:
+      return 'Queued'
+  }
+}
+
+export const BlogCard = React.memo(function BlogCard({ blog, onClick, onDelete }: BlogCardProps) {
   const [summary, setSummary] = useState<string>("")
   
+  // Memoize the summary generation to prevent recalculation on every render
+  const memoizedSummary = useMemo(() => generateSummary(blog.content), [blog.content])
+  
   useEffect(() => {
-    // Generate summary when component mounts
-    const blogSummary = generateSummary(blog.content)
-    setSummary(blogSummary)
-  }, [blog.content])
+    setSummary(memoizedSummary)
+  }, [memoizedSummary])
   
-  const getStatusColor = (status: string) => {
-    switch (status.toUpperCase()) {
-      case 'COMPLETED':
-        return 'bg-green-100 text-green-800'
-      case 'FAILED':
-        return 'bg-red-100 text-red-800'
-      case 'IN_PROGRESS':
-        return 'bg-blue-100 text-blue-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
-  }
+  // Memoize status styling to prevent recalculation
+  const statusColorClass = useMemo(() => getStatusColor(blog.status), [blog.status])
+  const statusLabel = useMemo(() => getStatusLabel(blog.status), [blog.status])
   
-  const getStatusLabel = (status: string) => {
-    switch (status.toUpperCase()) {
-      case 'COMPLETED':
-        return 'Complete'
-      case 'FAILED':
-        return 'Failed'
-      case 'IN_PROGRESS':
-        return 'In Progress'
-      default:
-        return 'Queued'
+  // Memoize formatted date to prevent recalculation
+  const formattedDate = useMemo(() => {
+    return new Date(blog.createdAt).toLocaleDateString()
+  }, [blog.createdAt])
+  
+  // Memoize card click handler to prevent recreation
+  const handleCardClick = useCallback(() => {
+    onClick(blog)
+  }, [onClick, blog])
+  
+  // Memoize delete handler to prevent recreation
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (onDelete) {
+      onDelete(blog.id)
     }
-  }
+  }, [onDelete, blog.id])
+  
+  // Memoize background style to prevent object recreation
+  const backgroundStyle = useMemo(() => ({
+    height: '280px',
+    width: '100%',
+    backgroundImage: blog.heroImageUrl ? `url(${blog.heroImageUrl})` : undefined,
+    backgroundSize: 'cover' as const,
+    backgroundPosition: 'center' as const,
+    backgroundBlendMode: blog.heroImageUrl ? ('overlay' as const) : undefined
+  }), [blog.heroImageUrl])
   
   return (
     <div
@@ -95,15 +129,8 @@ export function BlogCard({ blog, onClick, onDelete }: BlogCardProps) {
     >
       <div
         className="relative overflow-hidden rounded-xl p-6 shadow-md border border-gray-100 hover:border-blue-200 bg-gradient-to-br from-blue-50 via-white to-purple-50"
-        style={{
-          height: '280px',
-          width: '100%',
-          backgroundImage: blog.heroImageUrl ? `url(${blog.heroImageUrl})` : undefined,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundBlendMode: blog.heroImageUrl ? 'overlay' : undefined
-        }}
-        onClick={() => onClick(blog)}
+        style={backgroundStyle}
+        onClick={handleCardClick}
       >
         {/* Glossy overlay effect */}
         <div className="absolute inset-0 bg-gradient-to-br from-white/55 to-white/10 backdrop-blur-[2px] pointer-events-none"></div>
@@ -111,10 +138,7 @@ export function BlogCard({ blog, onClick, onDelete }: BlogCardProps) {
         {/* Delete Button - Top Right Corner */}
         {onDelete && (
           <button
-            onClick={(e) => {
-              e.stopPropagation() // Prevent card click
-              onDelete(blog.id)
-            }}
+            onClick={handleDeleteClick}
             className="absolute top-3 right-3 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-red-500 hover:bg-red-600 text-white rounded-full p-2 shadow-lg"
             title="Delete blog forever"
           >
@@ -191,10 +215,10 @@ export function BlogCard({ blog, onClick, onDelete }: BlogCardProps) {
         {/* Footer - Status and Date (Fixed position at bottom) */}
         <div className="absolute bottom-6 left-6 right-6 z-10 flex items-center justify-between">
           <span className="text-xs text-gray-400">
-            {new Date(blog.createdAt).toLocaleDateString()}
+            {formattedDate}
           </span>
-          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(blog.status)}`}>
-            {getStatusLabel(blog.status)}
+          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${statusColorClass}`}>
+            {statusLabel}
           </span>
         </div>
         
@@ -203,4 +227,17 @@ export function BlogCard({ blog, onClick, onDelete }: BlogCardProps) {
       </div>
     </div>
   )
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison function for optimal re-rendering
+  return (
+    prevProps.blog.id === nextProps.blog.id &&
+    prevProps.blog.topic === nextProps.blog.topic &&
+    prevProps.blog.content === nextProps.blog.content &&
+    prevProps.blog.status === nextProps.blog.status &&
+    prevProps.blog.heroImageUrl === nextProps.blog.heroImageUrl &&
+    prevProps.blog.createdAt === nextProps.blog.createdAt &&
+    prevProps.variant === nextProps.variant &&
+    prevProps.onClick === nextProps.onClick &&
+    prevProps.onDelete === nextProps.onDelete
+  )
+})
