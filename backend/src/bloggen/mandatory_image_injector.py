@@ -87,71 +87,56 @@ class MandatoryImageInjector:
         return modified_content
     
     def _generate_hero_image(self, topic: str) -> str:
-        """Generate a hero image for the blog topic"""
+        """Generate a hero image for the blog topic using intelligent selection."""
         logger.info(f"Generating hero image for topic: {topic}")
         
-        # Try Unsplash first
+        # Create a focused query for hero images
+        hero_query = f"{topic} professional overview"
+        
+        # The enhanced Unsplash tool will automatically fall back to AI if no relevant images
         try:
-            hero_query = f"{topic} overview"
             result = self.unsplash_tool._run(hero_query, count=1)
             
-            if "placeholder" not in result.lower() and "placehold" not in result.lower():
-                logger.info("✅ Generated hero image from Unsplash")
-                return result
-        except Exception as e:
-            logger.warning(f"Unsplash hero image failed: {e}")
-        
-        # Fallback to AI generation
-        try:
-            ai_prompt = f"Professional illustration representing {topic}, clean modern style"
-            result = self.openai_tool._run(ai_prompt)
-            logger.info("✅ Generated hero image from AI")
+            # Check if it's a placeholder (fallback case)
+            if "placeholder" in result.lower() or "placehold" in result.lower():
+                logger.warning("Hero image generation fell back to placeholder")
+                return self._create_fallback_image(topic, "hero")
+            
+            logger.info("✅ Generated hero image (Unsplash or AI)")
             return result
+            
         except Exception as e:
-            logger.error(f"AI hero image failed: {e}")
+            logger.error(f"Hero image generation failed: {e}")
             return self._create_fallback_image(topic, "hero")
     
     def _generate_supporting_image(self, topic: str, image_number: int, use_ai: bool = False) -> str:
-        """Generate a supporting image"""
-        logger.info(f"Generating supporting image #{image_number} (AI: {use_ai})")
+        """Generate a supporting image using intelligent selection."""
+        logger.info(f"Generating supporting image #{image_number} for topic: {topic}")
         
-        if use_ai:
-            # Use AI for abstract concepts
-            prompts = [
-                f"Diagram illustrating {topic} concepts",
-                f"Infographic about {topic} benefits",
-                f"Chart showing {topic} statistics",
-                f"Workflow visualization for {topic}"
-            ]
-            prompt = prompts[(image_number - 2) % len(prompts)]
-            
-            try:
-                result = self.openai_tool._run(prompt)
-                logger.info(f"✅ Generated AI supporting image #{image_number}")
-                return result
-            except Exception as e:
-                logger.warning(f"AI supporting image failed: {e}")
+        # Create more specific queries for supporting images
+        supporting_queries = [
+            f"{topic} technology implementation",
+            f"{topic} business application", 
+            f"{topic} team collaboration",
+            f"{topic} data visualization"
+        ]
+        query = supporting_queries[(image_number - 2) % len(supporting_queries)]
         
-        # Use Unsplash for real photos
+        # The enhanced Unsplash tool will automatically decide Unsplash vs AI
         try:
-            queries = [
-                f"{topic} technology",
-                f"{topic} workplace",
-                f"{topic} team collaboration",
-                f"{topic} innovation"
-            ]
-            query = queries[(image_number - 2) % len(queries)]
-            
             result = self.unsplash_tool._run(query, count=1)
             
-            if "placeholder" not in result.lower():
-                logger.info(f"✅ Generated Unsplash supporting image #{image_number}")
-                return result
+            # Check if it's a placeholder (fallback case)
+            if "placeholder" in result.lower() or "placehold" in result.lower():
+                logger.warning(f"Supporting image #{image_number} fell back to placeholder")
+                return self._create_fallback_image(topic, f"supporting-{image_number}")
+            
+            logger.info(f"✅ Generated supporting image #{image_number} (Unsplash or AI)")
+            return result
+            
         except Exception as e:
-            logger.warning(f"Unsplash supporting image failed: {e}")
-        
-        # Final fallback
-        return self._create_fallback_image(topic, f"supporting-{image_number}")
+            logger.error(f"Supporting image #{image_number} generation failed: {e}")
+            return self._create_fallback_image(topic, f"supporting-{image_number}")
     
     def _insert_hero_image(self, content: str, image_markdown: str) -> str:
         """Insert hero image after the introduction"""

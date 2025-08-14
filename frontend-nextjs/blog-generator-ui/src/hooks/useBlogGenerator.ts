@@ -83,6 +83,8 @@ export function useBlogGenerator() {
       createJob(data.task_id, topic.trim(), instructions.trim());
       setCurrentJobId(data.task_id);
       setActiveConnectionId(data.task_id);
+      // Immediately refresh blog list to show the new blog card
+      await fetchPreviousBlogs();
       try {
         await connectToTaskStream(
           data.task_id,
@@ -112,7 +114,7 @@ export function useBlogGenerator() {
       if (activeConnectionId) setActiveConnectionId(null);
       setIsGenerating(false);
     }
-  }, [canGenerate, activeConnectionId, closeConnection, completedTasksRef, createJob, updateJob, connectToTaskStream, handleTaskCompletion, handleTaskError]);
+  }, [canGenerate, activeConnectionId, closeConnection, completedTasksRef, createJob, updateJob, connectToTaskStream, handleTaskCompletion, handleTaskError, fetchPreviousBlogs]);
 
   const handleJobClick = useCallback((jobId: string) => { if (activeConnectionId && activeConnectionId !== jobId) { closeConnection(); setActiveConnectionId(null); } setCurrentJobId(jobId); setGenerationError(null); }, [activeConnectionId, closeConnection]);
   const handleBlogClick = useCallback((blog: BlogData) => { setSelectedBlog(blog); setShowBlogModal(true); }, []);

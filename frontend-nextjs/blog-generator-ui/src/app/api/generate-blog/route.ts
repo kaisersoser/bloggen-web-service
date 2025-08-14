@@ -52,11 +52,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Create blog entry in database
+    console.log('Creating blog for user:', session.user.id, 'topic:', topic.trim())
     const blog = await BlogService.createBlog(
       session.user.id,
       topic.trim(),
       instructions?.trim()
     )
+    console.log('Blog created successfully:', blog.id)
 
     // NOTE: Do NOT increment generation count here - only increment on successful completion
     // await UserService.incrementGenerationCount(session.user.id)
@@ -150,8 +152,14 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error("Error in blog generation:", error)
+    console.error("Error details:", {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : 'No stack trace',
+      type: typeof error,
+      error: error
+    })
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error", details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

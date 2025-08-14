@@ -26,6 +26,8 @@ async function fetchWithTLSFallback(url: string, opts: any) {
 }
 
 export async function POST(request: NextRequest) {
+  let body: any = {};
+  
   try {
     const session = await getServerSession(authOptions)
     
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
       { algorithm: 'HS256' }
     )
 
-    const body = await request.json()
+    body = await request.json()
     const { instructions } = body
 
     if (!instructions || typeof instructions !== 'string') {
@@ -97,25 +99,38 @@ export async function POST(request: NextRequest) {
     }
 
     const backendUrl = `${process.env.API_BASE_URL}/generate-title`
-  const backendResponse = await fetchWithTLSFallback(backendUrl, fetchOpts)
+    
+    try {
+      const backendResponse = await fetchWithTLSFallback(backendUrl, fetchOpts)
 
-    if (!backendResponse.ok) {
-      const errorText = await backendResponse.text()
-      console.error('Backend error:', errorText)
-      return NextResponse.json(
-        { error: 'Failed to generate title' },
-        { status: backendResponse.status }
-      )
+      if (!backendResponse.ok) {
+        const errorText = await backendResponse.text()
+        console.warn('Backend title generation failed:', errorText)
+        // Fallback to simple title generation
+        const fallbackTitle = instructions.length > 50 
+          ? instructions.substring(0, 47) + '...'
+          : instructions
+        return NextResponse.json({ title: fallbackTitle })
+      }
+
+      const data = await backendResponse.json()
+      return NextResponse.json(data)
+      
+    } catch (backendError) {
+      console.warn('Backend title generation error:', backendError)
+      // Fallback to simple title generation
+      const fallbackTitle = instructions.length > 50 
+        ? instructions.substring(0, 47) + '...'
+        : instructions
+      return NextResponse.json({ title: fallbackTitle })
     }
-
-    const data = await backendResponse.json()
-    return NextResponse.json(data)
 
   } catch (error) {
     console.error('Title generation error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    // Final fallback - use instructions directly if available
+    const fallbackTitle = body?.instructions?.length > 50 
+      ? body.instructions.substring(0, 47) + '...'
+      : body?.instructions || 'New Blog Post'
+    return NextResponse.json({ title: fallbackTitle })
   }
 }
