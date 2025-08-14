@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth, useRoleCheck } from '@/hooks/useAuth';
 import { useUserStats } from '@/hooks/useUserStats';
 import { useBlogManagement } from '@/hooks/useBlogManagement';
-import { useSSEConnection } from '@/hooks/useSSEConnection';
+import { useWebSocketConnection } from '@/hooks/useWebSocketConnection';
 import { blogService } from '@/lib/services/blog';
 import { taskService } from '@/lib/services/task';
-import { BlogData, ErrorInfo, LogEntry } from '@/types/blog';
+import { BlogData, ErrorInfo, LogEntry, JobState } from '@/types/blog';
 // PromptConfig import removed (unused after refactor)
 
 export function useBlogGenerator() {
@@ -13,7 +13,7 @@ export function useBlogGenerator() {
   const { canGenerateBlog, isFree } = useRoleCheck();
   const { stats, loading: statsLoading, refetch: refetchStats } = useUserStats();
   const { jobs, previousBlogs, blogsLoading, updateJob, createJob, fetchPreviousBlogs, deleteBlog, addTemporaryJob } = useBlogManagement();
-  const { connectToTaskStream, closeConnection, completedTasksRef } = useSSEConnection();
+  const { connectToTaskStream, closeConnection, completedTasksRef } = useWebSocketConnection();
 
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export function useBlogGenerator() {
   const [blogToDelete, setBlogToDelete] = useState<BlogData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   
-  // Track if we've received the first SSE update to avoid multiple setIsGenerating(false) calls
+  // Track if we've received the first WebSocket update to avoid multiple setIsGenerating(false) calls
   const firstUpdateReceivedRef = useRef<string | null>(null);
   const [selectedBlog, setSelectedBlog] = useState<BlogData | null>(null);
   const [showBlogModal, setShowBlogModal] = useState(false);
@@ -88,9 +88,9 @@ export function useBlogGenerator() {
       try {
         await connectToTaskStream(
           data.task_id,
-          (taskId, updates) => {
+          (taskId: string, updates: Partial<JobState>) => {
             updateJob(taskId, updates);
-            // Set isGenerating to false when we receive the first SSE update
+            // Set isGenerating to false when we receive the first WebSocket update
             // This ensures the console stays visible until real-time updates start
             if (firstUpdateReceivedRef.current !== taskId) {
               firstUpdateReceivedRef.current = taskId;
@@ -99,11 +99,11 @@ export function useBlogGenerator() {
           },
           handleTaskCompletion,
           handleTaskError,
-          (taskId, log) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
+          (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
         );
-        // Don't set isGenerating(false) here - let the first SSE update handle it
-      } catch (sseErr) {
-        console.error('Failed to start SSE stream:', sseErr);
+        // Don't set isGenerating(false) here - let the first WebSocket update handle it
+      } catch (wsErr) {
+        console.error('Failed to start WebSocket stream:', wsErr);
         setGenerationError('Failed to establish real-time connection. Generation continues in background.');
         setIsGenerating(false);
       }
@@ -147,17 +147,17 @@ export function useBlogGenerator() {
                 setCurrentJobId(task.id);
                 setActiveConnectionId(task.id);
                 
-                // Reconnect SSE for in-progress tasks
+                // Reconnect WebSocket for in-progress tasks
                 try {
                   await connectToTaskStream(
                     task.id,
-                    (taskId, updates) => updateJob(taskId, updates),
+                    (taskId: string, updates: Partial<JobState>) => updateJob(taskId, updates),
                     handleTaskCompletion,
                     handleTaskError,
-                    (taskId, log) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
+                    (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
                   );
-                } catch (sseErr) {
-                  console.error(`Failed to reconnect to task ${task.id}:`, sseErr);
+                } catch (wsErr) {
+                  console.error(`Failed to reconnect to task ${task.id}:`, wsErr);
                   setGenerationError('Lost connection to active generation. Status may be outdated.');
                 }
               }
