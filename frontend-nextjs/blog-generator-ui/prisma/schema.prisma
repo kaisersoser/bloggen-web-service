@@ -70,7 +70,6 @@ model Blog {
   topic         String
   instructions  String?
   content       String?
-  heroImageUrl  String?        @map("hero_image_url")
   status        BlogStatus     @default(QUEUED)
   progress      Int            @default(0)
   currentStep   String?        @map("current_step")
@@ -78,6 +77,7 @@ model Blog {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   completedAt   DateTime?      @map("completed_at")
+  heroImageUrl  String?        @map("hero_image_url")
   auditSessions AuditSession[]
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 

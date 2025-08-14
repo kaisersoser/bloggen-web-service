@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { blogService } from '@/lib/services/blog';
-import { ChevronDown, ChevronUp, Send, Settings } from 'lucide-react';
+import { Send, Settings } from 'lucide-react';
 
 export interface PromptConfig {
   tone: 'creative-funny' | 'basic-info' | 'deep-research';

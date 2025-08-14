@@ -53,14 +53,12 @@ async function fetchWithTLSFallback(url: string, opts: any): Promise<Response> {
   });
 }
 
-interface RouteParams {
-  params: {
-    taskId: string;
-  };
-}
-
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
   try {
+    const { taskId } = await params;
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
@@ -83,7 +81,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { token } = await tokenResponse.json();
 
     // Forward request to FastAPI backend with TLS fallback
-    const response = await fetchWithTLSFallback(`${API_BASE_URL}/tasks/${params.taskId}`, {
+    const response = await fetchWithTLSFallback(`${API_BASE_URL}/tasks/${taskId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,

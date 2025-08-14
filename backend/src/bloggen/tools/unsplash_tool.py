@@ -16,8 +16,8 @@ import logging
 
 
 class UnsplashSearchInput(BaseModel):
-    """Input schema for Unsplash image search tool."""
-    query: str = Field(..., description="Search keywords for finding relevant images (e.g., 'artificial intelligence', 'data science', 'technology')")
+    """Input schema for intelligent image search tool."""
+    query: str = Field(..., description="Specific, descriptive keywords for finding relevant images. Use technical terms and context (e.g., 'machine learning neural network visualization', 'cybersecurity monitoring dashboard', 'agile development team planning'). The tool will automatically choose between Unsplash photos and AI generation based on relevance.")
     count: int = Field(default=1, description="Number of images to return (1-3 recommended)")
     orientation: str = Field(default="landscape", description="Image orientation: 'landscape', 'portrait', or 'squarish'")
 
@@ -32,11 +32,13 @@ class UnsplashImageTool(BaseTool):
     
     name: str = "unsplash_image_search"
     description: str = (
-        "Search for high-quality, professional images from Unsplash to enhance blog content. "
-        "Provide relevant keywords describing the image you need (e.g., 'artificial intelligence robot', "
-        "'data visualization charts', 'team collaboration'). The tool returns properly formatted "
-        "Markdown image syntax ready to insert into blog posts. Always use descriptive keywords "
-        "that match your content topic for best results."
+        "Intelligent image search that finds highly relevant, professional images for blog content. "
+        "Automatically selects the best source: searches Unsplash for real photos when relevant, "
+        "or generates custom AI images for abstract concepts. Uses advanced relevance scoring to ensure "
+        "images directly relate to your content. Provide specific, descriptive keywords for best results "
+        "(e.g., 'machine learning neural network visualization', 'cybersecurity team monitoring dashboard'). "
+        "Returns properly formatted Markdown ready for blog insertion. The tool intelligently handles "
+        "fallbacks to ensure you always get relevant, high-quality visuals."
     )
     args_schema: Type[BaseModel] = UnsplashSearchInput
     
@@ -70,6 +72,7 @@ class UnsplashImageTool(BaseTool):
     def _run(self, query: str, count: int = 1, orientation: str = "landscape") -> str:
         """
         Search for images on Unsplash and return formatted Markdown.
+        Automatically falls back to AI generation if no relevant images found.
         
         Args:
             query (str): Search keywords for images
@@ -87,21 +90,78 @@ class UnsplashImageTool(BaseTool):
             
             # If no API key, return placeholder
             if not self._access_key:
-                return self._generate_placeholder_images(query, count, orientation)
+                logging.info("No Unsplash API key - falling back to AI generation")
+                return self._fallback_to_ai_generation(query, count, orientation)
             
             # Search for images
             images = self._search_unsplash_images(query, count, orientation)
             
             if not images:
-                # Fallback to placeholder if no results
-                return self._generate_placeholder_images(query, count, orientation)
+                # No relevant images found - fallback to AI generation
+                logging.info(f"No relevant Unsplash images found for '{query}' - falling back to AI generation")
+                return self._fallback_to_ai_generation(query, count, orientation)
             
             # Format as Markdown
-            return self._format_images_as_markdown(images, query)
+            result = self._format_images_as_markdown(images, query)
+            logging.info(f"✅ Successfully found {len(images)} relevant Unsplash images")
+            return result
             
         except Exception as e:
             logging.error(f"Error in Unsplash image search: {str(e)}")
-            # Return placeholder on any error
+            # Return AI generation on any error
+            logging.info("Falling back to AI generation due to error")
+            return self._fallback_to_ai_generation(query, count, orientation)
+    
+    def _fallback_to_ai_generation(self, query: str, count: int, orientation: str) -> str:
+        """Fallback to AI image generation when Unsplash fails or returns irrelevant results."""
+        try:
+            # Import here to avoid circular imports
+            from .openai_image_tool import OpenAIImageTool
+            
+            ai_tool = OpenAIImageTool(audit_tracker=self._audit_tracker)
+            
+            # Check if AI tool is available
+            if not ai_tool._api_key or not ai_tool._openai_available:
+                logging.warning("AI image generation not available - using placeholder")
+                return self._generate_placeholder_images(query, count, orientation)
+            
+            # Generate images using AI
+            results = []
+            for i in range(count):
+                # Create contextual prompts for AI generation
+                if i == 0:
+                    # Hero image
+                    prompt = f"Professional illustration of {query}, clean modern style, high-tech aesthetic, suitable for blog header"
+                else:
+                    # Supporting images
+                    prompt = f"Diagram or infographic about {query}, professional design, educational visualization"
+                
+                # Map orientation to size for AI generation
+                size_mapping = {
+                    'landscape': '1792x1024',
+                    'portrait': '1024x1792', 
+                    'squarish': '1024x1024'
+                }
+                size = size_mapping.get(orientation, '1024x1024')
+                
+                ai_result = ai_tool._run(prompt=prompt, size=size, aspect=orientation)
+                if ai_result and "![" in ai_result:
+                    results.append(ai_result)
+                    logging.info(f"✅ Generated AI image {i+1}/{count}")
+                else:
+                    logging.warning(f"❌ AI image generation {i+1} failed")
+            
+            if results:
+                combined_result = '\n\n'.join(results)
+                logging.info(f"✅ Successfully generated {len(results)} AI images as Unsplash fallback")
+                return combined_result
+            else:
+                # Final fallback to placeholder
+                logging.warning("All AI generation attempts failed - using placeholder")
+                return self._generate_placeholder_images(query, count, orientation)
+                
+        except Exception as e:
+            logging.error(f"AI fallback generation failed: {str(e)}")
             return self._generate_placeholder_images(query, count, orientation)
     
     def _search_unsplash_images(self, query: str, count: int, orientation: str) -> List[Dict]:
@@ -161,17 +221,30 @@ class UnsplashImageTool(BaseTool):
             
             logging.info(f"Unsplash returned {len(results)} images")
             
-            # Validate that we have proper image data
+            # Validate that we have proper image data and check relevance
             valid_results = []
             for i, result in enumerate(results):
                 if (result.get('urls') and 
                     result.get('user') and 
                     any(result['urls'].get(key) for key in ['regular', 'full', 'raw', 'small'])):
-                    valid_results.append(result)
+                    
+                    # Score image relevance
+                    relevance_score = self._score_image_relevance(result, query, clean_query)
+                    
+                    if relevance_score >= 0.3:  # Minimum relevance threshold
+                        valid_results.append(result)
+                        logging.info(f"Image {i+1} relevance score: {relevance_score:.2f} - ACCEPTED")
+                    else:
+                        logging.info(f"Image {i+1} relevance score: {relevance_score:.2f} - REJECTED (too irrelevant)")
                 else:
                     logging.warning(f"Skipping invalid image result {i}: missing required fields")
             
-            logging.info(f"Found {len(valid_results)} valid images out of {len(results)} returned")
+            logging.info(f"Found {len(valid_results)} relevant images out of {len(results)} returned")
+            
+            # If no images meet relevance criteria, return empty for AI fallback
+            if len(valid_results) == 0 and len(results) > 0:
+                logging.warning("All Unsplash images failed relevance check - triggering AI fallback")
+                return []
             return valid_results
             
         except requests.exceptions.RequestException as e:
@@ -188,19 +261,141 @@ class UnsplashImageTool(BaseTool):
             return []
     
     def _enhance_search_query(self, query: str) -> str:
-        """Enhance search query for better Unsplash results."""
-        # Remove common blog/content words that don't help image search
-        stop_words = ['blog', 'post', 'article', 'content', 'guide', 'tutorial', 'introduction']
+        """Enhance search query for better Unsplash results with intelligent keyword extraction."""
+        import re
         
-        # Clean the query
-        words = query.lower().split()
-        enhanced_words = [word for word in words if word not in stop_words]
+        # Comprehensive stop words for better filtering
+        stop_words = {
+            'blog', 'post', 'article', 'content', 'guide', 'tutorial', 'introduction',
+            'overview', 'summary', 'analysis', 'discussion', 'exploration', 'deep', 'dive',
+            'comprehensive', 'ultimate', 'complete', 'beginner', 'advanced', 'tips',
+            'how', 'what', 'why', 'when', 'where', 'best', 'practices', 'strategy',
+            'strategies', 'method', 'methods', 'approach', 'approaches', 'way', 'ways'
+        }
         
-        # If query is too short, keep original
-        if len(enhanced_words) < 2:
-            return query
+        # Clean and normalize the query
+        query = query.lower().strip()
+        query = re.sub(r'[^\w\s-]', ' ', query)  # Remove special chars except hyphens
+        words = [word.strip() for word in query.split() if word.strip()]
         
-        return ' '.join(enhanced_words)
+        # Filter out stop words but keep meaningful terms
+        enhanced_words = []
+        for word in words:
+            # Keep important technical terms even if they might be stop words
+            if (word not in stop_words or 
+                len(word) > 8 or  # Keep longer technical terms
+                word in ['ai', 'ml', 'api', 'ui', 'ux']):  # Keep tech abbreviations
+                enhanced_words.append(word)
+        
+        # If we filtered too much, keep the most important words
+        if len(enhanced_words) < 2 and len(words) >= 2:
+            # Keep the longest words as they're likely most specific
+            enhanced_words = sorted(words, key=len, reverse=True)[:3]
+        elif len(enhanced_words) == 0:
+            return query  # Fallback to original
+        
+        enhanced_query = ' '.join(enhanced_words)
+        
+        # Add context-specific modifiers for better visual results
+        visual_modifiers = self._get_visual_modifiers(enhanced_query)
+        if visual_modifiers:
+            enhanced_query = f"{enhanced_query} {visual_modifiers}"
+        
+        logging.debug(f"Enhanced query: '{query}' -> '{enhanced_query}'")
+        return enhanced_query
+    
+    def _get_visual_modifiers(self, query: str) -> str:
+        """Add visual context modifiers based on query content."""
+        query_lower = query.lower()
+        
+        # Technology-related terms get tech modifiers
+        if any(word in query_lower for word in ['ai', 'artificial', 'intelligence', 'machine', 'learning', 'neural', 'algorithm']):
+            return "technology futuristic"
+        elif any(word in query_lower for word in ['data', 'analytics', 'visualization', 'chart', 'graph']):
+            return "dashboard analytics"
+        elif any(word in query_lower for word in ['team', 'collaboration', 'meeting', 'office', 'workplace']):
+            return "business professional"
+        elif any(word in query_lower for word in ['coding', 'programming', 'developer', 'software']):
+            return "coding computer"
+        elif any(word in query_lower for word in ['security', 'cyber', 'protection', 'safety']):
+            return "security protection"
+        elif any(word in query_lower for word in ['innovation', 'startup', 'entrepreneur']):
+            return "innovation business"
+        
+        return ""
+    
+    def _score_image_relevance(self, image: Dict, original_query: str, enhanced_query: str) -> float:
+        """Score image relevance based on metadata and search terms."""
+        score = 0.0
+        
+        # Get image metadata
+        alt_description = (image.get('alt_description') or '').lower()
+        description = (image.get('description') or '').lower()
+        tags = []
+        if image.get('tags'):
+            tags = [tag.get('title', '').lower() for tag in image['tags'] if tag.get('title')]
+        
+        # Combine all text sources
+        image_text = f"{alt_description} {description} {' '.join(tags)}"
+        
+        # Extract key terms from queries
+        original_terms = set(original_query.lower().split())
+        enhanced_terms = set(enhanced_query.lower().split())
+        all_query_terms = original_terms.union(enhanced_terms)
+        
+        # Score based on direct term matches
+        term_matches = 0
+        for term in all_query_terms:
+            if len(term) > 2 and term in image_text:  # Ignore very short terms
+                term_matches += 1
+                score += 0.2  # Each relevant term adds to score
+        
+        # Bonus for multiple term matches (indicates strong relevance)
+        if term_matches >= 2:
+            score += 0.3
+        
+        # Semantic relevance scoring
+        score += self._calculate_semantic_relevance(image_text, original_query)
+        
+        # Quality indicators (downloads, likes) add minor score boost
+        downloads = image.get('downloads', 0)
+        likes = image.get('likes', 0)
+        
+        if downloads > 1000:  # Popular images are often more relevant
+            score += 0.1
+        if likes > 100:
+            score += 0.05
+        
+        # Cap the score at 1.0
+        return min(score, 1.0)
+    
+    def _calculate_semantic_relevance(self, image_text: str, query: str) -> float:
+        """Calculate semantic relevance between image metadata and query."""
+        # Simple semantic scoring based on domain-specific keyword groups
+        semantic_groups = {
+            'technology': ['tech', 'digital', 'computer', 'software', 'coding', 'algorithm', 'system'],
+            'ai_ml': ['artificial', 'intelligence', 'machine', 'learning', 'neural', 'deep', 'model'],
+            'business': ['business', 'corporate', 'office', 'professional', 'meeting', 'team'],
+            'data': ['data', 'analytics', 'chart', 'graph', 'visualization', 'dashboard'],
+            'security': ['security', 'cyber', 'protection', 'safe', 'secure', 'lock'],
+            'innovation': ['innovation', 'creative', 'idea', 'startup', 'entrepreneur', 'future']
+        }
+        
+        query_lower = query.lower()
+        semantic_score = 0.0
+        
+        for group_name, keywords in semantic_groups.items():
+            # Check if query belongs to this semantic group
+            query_matches = sum(1 for keyword in keywords if keyword in query_lower)
+            if query_matches > 0:
+                # Check if image metadata contains related terms
+                image_matches = sum(1 for keyword in keywords if keyword in image_text)
+                if image_matches > 0:
+                    # Score based on how many related terms match
+                    group_score = min(image_matches / len(keywords), 0.3)
+                    semantic_score += group_score
+        
+        return semantic_score
     
     def _format_images_as_markdown(self, images: List[Dict], query: str) -> str:
         """Format Unsplash images as Markdown with proper attribution."""

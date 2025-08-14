@@ -2,7 +2,13 @@
 
 ## Overview
 
-The blog generator now includes automatic image integration using the Unsplash API. This feature automatically searches for and inserts relevant, high-quality images into your generated blog posts.
+The blog generator includes an **intelligent image integration system** that automatically finds and inserts highly relevant, professional images into your generated blog posts. The enhanced system uses advanced relevance scoring to ensure images directly relate to your content, automatically falling back to AI generation when real photos aren't contextually appropriate.
+
+**Key Features:**
+- 🎯 **Smart relevance filtering**: Only uses images that score ≥ 0.3 on contextual relevance
+- 🤖 **Automatic AI fallback**: Generates custom illustrations for abstract concepts
+- 🏞️ **Intelligent source selection**: Uses real photos for practical topics, AI for technical diagrams
+- 📊 **Advanced query enhancement**: Transforms generic terms into specific, visual search queries
 
 ## Setup Instructions
 
@@ -73,14 +79,22 @@ If the Unsplash API is unavailable or no API key is provided:
 ## Features
 
 ### Intelligent Search
-- Automatically extracts keywords from blog topics
-- Filters out non-visual terms (like "blog", "article", "guide")
-- Enhances search terms for better image matching
+- **Enhanced query processing**: Automatically filters blog-specific terms and adds visual context modifiers
+- **Advanced relevance scoring**: Only accepts images with relevance score ≥ 0.3 based on metadata analysis
+- **Semantic keyword grouping**: Context-aware scoring using domain-specific keyword groups (AI/ML, business, security, etc.)
+- **Technical term preservation**: Keeps important technical acronyms and specialized terminology
 
-### Professional Quality
-- Only searches curated, high-quality images
-- Filters for content-appropriate photos
-- Ensures proper aspect ratios and resolutions
+### Professional Quality with Intelligence
+- **Relevance-first approach**: Quality over quantity - rejects irrelevant images automatically
+- **Smart source selection**: Uses Unsplash for real-world photos, AI generation for abstract concepts
+- **Automatic fallback**: Seamlessly switches to AI generation when Unsplash images aren't relevant enough
+- **Consistent output**: Always returns contextually appropriate, professional-grade images
+
+### Advanced Fallback System
+- **Intelligent relevance detection**: Automatically identifies when Unsplash results don't match content context
+- **Seamless AI integration**: Falls back to OpenAI DALL-E for custom illustrations when needed
+- **Context-aware prompts**: Generates different AI prompts for hero images vs supporting visuals
+- **No manual intervention**: Agents get optimal images without complex decision logic
 
 ### SEO Optimized
 - Generates descriptive alt text for accessibility

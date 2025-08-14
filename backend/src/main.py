@@ -133,7 +133,10 @@ app.add_middleware(
 )
 
 # Global state for task tracking (will be replaced with Redis later)
-active_tasks: Dict[str, Dict[str, Any]] = {}
+# active_tasks: Dict[str, Dict[str, Any]] = {}  # DEPRECATED: Using database-backed task manager
+
+# Import task manager for database-backed state
+from core.task_manager import task_manager
 
 # Logger
 logger = setup_api_logger("main")
@@ -307,21 +310,8 @@ async def generate_blog(
         topic=normalized_topic or "<auto>"
     )
     
-    # Create task record
-    active_tasks[task_id] = {
-        'id': task_id,
-        'topic': normalized_topic or '<auto-generating>',
-        'status': 'queued',
-        'created_at': datetime.utcnow().isoformat(),
-        'current_step': 'Queued for processing',
-        'result': None,
-        'error': None,
-        'user_id': user.id,
-        'user_email': user.email,
-        'user_role': user.role,
-        'request_id': request_id,
-        'instructions': (request.instructions or '').strip() or None
-    }
+    # Create task record in database instead of memory
+    await task_manager.create_task(task_id, user.id, normalized_topic or '<auto-generating>', (request.instructions or '').strip() or None)
     
     # Start background blog generation
     background_tasks.add_task(
@@ -343,23 +333,28 @@ async def generate_blog(
 @app.get("/tasks/active")
 async def get_active_tasks(user: User = Depends(get_current_user)) -> Dict[str, Any]:
     """Get all active tasks for the current user."""
-    user_tasks = []
+    from core.task_manager import TaskStatus
     
-    for task_id, task_data in active_tasks.items():
-        # Check if user owns this task
-        if task_data.get('user_id') == user.id:
-            user_tasks.append({
-                "id": task_id,
-                "topic": task_data.get('topic', ''),
-                "status": task_data.get('status', 'queued'),
-                "created_at": task_data.get('created_at', ''),
-                "current_step": task_data.get('current_step', ''),
-                "result": task_data.get('result'),
-                "error": task_data.get('error'),
-                "user_id": task_data.get('user_id', ''),
-                "user_email": task_data.get('user_email', ''),
-                "user_role": task_data.get('user_role', '')
-            })
+    # Get in-progress tasks from database
+    in_progress_tasks = await task_manager.get_user_tasks(user.id, TaskStatus.IN_PROGRESS)
+    queued_tasks = await task_manager.get_user_tasks(user.id, TaskStatus.QUEUED)
+    
+    user_tasks = []
+    all_active_tasks = in_progress_tasks + queued_tasks
+    
+    for task_data in all_active_tasks:
+        user_tasks.append({
+            "id": task_data.get('id', ''),
+            "topic": task_data.get('topic', ''),
+            "status": task_data.get('status', '').lower(),  # Convert ENUM to lowercase
+            "created_at": task_data.get('created_at', '').isoformat() if task_data.get('created_at') else '',
+            "current_step": task_data.get('current_step', ''),
+            "result": task_data.get('content'),  # 'result' maps to 'content' in DB
+            "error": task_data.get('error'),
+            "user_id": task_data.get('user_id', ''),
+            "user_email": user.email,  # Get from current user
+            "user_role": user.role     # Get from current user
+        })
     
     return {"tasks": user_tasks}
 
@@ -369,25 +364,40 @@ async def get_task_status(
     user: User = Depends(get_current_user)
 ) -> TaskStatus:
     """Get the status of a specific task."""
-    if task_id not in active_tasks:
+    task = await task_manager.get_task(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    task = active_tasks[task_id]
     
     # Check if user owns this task (or is admin)
     if task['user_id'] != user.id and user.role != 'ADMIN':
         raise HTTPException(status_code=403, detail="Access denied")
     
-    return TaskStatus(**task)
+    # Convert database task to TaskStatus format
+    task_status = {
+        'id': task['id'],
+        'topic': task['topic'],
+        'status': task['status'].lower() if task['status'] else 'queued',
+        'created_at': task['created_at'].isoformat() if task['created_at'] else '',
+        'current_step': task['current_step'],
+        'result': task['content'],
+        'error': task['error'],
+        'user_id': task['user_id'],
+        'user_email': user.email,
+        'user_role': user.role,
+        'request_id': task_id,  # Use task_id as request_id
+        'instructions': task['instructions']
+    }
+    
+    return TaskStatus(**task_status)
 
 @app.get("/stream/{task_id}")
 async def stream_task(task_id: str, token: str):
     """SSE stream for a specific task with early hero image updates."""
     # Authenticate via query token
     user = await get_current_user_from_query_token(token)
-    if task_id not in active_tasks:
+    task = await task_manager.get_task(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    task = active_tasks[task_id]
     if task['user_id'] != user.id and user.role != 'ADMIN':
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -398,10 +408,12 @@ async def stream_task(task_id: str, token: str):
         last_sent_hero = None
         try:
             while True:
-                if task_id not in active_tasks:
+                # Get current task state from database
+                current_task = await task_manager.get_task(task_id)
+                if not current_task:
                     break
-                current_task = active_tasks[task_id]
-                status = current_task.get('status')
+                    
+                status = current_task.get('status', '').lower()
                 step = current_task.get('current_step')
                 progress = current_task.get('progress', 0)
                 hero_url = current_task.get('hero_image_url')
@@ -420,8 +432,8 @@ async def stream_task(task_id: str, token: str):
                     }
                     if hero_url:
                         payload['hero_image_url'] = hero_url
-                    if status == 'completed' and current_task.get('result'):
-                        payload['result'] = current_task['result']
+                    if status == 'completed' and current_task.get('content'):
+                        payload['result'] = current_task['content']
                     if status == 'failed' and current_task.get('error'):
                         payload['error'] = current_task['error']
                     yield f"data: {json.dumps(payload)}\n\n"
@@ -531,10 +543,11 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             topic=topic or '<auto>'
         )
         
-        # Update task status
-        if task_id in active_tasks:
-            active_tasks[task_id]['status'] = 'in_progress'
-            active_tasks[task_id]['current_step'] = 'Initializing blog generation workflow...'
+        # Update task status to in_progress
+        await task_manager.update_task(task_id, 
+            status='in_progress', 
+            current_step='Initializing blog generation workflow...'
+        )
         
         # Create audit tracker for this session - USING ENHANCED VERSION
         # Note: In production, user_id should come from JWT token validation
@@ -558,14 +571,16 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         # Define status update callback
         def update_task_status(status_data: Dict[str, Any]):
             """Update task status for SSE streaming."""
-            if task_id in active_tasks:
-                message = status_data.get('message', 'Processing...')
-                step = status_data.get('step', 0)
-                progress = status_data.get('progress', 0.0) * 100  # Convert to percentage
-                
-                active_tasks[task_id]['current_step'] = message
-                active_tasks[task_id]['progress'] = progress
-                logger.info(f"📊 {task_id}: Step {step} - {message} ({progress:.1f}%)")
+            message = status_data.get('message', 'Processing...')
+            step = status_data.get('step', 0)
+            progress = status_data.get('progress', 0.0) * 100  # Convert to percentage
+            
+            # Update task in database instead of memory
+            asyncio.create_task(task_manager.update_task(task_id, 
+                current_step=message, 
+                progress=progress
+            ))
+            logger.info(f"📊 {task_id}: Step {step} - {message} ({progress:.1f}%)")
         
         # Create and run blog generation flow with direct audit tracker
         flow = BlogGenerationFlow(
@@ -601,10 +616,15 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                             hero_url = unsplash_res.get('url') or hero_url
                     except Exception:
                         logger.debug('Unsplash fallback failed', exc_info=True)
-                if hero_url and task_id in active_tasks and active_tasks[task_id].get('status') != 'failed':
-                    active_tasks[task_id]['hero_image_url'] = hero_url
-                    if active_tasks[task_id]['status'] != 'completed':
-                        active_tasks[task_id]['current_step'] = 'Hero image ready'
+                        
+                # Update hero image in database if found
+                if hero_url:
+                    current_task = await task_manager.get_task(task_id)
+                    if current_task and current_task.get('status', '').lower() not in ['failed', 'completed']:
+                        await task_manager.update_task(task_id, 
+                            hero_image_url=hero_url,
+                            current_step='Hero image ready'
+                        )
                 update_phase('finalization')
             except Exception as e:
                 logger.debug(f"Parallel hero image generation failed for task {task_id}: {e}", exc_info=True)
@@ -615,8 +635,9 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         # Execute the flow with proper inputs (topic may be None for auto-generation)
         result = await run_blog_flow_async(flow, topic)
 
-        # Update task with flow result prior to hero image generation
-        if task_id in active_tasks:
+        # Get current task state to check if it should be updated
+        current_task = await task_manager.get_task(task_id)
+        if current_task:
             blog_content = "Blog generation completed, but content extraction failed."
             try:
                 if isinstance(result, dict) and 'final_blog_post' in result:
@@ -638,7 +659,7 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
 
             # Update topic if auto-generated
             if (not topic or not topic.strip()) and getattr(flow, 'topic', None):
-                active_tasks[task_id]['topic'] = flow.topic
+                await task_manager.update_task(task_id, topic=flow.topic)
 
             # Await hero task (still parallelized with flow) to keep guarantee hero appears before completion
             try:
@@ -649,11 +670,11 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                 logger.debug("Hero image coroutine error", exc_info=True)
 
             # Mark completion after hero attempt
-            if task_id in active_tasks and active_tasks[task_id]['status'] != 'failed':
-                active_tasks[task_id]['status'] = 'completed'
-                active_tasks[task_id]['result'] = blog_content
-                active_tasks[task_id]['current_step'] = 'Blog generation completed successfully!'
-                active_tasks[task_id]['progress'] = 100
+            current_task = await task_manager.get_task(task_id)
+            if current_task and current_task.get('status', '').lower() != 'failed':
+                # Get hero image URL if it was set during generation
+                hero_image_url = current_task.get('hero_image_url')
+                await task_manager.complete_task(task_id, blog_content, hero_image_url)
                 logger.info(f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars")
 
         # End the audit session AFTER hero image to include its cost
@@ -674,10 +695,7 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             pass  # Don't fail the error handling
         
         # Update task with error
-        if task_id in active_tasks:
-            active_tasks[task_id]['status'] = 'failed'
-            active_tasks[task_id]['error'] = str(e)
-            active_tasks[task_id]['current_step'] = f'Error: {str(e)}'
+        await task_manager.fail_task(task_id, str(e))
 
 async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
     """Run the blog generation flow asynchronously using a thread pool.

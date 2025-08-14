@@ -48,6 +48,7 @@ const JobCard: React.FC<JobCardProps> = React.memo(({ job, onClick }) => (
     <div className="text-xs text-muted-foreground">{job.status}</div>
   </div>
 ));
+JobCard.displayName = 'JobCard';
 
 const BlogCard: React.FC<BlogCardProps> = React.memo(({ blog, onClick }) => (
   <div onClick={onClick} className="p-2 border rounded cursor-pointer hover:bg-gray-50">
@@ -57,6 +58,7 @@ const BlogCard: React.FC<BlogCardProps> = React.memo(({ blog, onClick }) => (
     </div>
   </div>
 ));
+BlogCard.displayName = 'BlogCard';
 
 export const OptimizedBlogHistorySidebar: React.FC<BlogHistorySidebarProps> = React.memo(function OptimizedBlogHistorySidebar({ 
   blogs, 
