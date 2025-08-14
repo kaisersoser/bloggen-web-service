@@ -2,6 +2,7 @@
 Task Manager for database-backed task state management.
 
 Replaces the in-memory active_tasks dictionary with persistent database storage.
+Integrates with WebSocket manager for real-time updates.
 """
 import asyncio
 import logging
@@ -34,6 +35,41 @@ class TaskManager:
             TaskStatus.FAILED: BlogStatus.FAILED,
         }
         self._subscribers: Dict[str, List[Callable]] = {}
+        self._websocket_manager = None
+    
+    def set_websocket_manager(self, websocket_manager):
+        """Set the WebSocket manager for real-time updates."""
+        self._websocket_manager = websocket_manager
+    
+    async def _broadcast_task_update(self, task_id: str, task_data: Dict[str, Any]):
+        """Broadcast task update via WebSocket if manager is available."""
+        if not self._websocket_manager:
+            return
+        
+        try:
+            # Import here to avoid circular imports
+            from core.websocket_manager import WebSocketMessage
+            
+            # Prepare WebSocket message
+            message = WebSocketMessage(
+                type="task_update",
+                task_id=task_id,
+                data={
+                    'status': task_data.get('status', '').lower(),
+                    'step': task_data.get('current_step'),
+                    'progress': task_data.get('progress', 0),
+                    'hero_image_url': task_data.get('hero_image_url'),
+                    'content': task_data.get('content') if task_data.get('status') == 'COMPLETED' else None,
+                    'error': task_data.get('error') if task_data.get('status') == 'FAILED' else None
+                }
+            )
+            
+            # Broadcast to all connections subscribed to this task
+            await self._websocket_manager.broadcast_to_task(task_id, message)
+            logger.debug(f"Broadcasted WebSocket update for task {task_id}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to broadcast WebSocket update for task {task_id}: {e}")
     
     async def _get_db_connection(self):
         """Get database connection using the existing audit tracker pattern."""
@@ -146,6 +182,9 @@ class TaskManager:
                 
                 # Notify subscribers
                 await self._notify_subscribers(task_id, task_state)
+                
+                # Broadcast WebSocket update
+                await self._broadcast_task_update(task_id, task_state)
                 
                 logger.info(f"✅ Updated task {task_id}: {updates}")
                 return task_state

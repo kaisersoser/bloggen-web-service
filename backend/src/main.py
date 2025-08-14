@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -51,6 +51,7 @@ from core.config import config, get_cors_origins
 from core.llm_interceptor import setup_llm_interceptor
 from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # unified import
 from core.logging_utils import setup_api_logger
+from core.websocket_manager import websocket_manager, WebSocketMessage
 
 # Blog generation
 from bloggen.flows import BlogGenerationFlow
@@ -105,6 +106,10 @@ async def lifespan(app: FastAPI):
             logger.info(f"🔧 Normalized legacy phase names: {phase_updates}")
     except Exception as e:
         logger.warning(f"Serper cost patch failed (startup continues): {e}")
+
+    # Connect WebSocket manager to TaskManager for real-time updates
+    task_manager.set_websocket_manager(websocket_manager)
+    logger.info("✅ WebSocket manager connected to TaskManager")
 
     logger.info("✅ FastAPI application startup complete")
     
@@ -455,6 +460,174 @@ async def stream_task(task_id: str, token: str):
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "*",
     })
+
+@app.websocket("/ws/{task_id}")
+async def websocket_task_endpoint(websocket: WebSocket, task_id: str, token: str):
+    """
+    WebSocket endpoint for real-time task updates.
+    
+    This replaces the SSE endpoint with bidirectional WebSocket communication
+    for more reliable real-time updates and better connection management.
+    
+    Query Parameters:
+        token: JWT authentication token (same as SSE)
+    
+    Message Types:
+        - connected: Initial connection confirmation
+        - task_update: Status updates for the subscribed task
+        - ping/pong: Heartbeat messages
+        - error: Error notifications
+    """
+    connection_id = f"ws_{task_id}_{uuid.uuid4().hex[:8]}"
+    
+    try:
+        # Authenticate user via query token (same as SSE)
+        user = await get_current_user_from_query_token(token)
+        
+        # Verify task access
+        task = await task_manager.get_task(task_id)
+        if not task:
+            await websocket.close(code=1003, reason="Task not found")
+            return
+        if task['user_id'] != user.id and user.role != 'ADMIN':
+            await websocket.close(code=1003, reason="Access denied")
+            return
+        
+        # Establish WebSocket connection
+        success = await websocket_manager.connect(websocket, connection_id, user.id)
+        if not success:
+            await websocket.close(code=1011, reason="Connection failed")
+            return
+        
+        # Subscribe to task updates
+        await websocket_manager.subscribe_to_task(connection_id, task_id)
+        
+        # Send initial task state
+        current_task = await task_manager.get_task(task_id)
+        if current_task:
+            await websocket_manager.send_to_connection(connection_id, WebSocketMessage(
+                type="task_update",
+                task_id=task_id,
+                data={
+                    'status': current_task.get('status', '').lower(),
+                    'step': current_task.get('current_step'),
+                    'progress': current_task.get('progress', 0),
+                    'hero_image_url': current_task.get('hero_image_url'),
+                    'content': current_task.get('content') if current_task.get('status') == 'completed' else None,
+                    'error': current_task.get('error') if current_task.get('status') == 'failed' else None
+                }
+            ))
+        
+        # Handle incoming messages (ping, subscriptions, etc.)
+        try:
+            while True:
+                # Wait for messages from client
+                message_text = await websocket.receive_text()
+                try:
+                    message_data = json.loads(message_text)
+                    message_type = message_data.get('type', '')
+                    
+                    if message_type == 'ping':
+                        await websocket_manager.handle_ping(connection_id)
+                    elif message_type == 'subscribe_task':
+                        # Allow subscribing to additional tasks
+                        new_task_id = message_data.get('task_id')
+                        if new_task_id:
+                            # Verify access to new task
+                            new_task = await task_manager.get_task(new_task_id)
+                            if new_task and (new_task['user_id'] == user.id or user.role == 'ADMIN'):
+                                await websocket_manager.subscribe_to_task(connection_id, new_task_id)
+                                await websocket_manager.send_to_connection(connection_id, WebSocketMessage(
+                                    type="subscribed",
+                                    task_id=new_task_id,
+                                    data={"message": f"Subscribed to task {new_task_id}"}
+                                ))
+                    elif message_type == 'unsubscribe_task':
+                        # Allow unsubscribing from tasks
+                        old_task_id = message_data.get('task_id')
+                        if old_task_id:
+                            await websocket_manager.unsubscribe_from_task(connection_id, old_task_id)
+                            await websocket_manager.send_to_connection(connection_id, WebSocketMessage(
+                                type="unsubscribed",
+                                task_id=old_task_id,
+                                data={"message": f"Unsubscribed from task {old_task_id}"}
+                            ))
+                    
+                except json.JSONDecodeError:
+                    await websocket_manager.send_to_connection(connection_id, WebSocketMessage(
+                        type="error",
+                        data={"message": "Invalid JSON in message"}
+                    ))
+                
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket client disconnected: {connection_id}")
+    
+    except Exception as e:
+        logger.error(f"Error in WebSocket endpoint for task {task_id}: {e}")
+        try:
+            await websocket.close(code=1011, reason=f"Server error: {str(e)}")
+        except:
+            pass
+    
+    finally:
+        # Clean up connection
+        await websocket_manager.disconnect(connection_id)
+
+@app.websocket("/ws")
+async def websocket_general_endpoint(websocket: WebSocket, token: str):
+    """
+    General WebSocket endpoint for user-level updates.
+    
+    This endpoint allows users to connect without a specific task
+    and receive general notifications, new task alerts, etc.
+    """
+    connection_id = f"ws_general_{uuid.uuid4().hex[:8]}"
+    
+    try:
+        # Authenticate user
+        user = await get_current_user_from_query_token(token)
+        
+        # Establish WebSocket connection
+        success = await websocket_manager.connect(websocket, connection_id, user.id)
+        if not success:
+            await websocket.close(code=1011, reason="Connection failed")
+            return
+        
+        # Handle messages
+        try:
+            while True:
+                message_text = await websocket.receive_text()
+                try:
+                    message_data = json.loads(message_text)
+                    message_type = message_data.get('type', '')
+                    
+                    if message_type == 'ping':
+                        await websocket_manager.handle_ping(connection_id)
+                    elif message_type == 'get_stats':
+                        stats = websocket_manager.get_stats()
+                        await websocket_manager.send_to_connection(connection_id, WebSocketMessage(
+                            type="stats",
+                            data=stats
+                        ))
+                    
+                except json.JSONDecodeError:
+                    await websocket_manager.send_to_connection(connection_id, WebSocketMessage(
+                        type="error",
+                        data={"message": "Invalid JSON in message"}
+                    ))
+        
+        except WebSocketDisconnect:
+            logger.info(f"General WebSocket client disconnected: {connection_id}")
+    
+    except Exception as e:
+        logger.error(f"Error in general WebSocket endpoint: {e}")
+        try:
+            await websocket.close(code=1011, reason=f"Server error: {str(e)}")
+        except:
+            pass
+    
+    finally:
+        await websocket_manager.disconnect(connection_id)
 
 @app.post("/generate-title", response_model=TitleGenerationResponse)
 async def generate_title(
