@@ -2,7 +2,7 @@
 Task Manager for database-backed task state management.
 
 Replaces the in-memory active_tasks dictionary with persistent database storage.
-Integrates with WebSocket manager for real-time updates.
+Integrates with WebSocket manager and Redis pub/sub for real-time updates.
 """
 import asyncio
 import logging
@@ -36,40 +36,72 @@ class TaskManager:
         }
         self._subscribers: Dict[str, List[Callable]] = {}
         self._websocket_manager = None
+        self._redis_manager = None
     
     def set_websocket_manager(self, websocket_manager):
         """Set the WebSocket manager for real-time updates."""
         self._websocket_manager = websocket_manager
     
+    def set_redis_manager(self, redis_manager):
+        """Set the Redis manager for pub/sub updates."""
+        self._redis_manager = redis_manager
+    
     async def _broadcast_task_update(self, task_id: str, task_data: Dict[str, Any]):
-        """Broadcast task update via WebSocket if manager is available."""
-        if not self._websocket_manager:
-            return
+        """Broadcast task update via WebSocket and Redis pub/sub."""
+        # WebSocket broadcast (existing functionality)
+        if self._websocket_manager:
+            try:
+                # Import here to avoid circular imports
+                from core.websocket_manager import WebSocketMessage
+                
+                # Prepare WebSocket message
+                message = WebSocketMessage(
+                    type="task_update",
+                    task_id=task_id,
+                    data={
+                        'status': task_data.get('status', '').lower(),
+                        'step': task_data.get('current_step'),
+                        'progress': task_data.get('progress', 0),
+                        'hero_image_url': task_data.get('hero_image_url'),
+                        'content': task_data.get('content') if task_data.get('status') == 'COMPLETED' else None,
+                        'error': task_data.get('error') if task_data.get('status') == 'FAILED' else None
+                    }
+                )
+                
+                # Broadcast to all connections subscribed to this task
+                await self._websocket_manager.broadcast_to_task(task_id, message)
+                logger.debug(f"Broadcasted WebSocket update for task {task_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to broadcast WebSocket update: {e}")
         
-        try:
-            # Import here to avoid circular imports
-            from core.websocket_manager import WebSocketMessage
-            
-            # Prepare WebSocket message
-            message = WebSocketMessage(
-                type="task_update",
-                task_id=task_id,
-                data={
-                    'status': task_data.get('status', '').lower(),
-                    'step': task_data.get('current_step'),
-                    'progress': task_data.get('progress', 0),
-                    'hero_image_url': task_data.get('hero_image_url'),
-                    'content': task_data.get('content') if task_data.get('status') == 'COMPLETED' else None,
-                    'error': task_data.get('error') if task_data.get('status') == 'FAILED' else None
-                }
-            )
-            
-            # Broadcast to all connections subscribed to this task
-            await self._websocket_manager.broadcast_to_task(task_id, message)
-            logger.debug(f"Broadcasted WebSocket update for task {task_id}")
-            
-        except Exception as e:
-            logger.warning(f"Failed to broadcast WebSocket update for task {task_id}: {e}")
+        # Redis pub/sub broadcast (new functionality)
+        if self._redis_manager:
+            try:
+                # Import here to avoid circular imports
+                from core.redis_manager import TaskUpdateMessage
+                
+                # Prepare Redis message
+                redis_message = TaskUpdateMessage(
+                    task_id=task_id,
+                    user_id=task_data.get('user_id', ''),
+                    phase=task_data.get('current_step', ''),
+                    progress=task_data.get('progress', 0),
+                    details=task_data.get('details', ''),
+                    timestamp=datetime.utcnow().isoformat(),
+                    status=task_data.get('status', '').lower()
+                )
+                
+                # Publish to Redis
+                await self._redis_manager.publish_task_update(redis_message)
+                
+                # Cache task status in Redis
+                await self._redis_manager.cache_task_status(task_id, task_data)
+                
+                logger.debug(f"Published Redis update for task {task_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to publish Redis update: {e}")
     
     async def _get_db_connection(self):
         """Get database connection using the existing audit tracker pattern."""
