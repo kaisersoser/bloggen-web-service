@@ -57,8 +57,76 @@ class WebSocketManager:
         # User connections: user_id -> set of connection_ids
         self.user_connections: Dict[str, Set[str]] = {}
         
+        # Redis manager for pub/sub (set by main app)
+        self._redis_manager = None
+        
+        # Redis subscribers per user
+        self._redis_subscribers: Dict[str, Any] = {}
+        
         # Lock for thread-safe operations
         self._lock = asyncio.Lock()
+    
+    def set_redis_manager(self, redis_manager):
+        """Set the Redis manager for pub/sub integration."""
+        self._redis_manager = redis_manager
+    
+    async def _handle_redis_update(self, task_update):
+        """Handle Redis task update by broadcasting to WebSocket connections."""
+        try:
+            # Convert Redis message to WebSocket message
+            websocket_message = WebSocketMessage(
+                type="task_update",
+                task_id=task_update.task_id,
+                data={
+                    'status': task_update.status,
+                    'step': task_update.phase,
+                    'progress': task_update.progress,
+                    'details': task_update.details,
+                    'timestamp': task_update.timestamp
+                }
+            )
+            
+            # Broadcast to all connections subscribed to this task
+            await self.broadcast_to_task(task_update.task_id, websocket_message)
+            
+        except Exception as e:
+            logger.error(f"❌ Error handling Redis update: {e}")
+    
+    async def _setup_redis_subscription(self, user_id: str):
+        """Set up Redis subscription for a user."""
+        if not self._redis_manager or user_id in self._redis_subscribers:
+            return
+            
+        try:
+            # Create Redis subscriber for this user
+            subscriber = await self._redis_manager.create_subscriber(
+                subscriber_id=f"websocket_user_{user_id}",
+                callback=self._handle_redis_update
+            )
+            
+            # Subscribe to user updates
+            await subscriber.subscribe_to_user(user_id)
+            
+            self._redis_subscribers[user_id] = subscriber
+            logger.info(f"📡 Set up Redis subscription for user: {user_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to set up Redis subscription for user {user_id}: {e}")
+    
+    async def _cleanup_redis_subscription(self, user_id: str):
+        """Clean up Redis subscription when user has no more connections."""
+        if user_id not in self._redis_subscribers or not self._redis_manager:
+            return
+            
+        try:
+            subscriber = self._redis_subscribers[user_id]
+            await self._redis_manager.remove_subscriber(f"websocket_user_{user_id}")
+            del self._redis_subscribers[user_id]
+            
+            logger.info(f"📡 Cleaned up Redis subscription for user: {user_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to cleanup Redis subscription for user {user_id}: {e}")
     
     async def connect(self, websocket: WebSocket, connection_id: str, user_id: str) -> bool:
         """
@@ -88,6 +156,10 @@ class WebSocketManager:
                 if user_id not in self.user_connections:
                     self.user_connections[user_id] = set()
                 self.user_connections[user_id].add(connection_id)
+                
+                # Set up Redis subscription for this user if first connection
+                if len(self.user_connections[user_id]) == 1:
+                    await self._setup_redis_subscription(user_id)
             
             # Send welcome message
             await self.send_to_connection(connection_id, WebSocketMessage(
@@ -124,6 +196,8 @@ class WebSocketManager:
             if user_id in self.user_connections:
                 self.user_connections[user_id].discard(connection_id)
                 if not self.user_connections[user_id]:
+                    # Clean up Redis subscription when user has no more connections
+                    await self._cleanup_redis_subscription(user_id)
                     del self.user_connections[user_id]
             
             # Remove connection

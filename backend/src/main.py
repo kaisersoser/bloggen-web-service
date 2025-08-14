@@ -52,6 +52,7 @@ from core.llm_interceptor import setup_llm_interceptor
 from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # unified import
 from core.logging_utils import setup_api_logger
 from core.websocket_manager import websocket_manager, WebSocketMessage
+from core.redis_manager import redis_manager
 
 # Blog generation
 from bloggen.flows import BlogGenerationFlow
@@ -107,9 +108,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Serper cost patch failed (startup continues): {e}")
 
-    # Connect WebSocket manager to TaskManager for real-time updates
+    # Initialize Redis connection
+    try:
+        await redis_manager.connect()
+        logger.info("✅ Redis connection established")
+    except Exception as e:
+        logger.warning(f"Redis connection failed (continuing without Redis): {e}")
+
+    # Connect managers to TaskManager for real-time updates
     task_manager.set_websocket_manager(websocket_manager)
-    logger.info("✅ WebSocket manager connected to TaskManager")
+    task_manager.set_redis_manager(redis_manager)
+    websocket_manager.set_redis_manager(redis_manager)
+    logger.info("✅ WebSocket and Redis managers connected to TaskManager")
 
     logger.info("✅ FastAPI application startup complete")
     
@@ -117,6 +127,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Shutting down FastAPI Blog Generation Service")
+    
+    # Disconnect Redis
+    try:
+        await redis_manager.disconnect()
+        logger.info("✅ Redis connection closed")
+    except Exception as e:
+        logger.warning(f"Redis shutdown error: {e}")
 
 app = FastAPI(
     title="CrewAI Blog Generation Service",
