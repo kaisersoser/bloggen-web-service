@@ -12,6 +12,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
 import { useOptimizedBlogs } from "@/hooks/useOptimizedBlogs";
+import { useStreamingBlogGeneration } from "@/hooks/useStreamingBlogGeneration";
 import { signIn } from "next-auth/react";
 
 export default function BlogGenerator() {
@@ -42,16 +43,40 @@ export default function BlogGenerator() {
     handleBlogClick,
     handleDeleteBlog,
     handleBulkDeleteBlogs,
+    handleDeleteStuckTask,
     confirmDeleteBlog,
     handleNewBlog,
   // handleDeleteCurrentItem removed (Delete action bar button deprecated)
     setShowDeleteDialog,
     setBlogToDelete,
     setIsDeleting,
-    setGenerationError,
     setSelectedBlog,
-    setShowBlogModal
+    setShowBlogModal,
+    setGenerationError
   } = useBlogGenerator();
+
+  // Phase 4 Progressive Content Streaming
+  const {
+    startStreamingGeneration,
+    stopStreaming,
+    isConnected: streamingConnected,
+    streamingContent,
+    streamingStats,
+    currentTaskId: streamingTaskId
+  } = useStreamingBlogGeneration({
+    onJobUpdate: (taskId, updates) => {
+      // This will be handled by the existing job management system
+    },
+    onJobCompletion: (taskId, content, heroImageUrl) => {
+      // This will be handled by the existing job management system  
+    },
+    onJobError: (taskId, error) => {
+      setGenerationError(error);
+    },
+    onJobLogUpdate: (taskId, log) => {
+      // This will be handled by the existing job management system
+    }
+  });
 
   // Phase 1: React Query for background caching only (completely non-intrusive)
   useOptimizedBlogs(); // Just cache in background, don't use the data yet
@@ -94,6 +119,7 @@ export default function BlogGenerator() {
         onJobClick={handleJobClick}
         onDeleteBlog={handleDeleteBlog}
         onBulkDeleteBlogs={handleBulkDeleteBlogs}
+        onDeleteStuckTask={handleDeleteStuckTask}
         onNewBlog={handleNewBlog}
       />
 
@@ -124,6 +150,8 @@ export default function BlogGenerator() {
                 job={currentJob}
                 isGenerating={isGenerating || currentJob.status === 'in_progress'}
                 logs={currentJobId ? taskLogs[currentJobId] || [] : []}
+                streamingContent={streamingContent}
+                showStreamingPreview={streamingConnected && streamingTaskId === currentJobId}
               />
 
               {/* Unified action bar for all terminal / active states */}

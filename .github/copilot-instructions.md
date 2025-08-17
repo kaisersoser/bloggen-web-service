@@ -26,6 +26,14 @@
 - **NO test files** should be created directly in the `backend/` root directory
 - Example: Create `backend/src/tests/test_my_feature.py` NOT `backend/test_my_feature.py`
 
+### ⚠️ Rule #4: HTTPS-Only Development
+**ALWAYS run the frontend in HTTPS mode**
+- **Frontend development**: Always use `npm run dev` (which now defaults to HTTPS via `dev-https.js`)
+- **HTTP fallback**: Only use `npm run dev:http` for specific debugging scenarios
+- **HTTPS is enforced** in ALL environments including development
+- **SSL certificates**: Located in `frontend-nextjs/blog-generator-ui/certs/` directory
+- This ensures consistent behavior between development and production environments
+
 ## Code Quality Principles
 
 ### Principles of Writing Good Code
@@ -133,8 +141,11 @@ make install && make dev
 # Backend only (Flask + CrewAI)
 cd backend && python src/main.py
 
-# Frontend only (Next.js)
+# Frontend only (Next.js HTTPS)
 cd frontend-nextjs/blog-generator-ui && npm run dev
+
+# Frontend HTTP fallback (debugging only)
+cd frontend-nextjs/blog-generator-ui && npm run dev:http
 
 # Database setup
 cd frontend-nextjs/blog-generator-ui && npx prisma db push

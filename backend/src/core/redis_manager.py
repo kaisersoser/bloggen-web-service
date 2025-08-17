@@ -6,7 +6,7 @@ without database polling.
 import asyncio
 import json
 import logging
-from typing import Dict, Set, Optional, Any, Callable
+from typing import Dict, Set, Optional, Any, Callable, Union
 from datetime import datetime
 
 import redis.asyncio as aioredis
@@ -41,7 +41,7 @@ class RedisSubscriber:
         self.redis_client = redis_client
         self.callback = callback
         self.subscribed_channels: Set[str] = set()
-        self.pubsub = None  # type: ignore
+        self.pubsub: Optional[Any] = None  # Redis PubSub object
         self.listening_task: Optional[asyncio.Task] = None
         
     async def start(self):
@@ -76,6 +76,10 @@ class RedisSubscriber:
     async def subscribe_to_task(self, task_id: str):
         """Subscribe to updates for a specific task"""
         try:
+            if not self.pubsub:
+                logger.error("❌ PubSub not initialized")
+                return
+                
             channel = f"task_updates:{task_id}"
             if channel not in self.subscribed_channels:
                 await self.pubsub.subscribe(channel)
@@ -87,6 +91,10 @@ class RedisSubscriber:
     async def subscribe_to_user(self, user_id: str):
         """Subscribe to updates for all user tasks"""
         try:
+            if not self.pubsub:
+                logger.error("❌ PubSub not initialized")
+                return
+                
             channel = f"user_updates:{user_id}"
             if channel not in self.subscribed_channels:
                 await self.pubsub.subscribe(channel)
@@ -98,6 +106,10 @@ class RedisSubscriber:
     async def unsubscribe_from_task(self, task_id: str):
         """Unsubscribe from a specific task"""
         try:
+            if not self.pubsub:
+                logger.error("❌ PubSub not initialized")
+                return
+                
             channel = f"task_updates:{task_id}"
             if channel in self.subscribed_channels:
                 await self.pubsub.unsubscribe(channel)
@@ -109,6 +121,10 @@ class RedisSubscriber:
     async def _listen_loop(self):
         """Main listening loop for Redis messages"""
         try:
+            if not self.pubsub:
+                logger.error("❌ PubSub not initialized")
+                return
+                
             async for message in self.pubsub.listen():
                 if message['type'] == 'message':
                     try:

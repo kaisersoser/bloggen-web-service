@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Certificate Trust Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 15px; margin: 10px 0; border-radius: 8px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        button { padding: 12px 24px; margin: 10px 5px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        #log { background: #f8f9fa; padding: 20px; border-radius: 8px; height: 400px; overflow-y: scroll; font-family: 'Courier New', monospace; white-space: pre-wrap; font-size: 14px; }
+        .step { margin: 15px 0; }
+        .step h3 { color: #495057; margin-bottom: 10px; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>🔐 WebSocket SSL Certificate Trust Verification</h1>
+    
+    <div class="status warning">
+        <h3>⚠️ Important: Certificate Trust Issue</h3>
+        <p>The WebSocket connection is failing because browsers require <strong>explicit certificate trust</strong> for WebSocket connections to self-signed SSL certificates.</p>
+    </div>
+
+    <div class="step">
+        <h3>Step 1: Trust Backend Certificate</h3>
+        <div class="status info">
+            Visit <a href="https://localhost:5000/health" target="_blank"><strong>https://localhost:5000/health</strong></a> in a <strong>new tab</strong> and accept the SSL certificate warning.
+            <br><br>
+            <strong>You should see:</strong> <code>{"status":"healthy","timestamp":"..."}</code>
+        </div>
+    </div>
+
+    <div class="step">
+        <h3>Step 2: Test WebSocket Connection</h3>
+        <button onclick="testBasicWebSocket()" id="basicTestBtn">Test Basic WebSocket</button>
+        <button onclick="testAuthenticatedWebSocket()" id="authTestBtn">Test Authenticated WebSocket</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <div class="step">
+        <h3>Step 3: Alternative Solution</h3>
+        <div class="status info">
+            If WebSocket connections continue failing, we can switch to <strong>HTTP mode</strong> for development to bypass SSL issues entirely.
+            <br><br>
+            <button onclick="showHttpInstructions()" id="httpBtn">Show HTTP Mode Instructions</button>
+        </div>
+    </div>
+    
+    <h3>🔍 Test Results:</h3>
+    <div id="log">Click a test button to start diagnosis...\n</div>
+
+    <script>
+        const log = document.getElementById('log');
+        
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            log.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function clearLog() {
+            log.textContent = '';
+        }
+        
+        function testBasicWebSocket() {
+            addLog('Testing basic WebSocket connection to wss://localhost:5000...');
+            
+            const ws = new WebSocket('wss://localhost:5000/ws');
+            
+            ws.onopen = function() {
+                addLog('WebSocket connection opened successfully!', 'success');
+                addLog('SSL certificate is trusted for WebSocket connections', 'success');
+                setTimeout(() => {
+                    ws.close(1000, 'Test completed');
+                }, 2000);
+            };
+            
+            ws.onmessage = function(event) {
+                addLog(`Received message: ${event.data.substring(0, 100)}...`, 'success');
+            };
+            
+            ws.onclose = function(event) {
+                if (event.code === 1000) {
+                    addLog(`Connection closed cleanly: ${event.reason}`, 'success');
+                } else {
+                    addLog(`Connection closed with error (${event.code}): ${event.reason}`, 'error');
+                }
+            };
+            
+            ws.onerror = function(error) {
+                addLog('WebSocket connection failed!', 'error');
+                addLog('This means the SSL certificate is not trusted for WebSocket connections', 'error');
+                addLog('Solution: Make sure you visited https://localhost:5000/health and accepted the certificate', 'warning');
+                addLog('If that doesn\'t work, we\'ll need to use HTTP mode for development', 'warning');
+            };
+            
+            setTimeout(() => {
+                if (ws.readyState === WebSocket.CONNECTING) {
+                    addLog('WebSocket connection timeout - certificate not trusted', 'error');
+                    ws.close();
+                }
+            }, 10000);
+        }
+        
+        async function testAuthenticatedWebSocket() {
+            addLog('Testing authenticated WebSocket connection...');
+            
+            try {
+                addLog('Getting JWT token from frontend...');
+                const tokenResponse = await fetch('/api/auth/jwt-token', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                
+                if (!tokenResponse.ok) {
+                    addLog('Authentication failed - please sign in to the main app first', 'error');
+                    return;
+                }
+                
+                const { token } = await tokenResponse.json();
+                addLog('Got authentication token successfully', 'success');
+                
+                const wsUrl = `wss://localhost:5000/ws?token=${encodeURIComponent(token)}`;
+                addLog('Connecting with authentication token...');
+                
+                const ws = new WebSocket(wsUrl);
+                
+                ws.onopen = function() {
+                    addLog('Authenticated WebSocket connection successful!', 'success');
+                    addLog('Your blog generation should work with real-time updates!', 'success');
+                    setTimeout(() => {
+                        ws.close(1000, 'Test completed');
+                    }, 3000);
+                };
+                
+                ws.onmessage = function(event) {
+                    addLog(`Authenticated message: ${event.data.substring(0, 100)}...`, 'success');
+                };
+                
+                ws.onclose = function(event) {
+                    if (event.code === 1000) {
+                        addLog(`Authenticated connection closed cleanly: ${event.reason}`, 'success');
+                    } else {
+                        addLog(`Authenticated connection failed (${event.code}): ${event.reason}`, 'error');
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    addLog('Authenticated WebSocket failed - likely SSL certificate issue', 'error');
+                };
+                
+            } catch (error) {
+                addLog(`Error during authenticated test: ${error.message}`, 'error');
+            }
+        }
+        
+        function showHttpInstructions() {
+            addLog('\n=== HTTP MODE SETUP (Alternative Solution) ===', 'warning');
+            addLog('If SSL continues causing issues, switch to HTTP mode:', 'warning');
+            addLog('', 'info');
+            addLog('1. Stop both frontend and backend servers', 'info');
+            addLog('2. Backend: Edit main.py to remove ssl_keyfile and ssl_certfile', 'info');
+            addLog('3. Frontend: Edit .env.local: NEXT_PUBLIC_API_URL=http://localhost:5000', 'info');
+            addLog('4. Frontend: Use npm run dev:http instead of npm run dev', 'info');
+            addLog('', 'info');
+            addLog('This removes SSL complexity for local development', 'warning');
+        }
+        
+        // Auto-run basic test after page loads
+        setTimeout(() => {
+            addLog('Auto-running basic WebSocket test...');
+            testBasicWebSocket();
+        }, 1000);
+    </script>
+</body>
+</html>

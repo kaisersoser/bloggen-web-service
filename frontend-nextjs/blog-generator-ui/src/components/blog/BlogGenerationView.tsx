@@ -1,14 +1,23 @@
 import { Card } from '@/components/ui/card';
-import { JobState, LogEntry } from '@/types/blog';
+import { JobState, LogEntry, StreamingContentState } from '@/types/blog';
 import { BlogGenerationConsole } from '@/components/blog/BlogGenerationConsole';
+import { LiveContentPreview } from '@/components/blog/LiveContentPreview';
 
 interface BlogGenerationViewProps {
   job: JobState | null;
   isGenerating: boolean;
   logs?: LogEntry[];
+  streamingContent?: StreamingContentState;
+  showStreamingPreview?: boolean;
 }
 
-export function BlogGenerationView({ job, isGenerating, logs = [] }: BlogGenerationViewProps) {
+export function BlogGenerationView({ 
+  job, 
+  isGenerating, 
+  logs = [],
+  streamingContent,
+  showStreamingPreview = false
+}: BlogGenerationViewProps) {
 
   // Show console if generating OR if there's any job (in progress, completed, or failed)
   const shouldShowConsole = isGenerating || job;
@@ -61,6 +70,20 @@ export function BlogGenerationView({ job, isGenerating, logs = [] }: BlogGenerat
                 </div>
               )}
             </Card>
+          )}
+
+          {/* Phase 4 Progressive Content Streaming */}
+          {showStreamingPreview && streamingContent && (
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                <div className="animate-pulse h-2 w-2 bg-green-500 rounded-full"></div>
+                Live Content Preview
+              </h3>
+              <LiveContentPreview 
+                streamingContent={streamingContent}
+                className="animate-fade-in"
+              />
+            </div>
           )}
 
           {/* Generation Complete Message */}

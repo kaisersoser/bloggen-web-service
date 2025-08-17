@@ -1,3 +1,6 @@
+// Disable SSL verification for development (allows self-signed certificates)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const { createServer } = require('https')
 const { parse } = require('url')
 const next = require('next')
@@ -9,8 +12,8 @@ const app = next({ dev })
 const handle = app.getRequestHandler()
 
 const httpsOptions = {
-  key: fs.readFileSync(path.join(__dirname, 'certs', 'localhost+2-key.pem')),
-  cert: fs.readFileSync(path.join(__dirname, 'certs', 'localhost+2.pem')),
+  key: fs.readFileSync(path.join(__dirname, 'certs', 'localhost-new-key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'certs', 'localhost-new.pem')),
 }
 
 app.prepare().then(() => {

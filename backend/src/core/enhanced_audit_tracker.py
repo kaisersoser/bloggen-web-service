@@ -236,12 +236,18 @@ class EnhancedDatabaseAuditTracker:
                 logger.warning("No DATABASE_URL found - database audit disabled")
                 return None
             
-            # Create connection pool
+            # Create minimal connection pool for pgbouncer compatibility
             self.pool = await asyncpg.create_pool(
                 database_url,
-                min_size=1,
-                max_size=3,
-                command_timeout=10
+                min_size=0,  # No minimum connections
+                max_size=1,  # Single connection for pgbouncer
+                command_timeout=30,
+                max_inactive_connection_lifetime=60,  # Shorter lifetime
+                max_queries=1000,
+                statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
+                server_settings={
+                    'application_name': 'bloggen_audit_tracker'
+                }
             )
             
             # Test connection

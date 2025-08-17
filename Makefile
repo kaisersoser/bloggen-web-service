@@ -10,13 +10,13 @@ install:  ## Install dependencies for both backend and frontend
 	@echo "Installing backend dependencies..."
 	cd backend && python -m pip install -r requirements.txt
 	@echo "Installing frontend dependencies..."
-	cd frontend && npm install
+	cd frontend-nextjs/blog-generator-ui && npm install
 
 dev-backend:  ## Start backend development server
 	cd backend && python src/main.py
 
-dev-frontend:  ## Start frontend development server
-	cd frontend && npm run dev
+dev-frontend:  ## Start frontend development server (HTTPS)
+	cd frontend-nextjs/blog-generator-ui && npm run dev
 
 dev:  ## Start both backend and frontend in development mode
 	@echo "Starting development servers..."
@@ -31,15 +31,15 @@ test-backend:  ## Run backend tests only
 
 lint:  ## Run linting and code formatting
 	cd backend && black src/ && flake8 src/
-	cd frontend && npm run lint
+	cd frontend-nextjs/blog-generator-ui && npm run lint
 
 clean:  ## Clean build artifacts and cache
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
-	cd frontend && rm -rf .next node_modules/.cache
+	cd frontend-nextjs/blog-generator-ui && rm -rf .next node_modules/.cache
 
 build:  ## Build for production
-	cd frontend && npm run build
+	cd frontend-nextjs/blog-generator-ui && npm run build
 
 docker-build:  ## Build Docker containers
 	docker-compose build

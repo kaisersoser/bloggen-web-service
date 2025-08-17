@@ -178,7 +178,7 @@ class BlogGenerationFlow(Flow):
         # If rate limiting is disabled, use direct execution
         if not self.rate_limiter:
             logger.info(f"Executing {phase_name} without rate limiting")
-            return crew.kickoff()
+            return self._execute_with_streaming(crew, phase_name)
         
         # Use asyncio to run the rate-limited execution
         import asyncio
@@ -198,20 +198,183 @@ class BlogGenerationFlow(Flow):
         
         # Run the async function
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If already in async context, schedule as task
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, execute_with_rate_limiting())
-                    return future.result(timeout=300)  # 5 minute timeout
-            else:
+            # Check if we can get the current event loop
+            try:
+                loop = asyncio.get_event_loop()
+                # If we're in a thread pool executor context, we don't have a running loop
+                # even though get_event_loop() succeeds
+                if loop.is_running():
+                    # This means we're truly in an async context, not a thread pool
+                    # Create a new event loop in a thread
+                    import concurrent.futures
+                    import threading
+                    
+                    result_container = []
+                    exception_container = []
+                    
+                    def run_in_new_loop():
+                        try:
+                            new_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(new_loop)
+                            result = new_loop.run_until_complete(execute_with_rate_limiting())
+                            result_container.append(result)
+                        except Exception as e:
+                            exception_container.append(e)
+                        finally:
+                            new_loop.close()
+                    
+                    thread = threading.Thread(target=run_in_new_loop)
+                    thread.start()
+                    thread.join(timeout=300)  # 5 minute timeout
+                    
+                    if exception_container:
+                        raise exception_container[0]
+                    if result_container:
+                        return result_container[0]
+                    else:
+                        raise TimeoutError(f"Rate-limited execution timed out for {phase_name}")
+                else:
+                    return asyncio.run(execute_with_rate_limiting())
+            except RuntimeError:
+                # No event loop in current thread, safe to use asyncio.run
                 return asyncio.run(execute_with_rate_limiting())
         except Exception as e:
             logger.error(f"Rate-limited execution failed for {phase_name}: {e}")
             # Fallback to direct execution if rate limiting fails
             logger.warning(f"Falling back to direct execution for {phase_name}")
+            return self._execute_with_streaming(crew, phase_name)
+    
+    def _execute_with_streaming(self, crew, phase_name: str) -> Any:
+        """Execute crew with content streaming support"""
+        try:
+            # Get the task manager for streaming
+            from core.task_manager import task_manager
+            
+            # Set up content streaming for this task
+            if hasattr(self, 'blog_id') and self.blog_id:
+                asyncio.create_task(task_manager.setup_content_streaming(self.blog_id))
+            
+            # Execute the crew
+            result = crew.kickoff()
+            
+            # Stream the result based on phase
+            if hasattr(self, 'blog_id') and self.blog_id:
+                self._stream_phase_result(phase_name, result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Streaming execution failed for {phase_name}: {e}")
+            # Fallback to basic execution
             return crew.kickoff()
+    
+    def _stream_phase_result(self, phase_name: str, result: Any):
+        """Stream the result of a phase to connected clients"""
+        try:
+            from core.task_manager import task_manager
+            
+            if not hasattr(self, 'blog_id') or not self.blog_id:
+                return
+            
+            result_str = str(result) if result else ""
+            
+            if phase_name == "research":
+                # Stream research findings
+                if result_str:
+                    # Extract key findings from research result
+                    findings = self._extract_research_findings(result_str)
+                    for finding in findings:
+                        asyncio.create_task(
+                            task_manager.stream_research_finding(self.blog_id, finding)
+                        )
+            
+            elif phase_name == "content_generation":
+                # Stream content paragraphs
+                if result_str:
+                    paragraphs = self._extract_content_paragraphs(result_str)
+                    for paragraph in paragraphs:
+                        asyncio.create_task(
+                            task_manager.stream_content_paragraph(self.blog_id, paragraph)
+                        )
+            
+            elif phase_name == "fact_checking":
+                # Stream fact corrections
+                if result_str:
+                    corrections = self._extract_fact_corrections(result_str)
+                    for correction in corrections:
+                        asyncio.create_task(
+                            task_manager.stream_fact_correction(self.blog_id, correction)
+                        )
+            
+            elif phase_name == "finalization":
+                # Stream final content
+                if result_str:
+                    asyncio.create_task(
+                        task_manager.stream_final_content(self.blog_id, result_str)
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Failed to stream {phase_name} result: {e}")
+    
+    def _extract_research_findings(self, research_result: str) -> list[str]:
+        """Extract key research findings from research result"""
+        try:
+            # Simple extraction - split by common patterns
+            lines = research_result.split('\n')
+            findings = []
+            
+            for line in lines:
+                line = line.strip()
+                if (line and len(line) > 20 and 
+                    any(keyword in line.lower() for keyword in 
+                        ['found', 'research', 'study', 'report', 'analysis', 'data', 'according'])):
+                    findings.append(line[:200])  # Limit length
+                    if len(findings) >= 5:  # Limit to 5 findings
+                        break
+            
+            return findings
+        except Exception as e:
+            logger.error(f"Failed to extract research findings: {e}")
+            return []
+    
+    def _extract_content_paragraphs(self, content_result: str) -> list[str]:
+        """Extract content paragraphs from content generation result"""
+        try:
+            # Split by double newlines to get paragraphs
+            paragraphs = [p.strip() for p in content_result.split('\n\n') if p.strip()]
+            
+            # Filter out very short paragraphs and limit length
+            filtered_paragraphs = []
+            for p in paragraphs:
+                if len(p) > 50:  # Must be substantial content
+                    filtered_paragraphs.append(p[:500])  # Limit length
+                    if len(filtered_paragraphs) >= 8:  # Limit to 8 paragraphs
+                        break
+            
+            return filtered_paragraphs
+        except Exception as e:
+            logger.error(f"Failed to extract content paragraphs: {e}")
+            return []
+    
+    def _extract_fact_corrections(self, fact_check_result: str) -> list[str]:
+        """Extract fact corrections from fact-checking result"""
+        try:
+            lines = fact_check_result.split('\n')
+            corrections = []
+            
+            for line in lines:
+                line = line.strip()
+                if (line and len(line) > 20 and 
+                    any(keyword in line.lower() for keyword in 
+                        ['corrected', 'updated', 'verified', 'changed', 'fixed', 'error'])):
+                    corrections.append(line[:200])  # Limit length
+                    if len(corrections) >= 3:  # Limit to 3 corrections
+                        break
+            
+            return corrections
+        except Exception as e:
+            logger.error(f"Failed to extract fact corrections: {e}")
+            return []
 
     def _require_topic(self) -> None:
         if not self.flow_state.topic:

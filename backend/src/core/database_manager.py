@@ -38,9 +38,14 @@ class DatabaseConnectionManager:
             
             self.pool = await asyncpg.create_pool(
                 database_url,
-                min_size=1,
-                max_size=3,
-                command_timeout=10
+                min_size=0,  # No minimum connections
+                max_size=1,  # Single connection for pgbouncer
+                command_timeout=30,
+                max_inactive_connection_lifetime=60,
+                statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
+                server_settings={
+                    'application_name': 'bloggen_database_manager'
+                }
             )
             
             # Test connection
