@@ -3,8 +3,10 @@ import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { UserService, BlogService } from "@/lib/services/user"
 import { getToken } from "next-auth/jwt"
+import http from 'http'
 import https from 'https'
 import jwt from 'jsonwebtoken'
+import { isHttpsMode } from '@/config/protocol'
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest) {
     // await UserService.incrementGenerationCount(session.user.id)
 
     // Forward request to Python backend with authentication
-    // Use manual HTTPS request to handle self-signed certificates
+    // Use manual HTTP request to backend
     const backendUrl = new URL(`${process.env.API_BASE_URL}/generate-blog`)
     const postData = JSON.stringify({
       task_id: blog.id,
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest) {
     const backendResponse = await new Promise<{ok: boolean, status: number, json: () => Promise<{task_id?: string; error?: string}>, text: () => Promise<string>}>((resolve, reject) => {
       const options = {
         hostname: backendUrl.hostname,
-        port: backendUrl.port || 5000,
+        port: backendUrl.port || (isHttpsMode() ? 5000 : 5000),
         path: backendUrl.pathname,
         method: 'POST',
         headers: {
@@ -84,11 +86,12 @@ export async function POST(request: NextRequest) {
           'Authorization': `Bearer ${backendJWT}`,
           'Content-Length': Buffer.byteLength(postData)
         },
-        // Ignore SSL certificate issues in development
-        rejectUnauthorized: process.env.NODE_ENV === 'production'
+        // Disable SSL verification for development self-signed certificates
+        rejectUnauthorized: false
       }
 
-      const req = https.request(options, (res) => {
+      const httpModule = isHttpsMode() ? https : http;
+      const req = httpModule.request(options, (res) => {
         let data = ''
         res.on('data', (chunk) => {
           data += chunk

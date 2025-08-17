@@ -17,13 +17,16 @@ Key Features:
 import asyncio
 import uuid
 import json
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
 
 # Load environment variables first
 from dotenv import load_dotenv
-load_dotenv()
+import os
+# Load .env from the backend directory (one level up from src/)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -53,6 +56,8 @@ from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # unified 
 from core.logging_utils import setup_api_logger
 from core.websocket_manager import websocket_manager, WebSocketMessage
 from core.redis_manager import redis_manager
+from core.content_streaming_manager import content_streaming_manager
+from config.protocol_config import get_protocol_config, is_https_mode
 
 # Blog generation
 from bloggen.flows import BlogGenerationFlow
@@ -118,8 +123,10 @@ async def lifespan(app: FastAPI):
     # Connect managers to TaskManager for real-time updates
     task_manager.set_websocket_manager(websocket_manager)
     task_manager.set_redis_manager(redis_manager)
+    task_manager.set_content_streaming_manager(content_streaming_manager)
     websocket_manager.set_redis_manager(redis_manager)
-    logger.info("✅ WebSocket and Redis managers connected to TaskManager")
+    websocket_manager.set_content_streaming_manager(content_streaming_manager)
+    logger.info("✅ WebSocket, Redis, and Content Streaming managers connected to TaskManager")
 
     logger.info("✅ FastAPI application startup complete")
     
@@ -134,6 +141,26 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Redis connection closed")
     except Exception as e:
         logger.warning(f"Redis shutdown error: {e}")
+    
+        # Close database connection pools
+    try:
+        # Close all active database connections
+        from core.database_manager import DatabaseConnectionManager
+        from core.direct_audit_database import DirectSupabaseAuditManager
+        
+        # Force close any remaining database pools (best effort)
+        import gc
+        for obj in gc.get_objects():
+            if hasattr(obj, 'pool') and obj.pool and hasattr(obj.pool, 'close'):
+                try:
+                    await obj.pool.close()
+                    logger.info(f"✅ Closed database pool from {type(obj).__name__}")
+                except:
+                    pass
+        
+        logger.info("✅ Database connections cleanup completed")
+    except Exception as e:
+        logger.warning(f"Database cleanup error: {e}")
 
 app = FastAPI(
     title="CrewAI Blog Generation Service",
@@ -478,6 +505,26 @@ async def stream_task(task_id: str, token: str):
         "Access-Control-Allow-Headers": "*",
     })
 
+@app.delete("/tasks/{task_id}")
+async def delete_task(
+    task_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Delete a task/blog (useful for cleaning up stuck or failed tasks)."""
+    try:
+        success = await task_manager.delete_task(task_id, user.id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Task not found or access denied")
+        
+        return {"message": "Task deleted successfully", "task_id": task_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to delete task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete task")
+
 @app.websocket("/ws/{task_id}")
 async def websocket_task_endpoint(websocket: WebSocket, task_id: str, token: str):
     """
@@ -495,11 +542,17 @@ async def websocket_task_endpoint(websocket: WebSocket, task_id: str, token: str
         - ping/pong: Heartbeat messages
         - error: Error notifications
     """
+    # Must accept WebSocket connection first
+    await websocket.accept()
     connection_id = f"ws_{task_id}_{uuid.uuid4().hex[:8]}"
     
     try:
         # Authenticate user via query token (same as SSE)
-        user = await get_current_user_from_query_token(token)
+        try:
+            user = await get_current_user_from_query_token(token)
+        except HTTPException as auth_error:
+            await websocket.close(code=1008, reason=f"Authentication failed: {auth_error.detail}")
+            return
         
         # Verify task access
         task = await task_manager.get_task(task_id)
@@ -598,11 +651,17 @@ async def websocket_general_endpoint(websocket: WebSocket, token: str):
     This endpoint allows users to connect without a specific task
     and receive general notifications, new task alerts, etc.
     """
+    # Must accept WebSocket connection first
+    await websocket.accept()
     connection_id = f"ws_general_{uuid.uuid4().hex[:8]}"
     
     try:
         # Authenticate user
-        user = await get_current_user_from_query_token(token)
+        try:
+            user = await get_current_user_from_query_token(token)
+        except HTTPException as auth_error:
+            await websocket.close(code=1008, reason=f"Authentication failed: {auth_error.detail}")
+            return
         
         # Establish WebSocket connection
         success = await websocket_manager.connect(websocket, connection_id, user.id)
@@ -758,19 +817,26 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         
         logger.info(f"✅ Context restored and audit tracker initialized for task {task_id}")
         
-        # Define status update callback
+        # Define status update callback with proper error handling
         def update_task_status(status_data: Dict[str, Any]):
-            """Update task status for SSE streaming."""
+            """Update task status for WebSocket streaming."""
             message = status_data.get('message', 'Processing...')
             step = status_data.get('step', 0)
             progress = status_data.get('progress', 0.0) * 100  # Convert to percentage
             
-            # Update task in database instead of memory
-            asyncio.create_task(task_manager.update_task(task_id, 
-                current_step=message, 
-                progress=progress
-            ))
-            logger.info(f"📊 {task_id}: Step {step} - {message} ({progress:.1f}%)")
+            # Create async task with proper error handling
+            async def update_with_error_handling():
+                try:
+                    await task_manager.update_task(task_id, 
+                        current_step=message, 
+                        progress=progress
+                    )
+                    logger.info(f"📊 {task_id}: Step {step} - {message} ({progress:.1f}%)")
+                except Exception as e:
+                    logger.error(f"❌ Failed to update task {task_id} status: {e}")
+            
+            # Schedule the async update
+            asyncio.create_task(update_with_error_handling())
         
         # Create and run blog generation flow with direct audit tracker
         flow = BlogGenerationFlow(
@@ -923,12 +989,33 @@ async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
 # =============================================================================
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=5000,  # Standard port for backend API
-        reload=True,
-        ssl_keyfile="/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src/localhost-key.pem",
-        ssl_certfile="/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src/localhost.pem",
-        access_log=False  # Disable repetitive access logs to keep focus on essential logs
-    )
+    # Get protocol configuration
+    protocol_config = get_protocol_config()
+    
+    # Prepare uvicorn config
+    uvicorn_config = {
+        "host": "0.0.0.0",
+        "port": protocol_config.backend_port,
+        "reload": True,
+        "access_log": False  # Keep logs clean
+    }
+    
+    # Add SSL configuration if HTTPS mode
+    if protocol_config.is_https:
+        ssl_config = protocol_config.get_ssl_config()
+        if ssl_config:
+            cert_path, key_path = ssl_config
+            if os.path.exists(cert_path) and os.path.exists(key_path):
+                uvicorn_config["ssl_keyfile"] = key_path
+                uvicorn_config["ssl_certfile"] = cert_path
+                logger.info(f"🔒 HTTPS mode enabled with SSL certificates")
+            else:
+                logger.warning(f"⚠️ HTTPS mode requested but SSL certificates not found:")
+                logger.warning(f"   Cert: {cert_path}")
+                logger.warning(f"   Key: {key_path}")
+                logger.warning(f"   Falling back to HTTP mode")
+        else:
+            logger.warning(f"⚠️ HTTPS mode requested but no SSL config available")
+    
+    logger.info(f"🚀 Starting backend server: {protocol_config.get_backend_url()}")
+    uvicorn.run("main:app", **uvicorn_config)

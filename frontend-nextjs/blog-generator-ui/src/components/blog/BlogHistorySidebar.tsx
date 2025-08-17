@@ -15,6 +15,7 @@ interface BlogHistorySidebarProps {
   onJobClick: (jobId: string) => void;
   onDeleteBlog: (blogId: string) => void;
   onBulkDeleteBlogs: (blogIds: string[]) => void;
+  onDeleteStuckTask?: (taskId: string) => void;
   onNewBlog: () => void;
 }
 
@@ -28,6 +29,7 @@ export function BlogHistorySidebar({
   onJobClick,
   onDeleteBlog,
   onBulkDeleteBlogs,
+  onDeleteStuckTask,
   onNewBlog
 }: BlogHistorySidebarProps) {
 
@@ -248,6 +250,7 @@ export function BlogHistorySidebar({
                         key={`active-job-${job.id}`}
                         job={job}
                         onClick={() => onJobClick(job.id)}
+                        onDeleteStuckTask={onDeleteStuckTask}
                       />
                     ))}
                   </div>
@@ -305,10 +308,12 @@ export function BlogHistorySidebar({
 // Job History Card Component
 function JobHistoryCard({
   job,
-  onClick
+  onClick,
+  onDeleteStuckTask
 }: {
   job: JobState;
   onClick: () => void;
+  onDeleteStuckTask?: (taskId: string) => void;
 }) {
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -325,7 +330,7 @@ function JobHistoryCard({
 
   return (
     <Card 
-      className="p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+      className="p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 group"
       onClick={onClick}
     >
       <div className="space-y-2">
@@ -333,9 +338,26 @@ function JobHistoryCard({
           <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2">
             {job.topic}
           </h4>
-          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}>
-            {job.status === 'in_progress' ? 'Generating...' : job.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}>
+              {job.status === 'in_progress' ? 'Generating...' : job.status}
+            </span>
+            {/* Show delete button for stuck tasks (in_progress status) */}
+            {job.status === 'in_progress' && onDeleteStuckTask && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteStuckTask(job.id);
+                }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 p-0 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
+                title="Delete stuck task"
+              >
+                ×
+              </Button>
+            )}
+          </div>
         </div>
         
         {job.status === 'in_progress' && (

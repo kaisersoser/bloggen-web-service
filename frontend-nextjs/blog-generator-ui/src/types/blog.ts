@@ -52,7 +52,7 @@ export interface JobState {
 }
 
 export interface SSEUpdate {
-  type: 'connected' | 'status_update' | 'log_update' | 'stream_ended' | 'error';
+  type: 'connected' | 'status_update' | 'log_update' | 'stream_ended' | 'error' | 'content_stream' | 'progress_stream';
   task_id: string;
   status?: string;
   current_step?: string;
@@ -63,6 +63,41 @@ export interface SSEUpdate {
   timestamp?: string;
   step?: string;
   hero_image_url?: string;
+}
+
+// New Phase 4 Progressive Content Streaming Types
+export interface ContentStreamMessage {
+  type: 'content_stream';
+  task_id: string;
+  phase: string; // 'research', 'content_generation', 'fact_checking', 'finalization'
+  content_type: string; // 'research_finding', 'paragraph', 'correction', 'final_content'
+  content: string;
+  is_partial: boolean;
+  sequence_number: number;
+  timestamp: string;
+}
+
+export interface ProgressStreamMessage {
+  type: 'progress_stream';
+  task_id: string;
+  phase: string;
+  progress: number;
+  status: string;
+  content_preview?: string;
+  research_findings?: string[];
+  current_section?: string;
+  timestamp: string;
+}
+
+// Streaming content accumulation for real-time display
+export interface StreamingContentState {
+  research_findings: string[];
+  content_paragraphs: string[];
+  fact_corrections: string[];
+  final_content?: string;
+  current_phase: string;
+  content_preview: string;
+  last_sequence: number;
 }
 
 export interface LogEntry {

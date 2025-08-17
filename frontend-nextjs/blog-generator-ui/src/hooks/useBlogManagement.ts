@@ -78,6 +78,20 @@ export function useBlogManagement() {
     }
   }, []);
 
+    const deleteTask = useCallback(async (taskId: string): Promise<void> => {
+    if (!taskId) {
+      throw new Error('Task ID is required');
+    }
+    
+    try {
+      await blogService.deleteStuckTask(taskId);
+      console.log(`Stuck task ${taskId} deleted successfully`);
+    } catch (error) {
+      console.error('Error deleting stuck task:', error);
+      throw error;
+    }
+  }, []);
+
   const convertBlogToJob = useCallback((blog: BlogData): JobState => ({
     id: blog.id,
     topic: blog.topic,
@@ -115,6 +129,7 @@ export function useBlogManagement() {
     deleteJob,
     fetchPreviousBlogs,
     deleteBlog,
+    deleteTask,
     convertBlogToJob,
     addTemporaryJob
   };

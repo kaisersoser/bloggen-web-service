@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname localhost --port 3001",
+    "dev": "node dev-dynamic.js",
+    "dev:http": "NEXT_PUBLIC_PROTOCOL_MODE=http next dev --hostname localhost --port 3001",
+    "dev:https": "NEXT_PUBLIC_PROTOCOL_MODE=https node dev-https.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "db:studio": "prisma studio --port 5555",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "dev:https": "node dev-https.js",
     "start:https": "next start --hostname localhost --port 3001"
   },
   "dependencies": {

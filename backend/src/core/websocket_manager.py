@@ -26,6 +26,39 @@ class WebSocketMessage(BaseModel):
             data['timestamp'] = datetime.utcnow().isoformat()
         super().__init__(**data)
 
+class ContentStreamMessage(BaseModel):
+    """Message for streaming partial content during blog generation"""
+    type: str = "content_stream"
+    task_id: str
+    phase: str  # 'research', 'content_generation', 'fact_checking', 'finalization'
+    content_type: str  # 'research_finding', 'paragraph', 'correction', 'final_content'
+    content: str
+    is_partial: bool = True
+    sequence_number: int = 0
+    timestamp: Optional[str] = None
+    
+    def __init__(self, **data):
+        if 'timestamp' not in data:
+            data['timestamp'] = datetime.utcnow().isoformat()
+        super().__init__(**data)
+
+class ProgressStreamMessage(BaseModel):
+    """Enhanced progress message with content preview"""
+    type: str = "progress_stream"
+    task_id: str
+    phase: str
+    progress: float
+    status: str
+    content_preview: Optional[str] = None
+    research_findings: Optional[List[str]] = None
+    current_section: Optional[str] = None
+    timestamp: Optional[str] = None
+    
+    def __init__(self, **data):
+        if 'timestamp' not in data:
+            data['timestamp'] = datetime.utcnow().isoformat()
+        super().__init__(**data)
+
 class ConnectionInfo(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
     
@@ -60,6 +93,9 @@ class WebSocketManager:
         # Redis manager for pub/sub (set by main app)
         self._redis_manager = None
         
+        # Content streaming manager for progressive updates (set by main app)
+        self._content_streaming_manager = None
+        
         # Redis subscribers per user
         self._redis_subscribers: Dict[str, Any] = {}
         
@@ -69,6 +105,10 @@ class WebSocketManager:
     def set_redis_manager(self, redis_manager):
         """Set the Redis manager for pub/sub integration."""
         self._redis_manager = redis_manager
+    
+    def set_content_streaming_manager(self, content_streaming_manager):
+        """Set the content streaming manager for progressive updates."""
+        self._content_streaming_manager = content_streaming_manager
     
     async def _handle_redis_update(self, task_update):
         """Handle Redis task update by broadcasting to WebSocket connections."""
@@ -229,6 +269,9 @@ class WebSocketManager:
                 self.task_subscriptions[task_id] = set()
             self.task_subscriptions[task_id].add(connection_id)
             
+            # Set up content streaming callback for this task
+            await self._setup_content_streaming_callback(task_id)
+            
             logger.debug(f"Connection {connection_id} subscribed to task {task_id}")
             return True
     
@@ -278,16 +321,17 @@ class WebSocketManager:
             await self.disconnect(connection_id)
             return False
     
-    async def broadcast_to_task(self, task_id: str, message: WebSocketMessage):
+    async def broadcast_to_task(self, task_id: str, message):
         """
         Broadcast a message to all connections subscribed to a task.
         
         Args:
             task_id: The task to broadcast to
-            message: Message to broadcast
+            message: Message to broadcast (WebSocketMessage, ContentStreamMessage, or ProgressStreamMessage)
         """
         # Ensure task_id is set in the message
-        message.task_id = task_id
+        if hasattr(message, 'task_id'):
+            message.task_id = task_id
         
         connection_ids = self.task_subscriptions.get(task_id, set()).copy()
         
@@ -357,6 +401,59 @@ class WebSocketManager:
         for connection_id in stale_connections:
             await self.disconnect(connection_id)
             logger.info(f"Cleaned up stale connection: {connection_id}")
+    
+    async def _setup_content_streaming_callback(self, task_id: str):
+        """Set up content streaming callback for a task."""
+        if not self._content_streaming_manager:
+            return
+        
+        try:
+            # Create a callback that broadcasts streaming content to WebSocket connections
+            async def streaming_callback(streaming_content):
+                """Callback to handle streaming content updates"""
+                try:
+                    # Convert streaming content to WebSocket message
+                    stream_message = ContentStreamMessage(
+                        task_id=streaming_content.task_id,
+                        phase=streaming_content.phase,
+                        content_type=streaming_content.content_type,
+                        content=streaming_content.content,
+                        is_partial=streaming_content.is_partial,
+                        sequence_number=streaming_content.sequence_number,
+                        timestamp=streaming_content.timestamp
+                    )
+                    
+                    # Broadcast to all connections subscribed to this task
+                    await self.broadcast_to_task(task_id, stream_message)
+                    
+                except Exception as e:
+                    logger.error(f"Error in streaming callback for task {task_id}: {e}")
+            
+            # Add the callback to the content streaming manager
+            await self._content_streaming_manager.add_streaming_callback(task_id, streaming_callback)
+            
+        except Exception as e:
+            logger.error(f"Failed to setup content streaming callback for task {task_id}: {e}")
+    
+    async def _handle_streaming_content(self, streaming_content):
+        """Handle streaming content by broadcasting to appropriate connections."""
+        try:
+            # Convert to WebSocket message
+            stream_message = ContentStreamMessage(
+                task_id=streaming_content.task_id,
+                phase=streaming_content.phase,
+                content_type=streaming_content.content_type,
+                content=streaming_content.content,
+                is_partial=streaming_content.is_partial,
+                sequence_number=streaming_content.sequence_number,
+                timestamp=streaming_content.timestamp
+            )
+            
+            # Broadcast to task subscribers
+            await self.broadcast_to_task(streaming_content.task_id, stream_message)
+            
+        except Exception as e:
+            logger.error(f"Error handling streaming content: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
         """

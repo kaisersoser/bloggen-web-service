@@ -42,12 +42,17 @@ class DirectSupabaseAuditManager:
                 self.enabled = False
                 return
             
-            # Create connection pool
+            # Create minimal connection pool for pgbouncer compatibility
             self.pool = await asyncpg.create_pool(
                 database_url,
-                min_size=1,
-                max_size=5,
-                command_timeout=30
+                min_size=0,  # No minimum connections
+                max_size=1,  # Single connection for pgbouncer
+                command_timeout=30,
+                max_inactive_connection_lifetime=60,
+                statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
+                server_settings={
+                    'application_name': 'bloggen_direct_audit'
+                }
             )
             
             # Test connection and ensure tables exist

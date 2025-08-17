@@ -37,6 +37,7 @@ class TaskManager:
         self._subscribers: Dict[str, List[Callable]] = {}
         self._websocket_manager = None
         self._redis_manager = None
+        self._content_streaming_manager = None
     
     def set_websocket_manager(self, websocket_manager):
         """Set the WebSocket manager for real-time updates."""
@@ -45,6 +46,10 @@ class TaskManager:
     def set_redis_manager(self, redis_manager):
         """Set the Redis manager for pub/sub updates."""
         self._redis_manager = redis_manager
+    
+    def set_content_streaming_manager(self, content_streaming_manager):
+        """Set the content streaming manager for progressive content updates."""
+        self._content_streaming_manager = content_streaming_manager
     
     async def _broadcast_task_update(self, task_id: str, task_data: Dict[str, Any]):
         """Broadcast task update via WebSocket and Redis pub/sub."""
@@ -102,6 +107,35 @@ class TaskManager:
                 
             except Exception as e:
                 logger.error(f"Failed to publish Redis update: {e}")
+        
+        # Content streaming broadcast (Phase 4 enhancement)
+        if self._content_streaming_manager:
+            try:
+                # Get content preview for enhanced updates
+                content_preview = await self._content_streaming_manager.get_content_preview(task_id)
+                
+                if content_preview:
+                    # Import here to avoid circular imports
+                    from core.websocket_manager import ProgressStreamMessage
+                    
+                    # Send enhanced progress message with content preview
+                    progress_message = ProgressStreamMessage(
+                        task_id=task_id,
+                        phase=task_data.get('current_step', ''),
+                        progress=task_data.get('progress', 0),
+                        status=task_data.get('status', '').lower(),
+                        content_preview=content_preview,
+                        current_section=task_data.get('current_section')
+                    )
+                    
+                    # Broadcast enhanced progress message
+                    if self._websocket_manager:
+                        await self._websocket_manager.broadcast_to_task(task_id, progress_message)
+                    
+                    logger.debug(f"Broadcasted content streaming update for task {task_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to broadcast content streaming update: {e}")
     
     async def _get_db_connection(self):
         """Get database connection using the existing audit tracker pattern."""
@@ -311,6 +345,46 @@ class TaskManager:
             error=error_message
         )
     
+    async def delete_task(self, task_id: str, user_id: str) -> bool:
+        """Delete a task/blog from the database."""
+        try:
+            pool = await self._get_db_connection()
+            
+            async with pool.acquire() as conn:
+                # First check if the task exists and belongs to the user
+                existing_task = await conn.fetchrow("""
+                    SELECT id, user_id, status FROM blogs 
+                    WHERE id = $1 AND user_id = $2
+                """, task_id, user_id)
+                
+                if not existing_task:
+                    logger.warning(f"Task {task_id} not found or doesn't belong to user {user_id}")
+                    return False
+                
+                # Delete the task
+                result = await conn.execute("""
+                    DELETE FROM blogs 
+                    WHERE id = $1 AND user_id = $2
+                """, task_id, user_id)
+                
+                if result == "DELETE 1":
+                    logger.info(f"✅ Deleted task {task_id} for user {user_id}")
+                    
+                    # Notify subscribers about deletion
+                    await self._notify_subscribers(task_id, {"deleted": True})
+                    
+                    # Broadcast WebSocket update about deletion
+                    await self._broadcast_task_update(task_id, {"deleted": True})
+                    
+                    return True
+                else:
+                    logger.warning(f"Failed to delete task {task_id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to delete task {task_id}: {e}")
+            return False
+    
     def subscribe(self, task_id: str, callback: Callable):
         """Subscribe to task updates for real-time notifications."""
         if task_id not in self._subscribers:
@@ -338,6 +412,53 @@ class TaskManager:
                         callback(task_id, task_state)
                 except Exception as e:
                     logger.error(f"Error notifying subscriber for task {task_id}: {e}")
+    
+    # Phase 4: Content Streaming Methods
+    
+    async def stream_research_finding(self, task_id: str, finding: str):
+        """Stream a research finding for progressive content updates."""
+        if self._content_streaming_manager:
+            try:
+                await self._content_streaming_manager.stream_research_finding(task_id, finding)
+                logger.debug(f"Streamed research finding for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to stream research finding: {e}")
+    
+    async def stream_content_paragraph(self, task_id: str, paragraph: str):
+        """Stream a content paragraph for progressive content updates."""
+        if self._content_streaming_manager:
+            try:
+                await self._content_streaming_manager.stream_content_paragraph(task_id, paragraph)
+                logger.debug(f"Streamed content paragraph for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to stream content paragraph: {e}")
+    
+    async def stream_fact_correction(self, task_id: str, correction: str):
+        """Stream a fact correction for progressive content updates."""
+        if self._content_streaming_manager:
+            try:
+                await self._content_streaming_manager.stream_fact_correction(task_id, correction)
+                logger.debug(f"Streamed fact correction for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to stream fact correction: {e}")
+    
+    async def stream_final_content(self, task_id: str, final_content: str):
+        """Stream the final complete content."""
+        if self._content_streaming_manager:
+            try:
+                await self._content_streaming_manager.stream_final_content(task_id, final_content)
+                logger.info(f"Streamed final content for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to stream final content: {e}")
+    
+    async def setup_content_streaming(self, task_id: str):
+        """Set up content streaming for a task."""
+        if self._content_streaming_manager:
+            try:
+                await self._content_streaming_manager.create_task_stream(task_id)
+                logger.debug(f"Set up content streaming for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to setup content streaming: {e}")
 
 # Global instance
 task_manager = TaskManager()

@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth, useRoleCheck } from '@/hooks/useAuth';
 import { useUserStats } from '@/hooks/useUserStats';
 import { useBlogManagement } from '@/hooks/useBlogManagement';
-import { useWebSocketConnection } from '@/hooks/useWebSocketConnection';
+import { useSSEConnection } from '@/hooks/useSSEConnection';
+import { useAuthenticationErrorHandler } from '@/hooks/useAuthenticationErrorHandler';
 import { blogService } from '@/lib/services/blog';
 import { taskService } from '@/lib/services/task';
 import { BlogData, ErrorInfo, LogEntry, JobState } from '@/types/blog';
@@ -12,8 +13,9 @@ export function useBlogGenerator() {
   const { isAuthenticated, isLoading } = useAuth();
   const { canGenerateBlog, isFree } = useRoleCheck();
   const { stats, loading: statsLoading, refetch: refetchStats } = useUserStats();
-  const { jobs, previousBlogs, blogsLoading, updateJob, createJob, fetchPreviousBlogs, deleteBlog, addTemporaryJob } = useBlogManagement();
-  const { connectToTaskStream, closeConnection, completedTasksRef } = useWebSocketConnection();
+  const { jobs, previousBlogs, blogsLoading, updateJob, createJob, fetchPreviousBlogs, deleteBlog, deleteTask, addTemporaryJob } = useBlogManagement();
+  const { connectToTaskStream, closeConnection, completedTasksRef } = useSSEConnection();
+  const { handleAuthError } = useAuthenticationErrorHandler();
 
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -104,22 +106,89 @@ export function useBlogGenerator() {
         // Don't set isGenerating(false) here - let the first WebSocket update handle it
       } catch (wsErr) {
         console.error('Failed to start WebSocket stream:', wsErr);
+        
+        // Handle authentication errors in WebSocket connection
+        if (wsErr instanceof Error) {
+          const wasAuthError = handleAuthError(wsErr);
+          if (wasAuthError) {
+            setIsGenerating(false);
+            return;
+          }
+        }
+        
         setGenerationError('Failed to establish real-time connection. Generation continues in background.');
         setIsGenerating(false);
       }
     } catch (err) {
       console.error('Error starting blog generation:', err);
+      
+      // Handle authentication errors specially
+      if (err instanceof Error) {
+        const wasAuthError = handleAuthError(err);
+        if (wasAuthError) {
+          setIsGenerating(false);
+          return; // Don't show generic error if we handled auth error
+        }
+      }
+      
       const msg = err instanceof Error ? err.message : 'Failed to start blog generation.';
       setGenerationError(msg);
       if (activeConnectionId) setActiveConnectionId(null);
       setIsGenerating(false);
     }
-  }, [canGenerate, activeConnectionId, closeConnection, completedTasksRef, createJob, updateJob, connectToTaskStream, handleTaskCompletion, handleTaskError, fetchPreviousBlogs]);
+  }, [canGenerate, activeConnectionId, closeConnection, completedTasksRef, createJob, updateJob, connectToTaskStream, handleTaskCompletion, handleTaskError, fetchPreviousBlogs, handleAuthError]);
 
-  const handleJobClick = useCallback((jobId: string) => { if (activeConnectionId && activeConnectionId !== jobId) { closeConnection(); setActiveConnectionId(null); } setCurrentJobId(jobId); setGenerationError(null); }, [activeConnectionId, closeConnection]);
-  const handleBlogClick = useCallback((blog: BlogData) => { setSelectedBlog(blog); setShowBlogModal(true); }, []);
-  const handleDeleteBlog = useCallback((blogId: string) => { const blog = previousBlogs.find(b => b.id === blogId); if (blog) { setBlogToDelete(blog); setShowDeleteDialog(true); } }, [previousBlogs]);
-  const handleBulkDeleteBlogs = useCallback(async (blogIds: string[]) => { try { const results = await Promise.all(blogIds.map(id => deleteBlog(id))); const succeeded = results.filter(Boolean).length; if (succeeded === blogIds.length) { await fetchPreviousBlogs(); } else { setGenerationError(`Failed to delete ${blogIds.length - succeeded} blog(s).`); } } catch (err) { console.error('Bulk delete failed:', err); setGenerationError('Bulk delete failed.'); } }, [deleteBlog, fetchPreviousBlogs]);
+  const handleJobClick = useCallback((jobId: string) => { 
+    if (activeConnectionId && activeConnectionId !== jobId) { 
+      closeConnection(); 
+      setActiveConnectionId(null); 
+    } 
+    setCurrentJobId(jobId); 
+    setGenerationError(null); 
+  }, [activeConnectionId, closeConnection]);
+  const handleBlogClick = useCallback((blog: BlogData) => { 
+    setSelectedBlog(blog); 
+    setShowBlogModal(true); 
+  }, []);
+  const handleDeleteBlog = useCallback((blogId: string) => { 
+    const blog = previousBlogs.find(b => b.id === blogId); 
+    if (blog) { 
+      setBlogToDelete(blog); 
+      setShowDeleteDialog(true); 
+    } 
+  }, [previousBlogs]);
+  const handleBulkDeleteBlogs = useCallback(async (blogIds: string[]) => { 
+    try { 
+      const results = await Promise.all(blogIds.map(id => deleteBlog(id))); 
+      const succeeded = results.filter(Boolean).length; 
+      if (succeeded === blogIds.length) { 
+        await fetchPreviousBlogs(); 
+      } else { 
+        setGenerationError(`Failed to delete ${blogIds.length - succeeded} blog(s).`); 
+      } 
+    } catch (err) { 
+      console.error('Bulk delete failed:', err); 
+      setGenerationError('Bulk delete failed.'); 
+    } 
+  }, [deleteBlog, fetchPreviousBlogs]);
+  const handleDeleteStuckTask = useCallback(async (taskId: string) => { 
+    try { 
+      await deleteTask(taskId); 
+      // If we reach here, deletion was successful
+      if (currentJobId === taskId) { 
+        setCurrentJobId(null); 
+        setGenerationError(null); 
+      } 
+      if (activeConnectionId === taskId) { 
+        closeConnection(); 
+        setActiveConnectionId(null); 
+      } 
+      await fetchPreviousBlogs(); 
+    } catch (err) { 
+      console.error('Delete stuck task failed:', err); 
+      setGenerationError('Failed to delete stuck task.'); 
+    } 
+  }, [deleteTask, currentJobId, activeConnectionId, closeConnection, fetchPreviousBlogs]);
   const confirmDeleteBlog = useCallback(async () => { if (!blogToDelete) return; setIsDeleting(true); try { const success = await deleteBlog(blogToDelete.id); if (success) { setShowDeleteDialog(false); if (currentJobId === blogToDelete.id) { setCurrentJobId(null); setGenerationError(null); } } } catch (err) { console.error('Delete blog failed:', err); setGenerationError('Failed to delete blog.'); } finally { setIsDeleting(false); } }, [blogToDelete, deleteBlog, currentJobId]);
   const handleNewBlog = useCallback(() => {
     if (isGenerating && activeConnectionId) return; // prevent clearing active generation
@@ -173,5 +242,5 @@ export function useBlogGenerator() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, isLoading]); // Only run when auth state changes, not on function changes
 
-  return { isAuthenticated, isLoading, stats, statsLoading, isFree, jobs, previousBlogs, blogsLoading, currentJobId, currentJob, generationError, isGenerating, activeConnectionId, taskLogs, showDeleteDialog, blogToDelete, isDeleting, selectedBlog, showBlogModal, canGenerate, handleGenerateBlog, handleJobClick, handleBlogClick, handleDeleteBlog, handleBulkDeleteBlogs, confirmDeleteBlog, handleNewBlog, setShowDeleteDialog, setBlogToDelete, setIsDeleting, setGenerationError, setSelectedBlog, setShowBlogModal, refetchStats, fetchPreviousBlogs };
+  return { isAuthenticated, isLoading, stats, statsLoading, isFree, jobs, previousBlogs, blogsLoading, currentJobId, currentJob, generationError, isGenerating, activeConnectionId, taskLogs, showDeleteDialog, blogToDelete, isDeleting, selectedBlog, showBlogModal, canGenerate, handleGenerateBlog, handleJobClick, handleBlogClick, handleDeleteBlog, handleBulkDeleteBlogs, handleDeleteStuckTask, confirmDeleteBlog, handleNewBlog, setShowDeleteDialog, setBlogToDelete, setIsDeleting, setGenerationError, setSelectedBlog, setShowBlogModal, refetchStats, fetchPreviousBlogs };
 }
