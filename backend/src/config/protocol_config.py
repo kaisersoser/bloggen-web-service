@@ -83,10 +83,7 @@ class ProtocolConfig:
         """Get the complete backend URL."""
         return f"{self.protocol}://{self.backend_host}:{self.backend_port}"
     
-    def get_websocket_url(self) -> str:
-        """Get the WebSocket URL (ws/wss based on protocol)."""
-        ws_protocol = "wss" if self.is_https else "ws"
-        return f"{ws_protocol}://{self.backend_host}:{self.backend_port}"
+
     
     def get_ssl_config(self) -> Union[Tuple[str, str], None]:
         """Get SSL certificate paths if HTTPS is enabled."""
@@ -135,6 +132,4 @@ def get_backend_url() -> str:
     """Get the backend URL."""
     return protocol_config.get_backend_url()
 
-def get_websocket_url() -> str:
-    """Get the WebSocket URL."""
-    return protocol_config.get_websocket_url()
+

@@ -2,16 +2,13 @@
 // Keeps business rules and environment-derived configuration in one place.
 
 // Import protocol configuration
-import { getApiBaseUrl, getWebSocketUrl } from './protocol';
+import { getApiBaseUrl } from './protocol';
 
 // API Configuration - Dynamically determined by protocol mode
 export const API_BASE_URL = getApiBaseUrl();
 
 // Next.js API routes (always use relative paths for same-origin)
 export const NEXT_API_BASE = "";  // Relative to current origin
-
-// WebSocket configuration - matches API protocol
-export const WS_BASE_URL = getWebSocketUrl();
 
 // Monthly generation limits (-1 means unlimited)
 export const ROLE_LIMITS: Record<string, { MONTHLY: number }> = {

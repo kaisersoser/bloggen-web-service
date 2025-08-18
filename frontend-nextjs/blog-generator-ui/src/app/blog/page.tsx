@@ -11,7 +11,6 @@ import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
-import { useOptimizedBlogs } from "@/hooks/useOptimizedBlogs";
 import { useStreamingBlogGeneration } from "@/hooks/useStreamingBlogGeneration";
 import { signIn } from "next-auth/react";
 
@@ -55,7 +54,7 @@ export default function BlogGenerator() {
     setGenerationError
   } = useBlogGenerator();
 
-  // Phase 4 Progressive Content Streaming
+  // Phase 4 Progressive Content Streaming - TODO: Implement full streaming next
   const {
     startStreamingGeneration,
     stopStreaming,
@@ -64,22 +63,24 @@ export default function BlogGenerator() {
     streamingStats,
     currentTaskId: streamingTaskId
   } = useStreamingBlogGeneration({
-    onJobUpdate: (taskId, updates) => {
-      // This will be handled by the existing job management system
+    onJobUpdate: (_taskId, _updates) => {
+      // TODO: This will be integrated with the existing job management system
     },
-    onJobCompletion: (taskId, content, heroImageUrl) => {
-      // This will be handled by the existing job management system  
+    onJobCompletion: (_taskId, _content, _heroImageUrl) => {
+      // TODO: This will be integrated with the existing job management system  
     },
-    onJobError: (taskId, error) => {
+    onJobError: (_taskId, error) => {
       setGenerationError(error);
     },
-    onJobLogUpdate: (taskId, log) => {
-      // This will be handled by the existing job management system
+    onJobLogUpdate: (_taskId, _log) => {
+      // TODO: This will be integrated with the existing job management system
     }
   });
 
-  // Phase 1: React Query for background caching only (completely non-intrusive)
-  useOptimizedBlogs(); // Just cache in background, don't use the data yet
+  // Suppress unused variable warnings for planned streaming functionality
+  void startStreamingGeneration;
+  void stopStreaming;
+  void streamingStats;
 
   // Loading state while authenticating
   if (isLoading) {

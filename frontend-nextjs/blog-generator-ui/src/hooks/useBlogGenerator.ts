@@ -26,7 +26,7 @@ export function useBlogGenerator() {
   const [blogToDelete, setBlogToDelete] = useState<BlogData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   
-  // Track if we've received the first WebSocket update to avoid multiple setIsGenerating(false) calls
+  // Track if we've received the first SSE update to avoid multiple setIsGenerating(false) calls
   const firstUpdateReceivedRef = useRef<string | null>(null);
   const [selectedBlog, setSelectedBlog] = useState<BlogData | null>(null);
   const [showBlogModal, setShowBlogModal] = useState(false);
@@ -92,7 +92,7 @@ export function useBlogGenerator() {
           data.task_id,
           (taskId: string, updates: Partial<JobState>) => {
             updateJob(taskId, updates);
-            // Set isGenerating to false when we receive the first WebSocket update
+            // Set isGenerating to false when we receive the first SSE update
             // This ensures the console stays visible until real-time updates start
             if (firstUpdateReceivedRef.current !== taskId) {
               firstUpdateReceivedRef.current = taskId;
@@ -103,13 +103,13 @@ export function useBlogGenerator() {
           handleTaskError,
           (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
         );
-        // Don't set isGenerating(false) here - let the first WebSocket update handle it
-      } catch (wsErr) {
-        console.error('Failed to start WebSocket stream:', wsErr);
+        // Don't set isGenerating(false) here - let the first SSE update handle it
+      } catch (sseErr) {
+        console.error('Failed to start SSE stream:', sseErr);
         
-        // Handle authentication errors in WebSocket connection
-        if (wsErr instanceof Error) {
-          const wasAuthError = handleAuthError(wsErr);
+        // Handle authentication errors in SSE connection
+        if (sseErr instanceof Error) {
+          const wasAuthError = handleAuthError(sseErr);
           if (wasAuthError) {
             setIsGenerating(false);
             return;
@@ -216,7 +216,7 @@ export function useBlogGenerator() {
                 setCurrentJobId(task.id);
                 setActiveConnectionId(task.id);
                 
-                // Reconnect WebSocket for in-progress tasks
+                // Reconnect SSE for in-progress tasks
                 try {
                   await connectToTaskStream(
                     task.id,
@@ -225,8 +225,8 @@ export function useBlogGenerator() {
                     handleTaskError,
                     (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
                   );
-                } catch (wsErr) {
-                  console.error(`Failed to reconnect to task ${task.id}:`, wsErr);
+                } catch (sseErr) {
+                  console.error(`Failed to reconnect to task ${task.id}:`, sseErr);
                   setGenerationError('Lost connection to active generation. Status may be outdated.');
                 }
               }

@@ -25,6 +25,10 @@ export const useStreamingBlogGeneration = ({
     getStreamingStats
   } = useStreamingContent();
   
+  // Suppress unused variable warnings for planned streaming functionality
+  void handleContentStreamMessage;
+  void handleProgressStreamMessage;
+  
   const currentTaskIdRef = useRef<string | null>(null);
 
   const startStreamingGeneration = useCallback(async (taskId: string) => {
@@ -55,8 +59,6 @@ export const useStreamingBlogGeneration = ({
     onJobCompletion,
     onJobError,
     onJobLogUpdate,
-    handleContentStreamMessage,
-    handleProgressStreamMessage,
     resetStreamingContent
   ]);
 

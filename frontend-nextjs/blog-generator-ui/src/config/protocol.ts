@@ -33,11 +33,6 @@ export class ProtocolConfig {
     return `${this.protocol}://${this.backendHost}:${this.backendPort}`;
   }
 
-  static getWebSocketUrl(): string {
-    const wsProtocol = this.isHttps ? 'wss' : 'ws';
-    return `${wsProtocol}://${this.backendHost}:${this.backendPort}`;
-  }
-
   static getApiBaseUrl(): string {
     return this.getBackendUrl();
   }
@@ -46,7 +41,6 @@ export class ProtocolConfig {
     console.log(`🔧 Protocol Config: ${this.protocol.toUpperCase()} mode`);
     console.log(`   Frontend: ${this.getFrontendUrl()}`);
     console.log(`   Backend: ${this.getBackendUrl()}`);
-    console.log(`   WebSocket: ${this.getWebSocketUrl()}`);
   }
 }
 
@@ -54,7 +48,6 @@ export class ProtocolConfig {
 export const isHttpsMode = () => ProtocolConfig.isHttps;
 export const getFrontendUrl = () => ProtocolConfig.getFrontendUrl();
 export const getBackendUrl = () => ProtocolConfig.getBackendUrl();
-export const getWebSocketUrl = () => ProtocolConfig.getWebSocketUrl();
 export const getApiBaseUrl = () => ProtocolConfig.getApiBaseUrl();
 
 // Log configuration on import (only in browser)
