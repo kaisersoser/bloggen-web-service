@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { StreamingContentState, ContentStreamMessage, ProgressStreamMessage } from '@/types/blog';
+import { StreamingContentState } from '@/types/blog';
 
 export function useStreamingContent() {
   const [streamingContent, setStreamingContent] = useState<StreamingContentState>({
@@ -9,8 +9,43 @@ export function useStreamingContent() {
     final_content: undefined,
     current_phase: '',
     content_preview: '',
-    last_sequence: 0,
+    last_sequence: 0
   });
+
+  const handleContentStreamMessage = useCallback((data: any) => {
+    if (data.type === 'content_stream') {
+      setStreamingContent(prev => {
+        const updated = { ...prev };
+        
+        if (data.content_type === 'research_finding') {
+          updated.research_findings = [...prev.research_findings, data.content];
+        } else if (data.content_type === 'paragraph') {
+          updated.content_paragraphs = [...prev.content_paragraphs, data.content];
+        } else if (data.content_type === 'correction') {
+          updated.fact_corrections = [...prev.fact_corrections, data.content];
+        } else if (data.content_type === 'final_content') {
+          updated.final_content = data.content;
+        }
+        
+        updated.current_phase = data.phase || prev.current_phase;
+        updated.content_preview = data.content || prev.content_preview;
+        updated.last_sequence = data.sequence_number || prev.last_sequence;
+        
+        return updated;
+      });
+    }
+  }, []);
+
+  const handleProgressStreamMessage = useCallback((data: any) => {
+    if (data.type === 'progress_stream') {
+      setStreamingContent(prev => ({
+        ...prev,
+        current_phase: data.phase || prev.current_phase,
+        content_preview: data.content_preview || prev.content_preview,
+        research_findings: data.research_findings || prev.research_findings
+      }));
+    }
+  }, []);
 
   const resetStreamingContent = useCallback(() => {
     setStreamingContent({
@@ -20,109 +55,25 @@ export function useStreamingContent() {
       final_content: undefined,
       current_phase: '',
       content_preview: '',
-      last_sequence: 0,
+      last_sequence: 0
     });
   }, []);
-
-  const handleContentStreamMessage = useCallback((message: ContentStreamMessage) => {
-    setStreamingContent(prev => {
-      const newState = { ...prev };
-      
-      // Update sequence tracking
-      newState.last_sequence = Math.max(prev.last_sequence, message.sequence_number);
-      newState.current_phase = message.phase;
-
-      // Add content based on type
-      switch (message.content_type) {
-        case 'research_finding':
-          if (!newState.research_findings.includes(message.content)) {
-            newState.research_findings = [...newState.research_findings, message.content];
-          }
-          break;
-          
-        case 'paragraph':
-          if (!newState.content_paragraphs.includes(message.content)) {
-            newState.content_paragraphs = [...newState.content_paragraphs, message.content];
-          }
-          break;
-          
-        case 'correction':
-          if (!newState.fact_corrections.includes(message.content)) {
-            newState.fact_corrections = [...newState.fact_corrections, message.content];
-          }
-          break;
-          
-        case 'final_content':
-          newState.final_content = message.content;
-          break;
-          
-        default:
-          // Generic content update
-          newState.content_preview = message.content;
-      }
-
-      return newState;
-    });
-  }, []);
-
-  const handleProgressStreamMessage = useCallback((message: ProgressStreamMessage) => {
-    setStreamingContent(prev => ({
-      ...prev,
-      current_phase: message.phase,
-      content_preview: message.content_preview || prev.content_preview,
-      research_findings: message.research_findings || prev.research_findings,
-    }));
-  }, []);
-
-  const buildContentPreview = useCallback(() => {
-    const parts: string[] = [];
-    
-    if (streamingContent.research_findings.length > 0) {
-      parts.push('## Research Insights');
-      streamingContent.research_findings.slice(-3).forEach(finding => {
-        parts.push(`• ${finding}`);
-      });
-      parts.push('');
-    }
-    
-    if (streamingContent.content_paragraphs.length > 0) {
-      parts.push('## Blog Content');
-      streamingContent.content_paragraphs.forEach(paragraph => {
-        parts.push(paragraph);
-        parts.push('');
-      });
-    }
-    
-    if (streamingContent.fact_corrections.length > 0) {
-      parts.push('## Corrections Applied');
-      streamingContent.fact_corrections.slice(-2).forEach(correction => {
-        parts.push(`✓ ${correction}`);
-      });
-    }
-    
-    return parts.join('\n');
-  }, [streamingContent]);
 
   const getStreamingStats = useCallback(() => {
     return {
-      total_items: streamingContent.research_findings.length + 
-                   streamingContent.content_paragraphs.length + 
-                   streamingContent.fact_corrections.length,
-      research_count: streamingContent.research_findings.length,
-      content_count: streamingContent.content_paragraphs.length,
-      corrections_count: streamingContent.fact_corrections.length,
-      current_phase: streamingContent.current_phase,
-      sequence: streamingContent.last_sequence,
-      has_final_content: !!streamingContent.final_content,
+      contentLength: streamingContent.content_preview.length,
+      researchCount: streamingContent.research_findings.length,
+      paragraphCount: streamingContent.content_paragraphs.length,
+      phase: streamingContent.current_phase,
+      isActive: streamingContent.current_phase !== ''
     };
   }, [streamingContent]);
 
   return {
     streamingContent,
-    resetStreamingContent,
     handleContentStreamMessage,
     handleProgressStreamMessage,
-    buildContentPreview,
-    getStreamingStats,
+    resetStreamingContent,
+    getStreamingStats
   };
 }

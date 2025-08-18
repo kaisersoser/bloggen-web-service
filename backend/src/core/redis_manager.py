@@ -281,10 +281,23 @@ class RedisManager:
                 return
                 
             status_key = f"task_status:{task_id}"
+            
+            # Serialize datetime objects to ISO format strings
+            def serialize_datetime(obj):
+                if isinstance(obj, datetime):
+                    return obj.isoformat()
+                elif isinstance(obj, dict):
+                    return {k: serialize_datetime(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [serialize_datetime(item) for item in obj]
+                return obj
+            
+            serialized_data = serialize_datetime(status_data)
+            
             await self.redis_client.setex(
                 status_key, 
                 ttl, 
-                json.dumps(status_data)
+                json.dumps(serialized_data)
             )
             
             logger.debug(f"💾 Cached task status: {task_id}")

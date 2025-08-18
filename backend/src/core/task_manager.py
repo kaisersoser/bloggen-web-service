@@ -2,7 +2,7 @@
 Task Manager for database-backed task state management.
 
 Replaces the in-memory active_tasks dictionary with persistent database storage.
-Integrates with WebSocket manager and Redis pub/sub for real-time updates.
+Integrates with Redis pub/sub for real-time updates.
 """
 import asyncio
 import logging
@@ -35,13 +35,8 @@ class TaskManager:
             TaskStatus.FAILED: BlogStatus.FAILED,
         }
         self._subscribers: Dict[str, List[Callable]] = {}
-        self._websocket_manager = None
         self._redis_manager = None
         self._content_streaming_manager = None
-    
-    def set_websocket_manager(self, websocket_manager):
-        """Set the WebSocket manager for real-time updates."""
-        self._websocket_manager = websocket_manager
     
     def set_redis_manager(self, redis_manager):
         """Set the Redis manager for pub/sub updates."""
@@ -52,35 +47,8 @@ class TaskManager:
         self._content_streaming_manager = content_streaming_manager
     
     async def _broadcast_task_update(self, task_id: str, task_data: Dict[str, Any]):
-        """Broadcast task update via WebSocket and Redis pub/sub."""
-        # WebSocket broadcast (existing functionality)
-        if self._websocket_manager:
-            try:
-                # Import here to avoid circular imports
-                from core.websocket_manager import WebSocketMessage
-                
-                # Prepare WebSocket message
-                message = WebSocketMessage(
-                    type="task_update",
-                    task_id=task_id,
-                    data={
-                        'status': task_data.get('status', '').lower(),
-                        'step': task_data.get('current_step'),
-                        'progress': task_data.get('progress', 0),
-                        'hero_image_url': task_data.get('hero_image_url'),
-                        'content': task_data.get('content') if task_data.get('status') == 'COMPLETED' else None,
-                        'error': task_data.get('error') if task_data.get('status') == 'FAILED' else None
-                    }
-                )
-                
-                # Broadcast to all connections subscribed to this task
-                await self._websocket_manager.broadcast_to_task(task_id, message)
-                logger.debug(f"Broadcasted WebSocket update for task {task_id}")
-                
-            except Exception as e:
-                logger.error(f"Failed to broadcast WebSocket update: {e}")
-        
-        # Redis pub/sub broadcast (new functionality)
+        """Broadcast task update via Redis pub/sub."""
+        # Redis pub/sub broadcast
         if self._redis_manager:
             try:
                 # Import here to avoid circular imports
@@ -115,24 +83,8 @@ class TaskManager:
                 content_preview = await self._content_streaming_manager.get_content_preview(task_id)
                 
                 if content_preview:
-                    # Import here to avoid circular imports
-                    from core.websocket_manager import ProgressStreamMessage
-                    
-                    # Send enhanced progress message with content preview
-                    progress_message = ProgressStreamMessage(
-                        task_id=task_id,
-                        phase=task_data.get('current_step', ''),
-                        progress=task_data.get('progress', 0),
-                        status=task_data.get('status', '').lower(),
-                        content_preview=content_preview,
-                        current_section=task_data.get('current_section')
-                    )
-                    
-                    # Broadcast enhanced progress message
-                    if self._websocket_manager:
-                        await self._websocket_manager.broadcast_to_task(task_id, progress_message)
-                    
-                    logger.debug(f"Broadcasted content streaming update for task {task_id}")
+                    # Content streaming handled by Redis pub/sub instead of WebSocket
+                    logger.debug(f"Content streaming update available for task {task_id}")
                 
             except Exception as e:
                 logger.error(f"Failed to broadcast content streaming update: {e}")
@@ -249,7 +201,7 @@ class TaskManager:
                 # Notify subscribers
                 await self._notify_subscribers(task_id, task_state)
                 
-                # Broadcast WebSocket update
+                # Broadcast task update
                 await self._broadcast_task_update(task_id, task_state)
                 
                 logger.info(f"✅ Updated task {task_id}: {updates}")
@@ -373,7 +325,7 @@ class TaskManager:
                     # Notify subscribers about deletion
                     await self._notify_subscribers(task_id, {"deleted": True})
                     
-                    # Broadcast WebSocket update about deletion
+                    # Broadcast task update about deletion
                     await self._broadcast_task_update(task_id, {"deleted": True})
                     
                     return True

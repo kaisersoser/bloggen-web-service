@@ -9,10 +9,10 @@ export const runtime = 'nodejs';
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { taskId: string } }
+  { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
-    const { taskId } = params;
+    const { taskId } = await params;
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {

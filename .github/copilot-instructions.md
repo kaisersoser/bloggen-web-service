@@ -34,6 +34,56 @@
 - **SSL certificates**: Located in `frontend-nextjs/blog-generator-ui/certs/` directory
 - This ensures consistent behavior between development and production environments
 
+### ⚠️ Rule #5: Code Cleanup Best Practices
+**MANDATORY PROCESS for any code cleanup tasks - NO EXCEPTIONS**
+
+#### Pre-Cleanup Analysis (REQUIRED)
+1. **Complete Dependency Mapping**:
+   - Search for ALL imports of each file across the entire codebase using `grep -r "filename" src/`
+   - Check for dynamic imports, lazy loading, or conditional usage
+   - Verify no indirect dependencies through re-exports or barrel files
+   - Search in configuration files, tests, documentation, and JSON files
+
+2. **Reference Validation**:
+   - Use `find . -name "*.ts*" -exec grep -l "filename" {} \;` to find all references
+   - Check for usage in package.json, config files, and build scripts
+   - Verify no runtime dependencies or reflection-based usage
+   - Search for string references that might indicate dynamic imports
+
+3. **Compilation Verification**:
+   - Run `npm run build` before making ANY changes to establish baseline
+   - Comment out exports first to see what breaks during compilation
+   - Never delete files without first confirming zero references
+
+#### Cleanup Process (MANDATORY STEPS)
+1. **Create Analysis Report FIRST**:
+   - List all files proposed for deletion with full dependency analysis
+   - Show complete reference search results for each file
+   - Get explicit approval before proceeding with ANY deletions
+   
+2. **Gradual Removal Process**:
+   - Remove ONE file at a time only
+   - Run full compilation after EACH deletion: `npm run build`
+   - Fix any broken imports immediately before proceeding
+   - Maintain detailed rollback plan for each deletion
+
+3. **Validation Requirements**:
+   - Verify functionality works end-to-end after cleanup
+   - Check for broken imports, type errors, and runtime issues
+   - Test that all existing features continue to work
+   - Document what was removed and why in a cleanup report
+
+#### Forbidden Actions
+- **NEVER delete files without comprehensive reference analysis**
+- **NEVER assume files are unused based on limited searches**
+- **NEVER delete multiple files simultaneously**
+- **NEVER proceed without explicit approval for file deletions**
+
+#### Failure Recovery
+- If ANY compilation errors occur, immediately restore deleted files
+- If functionality breaks, rollback ALL changes and reassess
+- Always have a clear restoration path before making changes
+
 ## Code Quality Principles
 
 ### Principles of Writing Good Code
