@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import logging
 
-# Load environment variables from .env file
+# Load environment variables from core.env file
 from dotenv import load_dotenv
 load_dotenv()
 

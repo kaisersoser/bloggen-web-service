@@ -11,8 +11,8 @@ A clean, modular implementation following our coding principles:
 import logging
 from typing import Optional, Dict, Any
 
-from .audit_session import AuditSession
-from .database_worker import DatabaseWorker
+from core.audit_session import AuditSession
+from core.database_worker import DatabaseWorker
 
 logger = logging.getLogger(__name__)
 

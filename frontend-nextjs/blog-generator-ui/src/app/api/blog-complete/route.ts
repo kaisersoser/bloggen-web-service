@@ -13,6 +13,8 @@ export async function POST(request: NextRequest) {
 
   const { blog_id, status, content, error, hero_image_url } = await request.json()
 
+    console.log('🔍 Blog completion request:', { blog_id, status, content: content?.length || 0, error, hero_image_url });
+
     if (!blog_id) {
       return NextResponse.json({ error: "Blog ID is required" }, { status: 400 })
     }

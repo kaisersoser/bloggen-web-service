@@ -12,8 +12,8 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from .database_manager import DatabaseConnectionManager
-from .cost_calculator import CostCalculator
+from core.database_manager import DatabaseConnectionManager
+from core.cost_calculator import CostCalculator
 
 logger = logging.getLogger(__name__)
 

@@ -52,7 +52,7 @@ export interface JobState {
 }
 
 export interface SSEUpdate {
-  type: 'connected' | 'status_update' | 'log_update' | 'stream_ended' | 'error' | 'content_stream' | 'progress_stream';
+  type?: 'connected' | 'status_update' | 'log_update' | 'stream_ended' | 'error' | 'content_stream' | 'progress_stream';
   task_id: string;
   status?: string;
   current_step?: string;
@@ -63,6 +63,36 @@ export interface SSEUpdate {
   timestamp?: string;
   step?: string;
   hero_image_url?: string;
+  
+  // Enhanced Phase 1 Foundation message types
+  message_type?: 'status' | 'taskcreated' | 'initializing' | 'agentthinking' | 'toolcall' | 'contentstream' | 'researchfinding' | 'completed' | 'error' | 'keepalive' | 'connected';
+  
+  // Agent thinking fields
+  agent_name?: string;
+  thought?: string;
+  
+  // Tool usage fields
+  tool_name?: string;
+  input_summary?: string;
+  
+  // Content streaming fields
+  content_type?: string;
+  content?: string;
+  is_partial?: boolean;
+  word_count?: number;
+  
+  // Research finding fields
+  finding?: string;
+  source?: string;
+  
+  // Completion fields
+  final_content?: string;
+  generation_time?: number;
+  
+  // Error fields
+  error_code?: string;
+  error_details?: string;
+  recoverable?: boolean;
 }
 
 // New Phase 4 Progressive Content Streaming Types

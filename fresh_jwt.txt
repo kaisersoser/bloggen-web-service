@@ -1,0 +1,11 @@
+🎯 Using known user ID: cmdaiv5530000z9nxqmyg445v
+
+🔑 Generated JWT Token:
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWRhaXY1NTMwMDAwejlueHFteWc0NDV2IiwiZW1haWwiOiJjaGFybGVzLnZvZ3RAZ21haWwuY29tIiwibmFtZSI6IkNoYXJsZXMgVm9ndCIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc1NTU1ODU4MiwiZXhwIjoxNzU1NjQ0OTgyfQ.v7jd0DDx3I9iwFR406GBnofnEdjjAjzS67u5R7VOBz4
+
+📋 Token Info:
+   User ID: cmdaiv5530000z9nxqmyg445v
+   Email: charles.vogt@gmail.com
+   Role: ADMIN
+   Expires: 2025-08-20 01:09:42
+   Length: 267 characters

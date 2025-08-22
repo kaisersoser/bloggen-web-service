@@ -3,12 +3,17 @@ Task Manager for database-backed task state management.
 
 Replaces the in-memory active_tasks dictionary with persistent database storage.
 Integrates with Redis pub/sub for real-time updates.
+Enhanced with immediate SSE message broadcasting for Phase 1 Foundation.
 """
 import asyncio
+import json
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Callable
 from enum import Enum
+
+# Import enhanced SSE message types for immediate feedback
+from core.sse_message_types import create_task_created_message, create_status_message, create_completed_message
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +31,8 @@ class BlogStatus(str, Enum):
 
 class TaskManager:
     """Manages task state using database persistence instead of in-memory storage."""
+    
+    _connection_pool = None  # Class-level connection pool
     
     def __init__(self):
         self._status_mapping = {
@@ -89,14 +96,59 @@ class TaskManager:
             except Exception as e:
                 logger.error(f"Failed to broadcast content streaming update: {e}")
     
+    async def _send_immediate_message(self, task_id: str, message):
+        """Send immediate SSE message for instant user feedback (Phase 1 Foundation)."""
+        try:
+            if self._redis_manager:
+                # Convert SSE message to dict for Redis broadcast
+                message_data = message.to_dict()
+                
+                # Publish immediate message to SSE channel
+                await self._redis_manager.publish_immediate_message(task_id, message_data)
+                
+                logger.debug(f"Sent immediate message for task {task_id}: {message.message_type}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send immediate message for task {task_id}: {e}")
+    
     async def _get_db_connection(self):
-        """Get database connection using the existing audit tracker pattern."""
-        from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
-        tracker = EnhancedDatabaseAuditTracker(session_type="task_management", user_id="system", blog_id=None)
-        pool = await tracker._get_database_connection()
-        if not pool:
-            raise Exception("Failed to get database connection")
-        return pool
+        """Get database connection with proper pool management for task operations."""
+        import os
+        import asyncpg
+        
+        # Use a class-level connection pool to avoid connection conflicts
+        if not hasattr(self.__class__, '_connection_pool') or self.__class__._connection_pool is None:
+            try:
+                database_url = os.getenv('DATABASE_URL')
+                if not database_url:
+                    raise Exception("No DATABASE_URL found in environment")
+                
+                # Create connection pool optimized for task management operations
+                self.__class__._connection_pool = await asyncpg.create_pool(
+                    database_url,
+                    min_size=1,
+                    max_size=3,
+                    command_timeout=30,
+                    max_inactive_connection_lifetime=60,
+                    max_queries=1000,
+                    statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
+                    server_settings={
+                        'application_name': 'bloggen_task_manager'
+                    }
+                )
+                
+                # Test connection
+                async with self.__class__._connection_pool.acquire() as conn:
+                    await conn.execute('SELECT 1')
+                
+                logger.info("✅ Task manager database connection pool established")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to create task manager database pool: {e}")
+                self.__class__._connection_pool = None
+                raise Exception(f"Failed to get database connection: {e}")
+        
+        return self.__class__._connection_pool
     
     async def create_task(self, task_id: str, user_id: str, topic: str, instructions: Optional[str] = None) -> Dict[str, Any]:
         """Create a new task in the database."""
@@ -137,6 +189,12 @@ class TaskManager:
                     'result': None,
                     'hero_image_url': None
                 }
+                
+                # Send immediate task created message for instant feedback
+                await self._send_immediate_message(task_id, create_task_created_message(
+                    task_id=task_id,
+                    message=f"Blog generation task created successfully: {topic[:50] if topic else 'Auto-generating topic'}..."
+                ))
                 
                 logger.info(f"✅ Created task {task_id} for user {user_id}")
                 return task_state
@@ -211,6 +269,64 @@ class TaskManager:
             logger.error(f"❌ Failed to update task {task_id}: {e}")
             raise
     
+    def update_task_redis_only(self, task_id: str, status_data: Dict[str, Any]) -> None:
+        """
+        Thread-safe Redis-only update for status updates from CrewAI Flow threads.
+        Uses sync Redis client to avoid asyncio event loop conflicts.
+        """
+        try:
+            import threading
+            import redis
+            import os
+            
+            # Extract update information from status data
+            message = status_data.get('message', 'Processing...')
+            progress = status_data.get('progress', 0.0)
+            message_type = status_data.get('message_type', 'status')
+            
+            # Use sync Redis client for thread-safe operations
+            try:
+                # Create sync Redis connection for thread-safe publishing
+                redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+                sync_redis = redis.from_url(redis_url, decode_responses=True)
+                
+                # Create message for immediate SSE broadcasting
+                immediate_message = {
+                    'message_type': 'status',
+                    'task_id': task_id,
+                    'status': 'in_progress',
+                    'message': message,
+                    'progress': progress,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                
+                # Publish to task-specific channel for SSE
+                task_channel = f"task_updates:{task_id}"
+                sync_redis.publish(task_channel, json.dumps(immediate_message))
+                
+                # Cache task status in Redis for SSE recovery (using string format for consistency)
+                status_key = f"task_status:{task_id}"
+                status_data = {
+                    'current_step': message,
+                    'progress': str(progress),
+                    'status': 'IN_PROGRESS',
+                    'updated_at': datetime.utcnow().isoformat(),
+                    'message_type': message_type
+                }
+                
+                # Store as JSON string to match redis_manager.py pattern
+                sync_redis.setex(status_key, 86400, json.dumps(status_data))
+                
+                logger.info(f"✅ Redis-only update for task {task_id}: {message} ({progress:.1f}%)")
+                
+            except Exception as redis_error:
+                logger.error(f"Redis update failed for task {task_id}: {redis_error}")
+                # Graceful degradation - continue without Redis updates
+                logger.info(f"📊 {task_id}: {message} ({progress:.1f}%) - Redis unavailable, continuing...")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to send Redis-only update for task {task_id}: {e}")
+    
     async def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get task state from the database."""
         try:
@@ -264,6 +380,16 @@ class TaskManager:
     
     async def complete_task(self, task_id: str, content: str, hero_image_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Mark task as completed with final content."""
+        
+        # CRITICAL DEBUG: Enhanced logging for content tracking
+        logger.info(f"🔍 TASK_MANAGER complete_task received:")
+        logger.info(f"   task_id: {task_id}")
+        logger.info(f"   content length: {len(content) if content else 0}")
+        logger.info(f"   content type: {type(content)}")
+        logger.info(f"   content is_empty: {not content or not content.strip()}")
+        logger.info(f"   content preview: {content[:300] if content else 'EMPTY CONTENT RECEIVED'}...")
+        logger.info(f"   hero_image_url: {hero_image_url}")
+        
         updates = {
             'status': TaskStatus.COMPLETED,
             'progress': 100,
@@ -286,7 +412,44 @@ class TaskManager:
         except Exception as e:
             logger.warning(f"Failed to set completed_at for task {task_id}: {e}")
         
-        return await self.update_task(task_id, **updates)
+        # Update database first
+        task_result = await self.update_task(task_id, **updates)
+        
+        # CRITICAL DEBUG: Check why completion message isn't being sent
+        logger.info(f"🔍 DEBUG complete_task - redis_manager: {self._redis_manager is not None}, task_result: {task_result is not None}")
+        
+        # CRITICAL FIX: Send completion message with content via immediate Redis message
+        if self._redis_manager and task_result:
+            try:
+                logger.info(f"🔍 REDIS COMPLETION - Creating completion message:")
+                logger.info(f"   task_id: {task_id}")
+                logger.info(f"   content length: {len(content) if content else 0}")
+                logger.info(f"   content preview: {content[:200] if content else 'NO CONTENT TO SEND'}...")
+                
+                completion_message = create_completed_message(
+                    task_id=task_id,
+                    final_content=content,  # Include actual content in Redis message
+                    generation_time=None
+                )
+                
+                completion_dict = completion_message.to_dict()
+                logger.info(f"🔍 REDIS COMPLETION - Message created:")
+                logger.info(f"   completion_dict keys: {list(completion_dict.keys())}")
+                logger.info(f"   final_content in dict: {completion_dict.get('final_content', 'MISSING')[:200] if completion_dict.get('final_content') else 'EMPTY IN DICT'}...")
+                logger.info(f"   word_count in dict: {completion_dict.get('word_count', 'MISSING')}")
+                
+                # Send via immediate message to bypass database query race condition
+                await self._redis_manager.publish_immediate_message(task_id, completion_dict)
+                logger.info(f"✅ REDIS COMPLETION - Sent completion message with content ({len(content)} chars) for task {task_id}")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to send completion message for task {task_id}: {e}")
+                import traceback
+                logger.error(f"❌ Completion message traceback: {traceback.format_exc()}")
+        else:
+            logger.error(f"❌ Cannot send completion message - redis_manager: {self._redis_manager is not None}, task_result: {task_result is not None}")
+        
+        return task_result
     
     async def fail_task(self, task_id: str, error_message: str) -> Optional[Dict[str, Any]]:
         """Mark task as failed with error message."""

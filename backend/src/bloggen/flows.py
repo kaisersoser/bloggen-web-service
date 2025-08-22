@@ -75,7 +75,7 @@ class BlogGenerationFlow(Flow):
         self.audit_tracker = audit_tracker
 
         # Collaborators
-        self.status_manager = StatusUpdateManager(status_callback)
+        self.status_manager = StatusUpdateManager(status_callback, task_id=blog_id)
         self.agent_factory = AgentFactory()
         self.task_factory = TaskFactory()
         self.tools_manager = ToolsManager(audit_tracker=audit_tracker)
@@ -434,17 +434,53 @@ class BlogGenerationFlow(Flow):
             step=1,
             detail="Collecting sources",
         )
+        
+        # Phase 1 Foundation: Enhanced real-time messaging
+        self.status_manager.send_agent_thinking(
+            agent_name="Senior Researcher",
+            thought=f"I need to conduct comprehensive research on '{self.flow_state.topic}' to gather cutting-edge insights and current developments. I'll use multiple research tools to ensure comprehensive coverage."
+        )
+        
         try:
             # Assure type checker topic/year are present
             topic = cast(str, self.flow_state.topic)
             year = cast(int, self.flow_state.current_year)
+            
+            # Broadcast tool preparation
+            self.status_manager.send_tool_usage(
+                tool_name="research_toolkit",
+                input_summary=f"Preparing research tools for topic: {topic}",
+                agent_name="Senior Researcher"
+            )
+            
             tools = self.tools_manager.get_research_tools()
             agent = self.agent_factory.create_researcher(tools)
             task = self.task_factory.create_research_task(
                 agent, topic, year, self.instructions
             )
+            
+            # Enhanced agent thinking before execution
+            self.status_manager.send_agent_thinking(
+                agent_name="Senior Researcher", 
+                thought=f"Executing research task with {len(tools)} specialized tools. I'll gather comprehensive insights about {topic} and ensure all findings are current and relevant for {year}."
+            )
+            
             result = self._execute(agent, task, "research")
             self.flow_state.results["research"] = result
+            
+            # Broadcast research findings (handle CrewOutput object)
+            if result:
+                try:
+                    # Convert CrewOutput to string for broadcasting
+                    result_text = str(result) if hasattr(result, '__str__') else result.raw if hasattr(result, 'raw') else ""
+                    if result_text and len(result_text) > 100:
+                        self.status_manager.send_research_finding(
+                            finding=result_text[:200] + "..." if len(result_text) > 200 else result_text,
+                            source="AI Research Agent"
+                        )
+                except Exception as broadcast_error:
+                    logger.warning(f"Failed to broadcast research finding: {broadcast_error}")
+            
             self._status("Research completed", step=1, detail="Sources gathered")
             return {**init_data, "research_results": result}
         except Exception as e:  # pragma: no cover
@@ -458,9 +494,24 @@ class BlogGenerationFlow(Flow):
         self.flow_state.current_phase = "content_generation"
         self._update_audit_phase("content_generation")
         self._status("Generating draft content...", step=2, detail="Authoring with images")
+        
+        # Phase 1 Foundation: Enhanced content generation messaging
+        self.status_manager.send_agent_thinking(
+            agent_name="Expert Content Creator",
+            thought=f"Now I'll create engaging, well-structured content based on the research findings. I need to craft a compelling narrative that incorporates the latest insights while ensuring the content is accessible and valuable to readers."
+        )
+        
         try:
             topic = cast(str, self.flow_state.topic)
             year = cast(int, self.flow_state.current_year)
+            
+            # Broadcast content tool preparation
+            self.status_manager.send_tool_usage(
+                tool_name="content_creation_toolkit",
+                input_summary=f"Preparing content creation tools for: {topic}",
+                agent_name="Expert Content Creator"
+            )
+            
             tools = self.tools_manager.get_content_tools()
             agent = self.agent_factory.create_content_creator(tools)
             task = self.task_factory.create_content_task(
@@ -468,14 +519,46 @@ class BlogGenerationFlow(Flow):
             )
             
             # Start parallel image generation for common blog concepts
-            self._status("Generating draft content...", step=2, detail="Content + parallel image generation")
-            image_futures = self._start_parallel_image_generation(topic)
+            self._status("Generating draft content...", step=2, detail="Content generation (image generation disabled)")
+            
+            # DISABLED: Enhanced messaging for image generation
+            # self.status_manager.send_tool_usage(
+            #     tool_name="parallel_image_generator",
+            #     input_summary=f"Starting parallel image generation for {topic} concepts",
+            #     agent_name="Content Creator"
+            # )
+            
+            # DISABLED: Parallel image generation to save costs
+            # image_futures = self._start_parallel_image_generation(topic)
+            image_futures = []  # Empty list - no image generation
+            
+            # Enhanced agent thinking before content execution
+            self.status_manager.send_agent_thinking(
+                agent_name="Expert Content Creator",
+                thought="Executing content generation task. I'll create structured, engaging content (image generation disabled to save costs)."
+            )
             
             # Execute main content generation
             draft = self._execute(agent, task, "content_generation")
             
+            # Stream partial content as it's generated (handle CrewOutput object)
+            if draft:
+                try:
+                    # Convert CrewOutput to string for broadcasting
+                    draft_text = str(draft) if hasattr(draft, '__str__') else draft.raw if hasattr(draft, 'raw') else ""
+                    if draft_text and len(draft_text) > 100:
+                        self.status_manager.send_content_stream(
+                            content_type="draft_content",
+                            content=draft_text[:500] + "..." if len(draft_text) > 500 else draft_text,
+                            is_partial=True
+                        )
+                except Exception as broadcast_error:
+                    logger.warning(f"Failed to broadcast content stream: {broadcast_error}")
+            
             # Wait for parallel image generation to complete (if any started)
-            self._complete_parallel_image_generation(image_futures)
+            # DISABLED: Complete parallel image generation to save costs
+            # self._complete_parallel_image_generation(image_futures)
+            logger.info("Image generation disabled to save costs")
             
             self.flow_state.results["content"] = draft
             self._status("Content draft complete", step=2, detail="Draft ready")
@@ -593,9 +676,22 @@ class BlogGenerationFlow(Flow):
             image_injector = create_mandatory_image_injector()
             final_content = image_injector.ensure_adequate_images(processed_post, topic)
             
+            # CRITICAL DEBUG: Check what we're returning as final content
+            logger.info(f"🔍 FLOW FINALIZE - About to return final content:")
+            logger.info(f"   final_content type: {type(final_content)}")
+            logger.info(f"   final_content length: {len(final_content) if final_content else 0}")
+            logger.info(f"   final_content is_empty: {not final_content or not final_content.strip()}")
+            logger.info(f"   final_content preview: {final_content[:300] if final_content else 'EMPTY FINAL CONTENT'}...")
+            
             self.flow_state.results["final"] = final_content
-            self._complete(final_content)
-            return {**verified_content, "final_blog_post": final_content, "generation_complete": True}
+            # NOTE: Completion is now handled by main.py task_manager.complete_task() to avoid duplicate completion messages
+            # self._complete(final_content)  # REMOVED: This was causing duplicate completion messages
+            
+            return_dict = {**verified_content, "final_blog_post": final_content, "generation_complete": True}
+            logger.info(f"🔍 FLOW FINALIZE - Return dict keys: {list(return_dict.keys())}")
+            logger.info(f"🔍 FLOW FINALIZE - final_blog_post in return: {return_dict.get('final_blog_post', 'MISSING')[:200] if return_dict.get('final_blog_post') else 'EMPTY IN RETURN'}...")
+            
+            return return_dict
         except Exception as e:  # pragma: no cover
             logger.exception("Finalization failed")
             self._error(f"Finalization failed: {e}")

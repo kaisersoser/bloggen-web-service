@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced SSE Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; border-left: 4px solid #007acc; }
+        .error { border-left-color: #ff6b6b; }
+        .success { border-left-color: #51cf66; }
+        .warning { border-left-color: #ffd43b; }
+        button { padding: 10px 20px; margin: 10px 0; font-size: 16px; }
+        #status { font-weight: bold; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Enhanced SSE Connection Test</h1>
+    <div id="status">Ready to test</div>
+    <button onclick="testEnhancedSSE()">Test Enhanced SSE Connection</button>
+    <button onclick="clearLogs()">Clear Logs</button>
+    
+    <div id="logs"></div>
+
+    <script>
+        let sseConnection = null;
+        let logCount = 0;
+
+        function log(message, type = 'log') {
+            const logs = document.getElementById('logs');
+            const logDiv = document.createElement('div');
+            logDiv.className = `log ${type}`;
+            logDiv.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(logDiv);
+            logCount++;
+            if (logCount > 50) {
+                logs.removeChild(logs.firstChild);
+                logCount--;
+            }
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            logCount = 0;
+        }
+
+        async function testEnhancedSSE() {
+            try {
+                log('🚀 Starting Enhanced SSE Test...', 'log');
+                
+                // Step 1: Get JWT token
+                log('📋 Step 1: Getting JWT token...', 'log');
+                const tokenResponse = await fetch('https://localhost:3001/api/auth/jwt-token', {
+                    credentials: 'include'
+                });
+                
+                if (!tokenResponse.ok) {
+                    throw new Error(`Token fetch failed: ${tokenResponse.status}`);
+                }
+                
+                const tokenData = await tokenResponse.json();
+                const token = tokenData.token;
+                log(`✅ JWT token obtained (length: ${token.length})`, 'success');
+                
+                // Step 2: Start blog generation
+                log('📋 Step 2: Starting blog generation...', 'log');
+                const blogData = {
+                    title: 'Enhanced SSE Test Blog',
+                    topic: 'Testing enhanced server-sent events with timeout resistance'
+                };
+                
+                const blogResponse = await fetch('https://localhost:5000/generate-blog', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(blogData)
+                });
+                
+                if (!blogResponse.ok) {
+                    throw new Error(`Blog generation failed: ${blogResponse.status}`);
+                }
+                
+                const blogResult = await blogResponse.json();
+                const taskId = blogResult.task_id;
+                log(`✅ Blog generation started! Task ID: ${taskId}`, 'success');
+                
+                // Step 3: Test Enhanced SSE using our TimeoutResistantSSE implementation
+                log('📋 Step 3: Testing Enhanced SSE Connection...', 'log');
+                document.getElementById('status').textContent = `Testing Enhanced SSE for task: ${taskId}`;
+                
+                const sseUrl = `https://localhost:5000/stream/${taskId}?token=${encodeURIComponent(token)}`;
+                log(`🔗 SSE URL: ${sseUrl}`, 'log');
+                
+                // Test using fetch-based approach (our enhanced implementation)
+                log('🔧 Using fetch-based SSE (TimeoutResistantSSE approach)...', 'log');
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
+                
+                try {
+                    const response = await fetch(sseUrl, {
+                        headers: {
+                            'Accept': 'text/event-stream',
+                            'Cache-Control': 'no-cache'
+                        },
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (!response.ok) {
+                        throw new Error(`SSE fetch failed: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    log('✅ Enhanced SSE connection established!', 'success');
+                    
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let messageCount = 0;
+                    
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\\n');
+                        buffer = lines.pop() || '';
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                if (data.trim()) {
+                                    try {
+                                        const parsed = JSON.parse(data);
+                                        messageCount++;
+                                        log(`📨 Message ${messageCount}: ${parsed.message_type || parsed.type} - ${parsed.message || 'No message'}`, 'success');
+                                        
+                                        if (parsed.message_type === 'completed' || parsed.type === 'completed') {
+                                            log('🎉 Blog generation completed!', 'success');
+                                            document.getElementById('status').textContent = 'Enhanced SSE test completed successfully!';
+                                            break;
+                                        }
+                                        
+                                        if (parsed.message_type === 'error' || parsed.type === 'error') {
+                                            log(`❌ Error: ${parsed.message}`, 'error');
+                                            break;
+                                        }
+                                    } catch (parseError) {
+                                        log(`⚠️ Parse error: ${parseError.message}`, 'warning');
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    log(`✅ Enhanced SSE test completed! Received ${messageCount} messages`, 'success');
+                    
+                } catch (fetchError) {
+                    clearTimeout(timeoutId);
+                    if (fetchError.name === 'AbortError') {
+                        log('⏰ Enhanced SSE connection timed out (5 minutes)', 'warning');
+                    } else {
+                        throw fetchError;
+                    }
+                }
+                
+            } catch (error) {
+                log(`❌ Enhanced SSE test failed: ${error.message}`, 'error');
+                document.getElementById('status').textContent = 'Enhanced SSE test failed';
+            }
+        }
+    </script>
+</body>
+</html>

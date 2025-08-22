@@ -1,6 +1,7 @@
 """
 Content Streaming Manager for Progressive Blog Generation
 Handles real-time streaming of partial blog content as it's generated.
+Enhanced with Phase 1 Foundation SSE message types for comprehensive AI workflow visibility.
 """
 import asyncio
 import logging
@@ -8,6 +9,14 @@ import re
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 from dataclasses import dataclass
+
+# Enhanced SSE message types for Phase 1 Foundation
+from core.sse_message_types import (
+    create_agent_thinking_message,
+    create_tool_call_message,
+    create_content_stream_message,
+    create_research_finding_message
+)
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +293,91 @@ class ContentStreamingManager:
         await asyncio.sleep(delay)
         await self.cleanup_task_stream(task_id)
         logger.debug(f"Cleaned up streaming resources for task {task_id}")
+
+    # Phase 1 Foundation: Enhanced SSE message broadcasting for AI workflow visibility
+    
+    async def broadcast_agent_thinking(self, task_id: str, agent_name: str, thought: str):
+        """Broadcast agent thinking message for real-time AI decision visibility."""
+        try:
+            message = create_agent_thinking_message(
+                task_id=task_id,
+                agent_name=agent_name,
+                thought=thought
+            )
+            
+            # Send immediate message via Redis for instant feedback
+            await self._send_sse_message(task_id, message)
+            
+            logger.debug(f"Broadcasted agent thinking for task {task_id}: {agent_name} - {thought[:50]}...")
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast agent thinking for task {task_id}: {e}")
+    
+    async def broadcast_tool_usage(self, task_id: str, tool_name: str, input_summary: str, agent_name: Optional[str] = None):
+        """Broadcast tool usage message for real-time tool call visibility."""
+        try:
+            message = create_tool_call_message(
+                task_id=task_id,
+                tool_name=tool_name,
+                input_summary=input_summary,
+                agent_name=agent_name
+            )
+            
+            # Send immediate message via Redis for instant feedback
+            await self._send_sse_message(task_id, message)
+            
+            logger.debug(f"Broadcasted tool usage for task {task_id}: {tool_name}")
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast tool usage for task {task_id}: {e}")
+    
+    async def broadcast_content_generation(self, task_id: str, content_type: str, content: str, is_partial: bool = False):
+        """Broadcast content generation message for real-time content streaming."""
+        try:
+            message = create_content_stream_message(
+                task_id=task_id,
+                content_type=content_type,
+                content=content,
+                is_partial=is_partial
+            )
+            
+            # Send immediate message via Redis for instant feedback
+            await self._send_sse_message(task_id, message)
+            
+            logger.debug(f"Broadcasted content generation for task {task_id}: {content_type} ({len(content)} chars)")
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast content generation for task {task_id}: {e}")
+    
+    async def broadcast_research_finding(self, task_id: str, finding: str, source: Optional[str] = None):
+        """Broadcast research finding message for enhanced research visibility."""
+        try:
+            message = create_research_finding_message(
+                task_id=task_id,
+                finding=finding,
+                source=source
+            )
+            
+            # Send immediate message via Redis for instant feedback
+            await self._send_sse_message(task_id, message)
+            
+            logger.debug(f"Broadcasted research finding for task {task_id}: {finding[:50]}...")
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast research finding for task {task_id}: {e}")
+    
+    async def _send_sse_message(self, task_id: str, message):
+        """Send SSE message via Redis for immediate delivery."""
+        try:
+            # Get the task manager to access Redis publishing
+            from core.task_manager import task_manager
+            
+            if task_manager and task_manager._redis_manager:
+                message_data = message.to_dict()
+                await task_manager._redis_manager.publish_immediate_message(task_id, message_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to send SSE message for task {task_id}: {e}")
 
 # Global content streaming manager instance
 content_streaming_manager = ContentStreamingManager()

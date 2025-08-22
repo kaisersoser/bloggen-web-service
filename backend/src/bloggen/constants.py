@@ -5,39 +5,8 @@ This module contains pricing information, model configurations, and other
 constants that are used across multiple modules to avoid duplication.
 """
 
-# OpenAI pricing per 1K tokens (as of 2024)
-# Source: https://openai.com/pricing
-OPENAI_PRICING = {
-    "gpt-4": {
-        "input": 0.03,
-        "output": 0.06
-    },
-    "gpt-4-turbo": {
-        "input": 0.01,
-        "output": 0.03
-    },
-    "gpt-3.5-turbo": {
-        "input": 0.0015,
-        "output": 0.002
-    },
-    "gpt-4o": {
-        "input": 0.0025,
-        "output": 0.01
-    },
-    "gpt-4o-mini": {
-        "input": 0.00015,
-        "output": 0.0006
-    },
-    # Remove GPT-4.1 series - using real OpenAI models instead
-    "gpt-4o": {
-        "input": 0.0025,
-        "output": 0.01
-    },
-    "gpt-4o-mini": {
-        "input": 0.00015,
-        "output": 0.0006
-    }
-}
+# Import pricing constants from core to avoid circular imports
+from core.pricing_constants import OPENAI_PRICING, normalize_model_name
 
 # Default model for cost estimation
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -51,30 +20,29 @@ MODEL_NAME_MAPPING = {
     "gpt-3.5-turbo": "gpt-3.5-turbo"
 }
 
-def normalize_model_name(model: str) -> str:
-    """
-    Normalize model name to match pricing keys.
-    
-    Args:
-        model: Raw model name from API
-        
-    Returns:
-        Normalized model name for pricing lookup
-    """
-    model = model.lower()
-    
-    if "gpt-4o-mini" in model:
-        return "gpt-4o-mini"
-    elif "gpt-4o" in model:
-        return "gpt-4o"
-    elif "gpt-4-turbo" in model:
-        return "gpt-4-turbo"
-    elif "gpt-4" in model:
-        return "gpt-4"
-    elif "gpt-3.5" in model:
-        return "gpt-3.5-turbo"
-    else:
-        return "gpt-4o-mini"  # Default to most efficient model
+# Tool configurations
+MAX_SEARCH_RESULTS = 5
+MAX_CONTENT_LENGTH = 50000
+DEFAULT_TEMPERATURE = 0.7
+
+# Blog generation settings
+MIN_BLOG_LENGTH = 1000
+MAX_BLOG_LENGTH = 10000
+DEFAULT_BLOG_SECTIONS = [
+    "Introduction", 
+    "Main Content", 
+    "Analysis", 
+    "Conclusion"
+]
+
+# Rate limiting settings
+MAX_REQUESTS_PER_MINUTE = 60
+MAX_TOKENS_PER_REQUEST = 8000
+
+# Image generation settings
+MAX_IMAGES_PER_BLOG = 3
+DEFAULT_IMAGE_SIZE = "1024x1024"
+IMAGE_QUALITY = "standard"
 
 def calculate_openai_cost(model: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0) -> tuple[float, float, float, float]:
     """
