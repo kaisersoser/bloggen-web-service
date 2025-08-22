@@ -27,8 +27,17 @@ export function useSSEConnection() {
       if (!tokenResponse.ok) throw new Error('Failed to get authentication token');
       const { token } = await tokenResponse.json();
       const streamUrl = `${API_BASE_URL}/stream/${taskId}?token=${encodeURIComponent(token)}`;
+      
+      console.log('🔗 Attempting SSE connection to:', streamUrl);
+      console.log('🔗 Task ID:', taskId);
+      
       const eventSource = new EventSource(streamUrl);
       eventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        console.log('✅ SSE connection established for task', taskId);
+        console.log('✅ EventSource readyState:', eventSource.readyState);
+      };
 
       eventSource.onmessage = (event) => {
         try {
@@ -108,11 +117,24 @@ export function useSSEConnection() {
       };
 
       eventSource.onerror = (err) => {
-        console.error('SSE connection error:', err);
+        console.error('❌ SSE connection error for task', taskId, ':', err);
+        console.error('❌ EventSource readyState:', eventSource.readyState);
+        console.error('❌ EventSource URL:', eventSource.url);
+        
+        // Try to provide more detailed error information
+        const errorMsg = eventSource.readyState === EventSource.CLOSED 
+          ? 'Connection was closed by server - check authentication or server logs'
+          : 'Network connection failed - check internet connection and server availability';
+        
+        console.error('❌ Error type:', errorMsg);
+        
         try { eventSource.close(); } catch {}
         if (eventSourceRef.current === eventSource) {
           eventSourceRef.current = null;
         }
+        
+        // Provide user-friendly error
+        onError(taskId, 'Real-time connection failed. Your blog is still being generated in the background. Please refresh the page to check status.');
       };
 
       return eventSource;

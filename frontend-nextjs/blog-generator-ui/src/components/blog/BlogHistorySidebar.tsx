@@ -87,23 +87,25 @@ export function BlogHistorySidebar({
   }, [blogs]);
 
   const handleLongPress = useCallback((blogId: string) => {
-    // Start pulsing animation immediately
-    setSelectionState(prev => ({
-      ...prev,
-      pulsingBlogId: blogId,
-      targetBlogId: blogId,
-    }));
-
-    // Set timer for 2 seconds to activate selection mode
-    const timer = setTimeout(() => {
-      activateSelectionMode(blogId);
-    }, 2000);
-
-    setSelectionState(prev => ({
-      ...prev,
-      longPressTimer: timer,
-    }));
-  }, [activateSelectionMode]);
+    if (!selectionState.isSelectionMode) {
+      // Start long press timer to enable selection mode
+      const timer = setTimeout(() => {
+        setSelectionState({
+          isSelectionMode: true,
+          selectedBlogIds: new Set([blogId]),
+          longPressTimer: null,
+          targetBlogId: null,
+          pulsingBlogId: null,
+        });
+        // Selection mode activated (removed toast for now)
+      }, 1000); // Changed from 2000ms to 1000ms (1 second)
+      
+      setSelectionState(prev => ({
+        ...prev,
+        longPressTimer: timer,
+      }));
+    }
+  }, [selectionState.isSelectionMode]);
 
   const handleMouseUp = useCallback(() => {
     if (selectionState.longPressTimer) {

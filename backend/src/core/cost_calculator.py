@@ -1,12 +1,11 @@
 """
-Cost Calculator for LLM API Calls
+Cost calculation utilities for LLM usage tracking.
 
-Handles cost calculation logic for different AI models.
 Follows Single Responsibility Principle - only calculates costs.
 """
 
 from typing import Dict
-from bloggen.constants import OPENAI_PRICING, normalize_model_name
+from core.pricing_constants import OPENAI_PRICING, normalize_model_name
 
 
 class CostCalculator:

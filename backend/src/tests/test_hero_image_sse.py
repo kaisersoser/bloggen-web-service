@@ -15,12 +15,13 @@ class DummyCreds:
 
 def _make_jwt(user_id: str = "user_test"):
     import jwt
+    import time
     secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
     payload = {
         "sub": user_id,
         "email": f"{user_id}@example.com",
         "role": "PREMIUM",
-        "iat": int(datetime.utcnow().timestamp())
+        "iat": int(time.time())  # Use time.time() instead of datetime.utcnow().timestamp()
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 

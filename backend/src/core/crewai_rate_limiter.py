@@ -13,7 +13,7 @@ from functools import wraps
 from crewai import Crew, Agent, Task
 from crewai.flow.flow import Flow
 
-from .rate_limiter import (
+from core.rate_limiter import (
     AdvancedRateLimiter, 
     RateLimitConfig, 
     rate_limited_api_call, 

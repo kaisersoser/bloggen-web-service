@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth, useRoleCheck } from '@/hooks/useAuth';
 import { useUserStats } from '@/hooks/useUserStats';
 import { useBlogManagement } from '@/hooks/useBlogManagement';
-import { useSSEConnection } from '@/hooks/useSSEConnection';
+import { useEnhancedSSEConnection } from '@/hooks/useEnhancedSSE';
 import { useAuthenticationErrorHandler } from '@/hooks/useAuthenticationErrorHandler';
 import { blogService } from '@/lib/services/blog';
 import { taskService } from '@/lib/services/task';
@@ -14,7 +14,7 @@ export function useBlogGenerator() {
   const { canGenerateBlog, isFree } = useRoleCheck();
   const { stats, loading: statsLoading, refetch: refetchStats } = useUserStats();
   const { jobs, previousBlogs, blogsLoading, updateJob, createJob, fetchPreviousBlogs, deleteBlog, deleteTask, addTemporaryJob } = useBlogManagement();
-  const { connectToTaskStream, closeConnection, completedTasksRef } = useSSEConnection();
+  const { connectToTaskStream, closeConnection, completedTasksRef } = useEnhancedSSEConnection();
   const { handleAuthError } = useAuthenticationErrorHandler();
 
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
@@ -47,6 +47,14 @@ export function useBlogGenerator() {
   useEffect(() => () => { if (activeConnectionId) { closeConnection(); setActiveConnectionId(null); } }, [activeConnectionId, closeConnection]);
 
   const handleTaskCompletion = useCallback(async (taskId: string, content: string, heroImageUrl?: string) => {
+    console.log('🔍 Frontend handleTaskCompletion called:', {
+      taskId,
+      contentLength: content?.length || 0,
+      hasContent: !!content,
+      contentPreview: content?.substring(0, 100) + '...',
+      heroImageUrl
+    });
+    
     updateJob(taskId, { status: 'completed', currentStep: 'Blog generation complete!', progress: 100, blogContent: content, completedAt: new Date().toISOString() });
     if (activeConnectionId === taskId) {
       setActiveConnectionId(null);
@@ -57,8 +65,21 @@ export function useBlogGenerator() {
       const blogData: BlogData = { id: taskId, userId: '', topic: job.topic, instructions: job.instructions, content, status: 'completed', progress: 100, currentStep: 'Blog generation complete!', error: null, createdAt: typeof job.createdAt === 'string' ? job.createdAt : new Date(job.createdAt).toISOString(), updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), heroImageUrl: heroImageUrl || null } as any;
       setSelectedBlog(blogData); setShowBlogModal(true);
     }
-    try { await blogService.updateBlogCompletion(taskId, 'completed', content, undefined, heroImageUrl); await Promise.all([refetchStats(), fetchPreviousBlogs()]); }
-    catch (err) { console.error('Failed to persist completion:', err); updateJob(taskId, { status: 'failed', currentStep: 'Failed to save blog', error: { error_type: 'save_error', user_message: 'Blog saved locally but persistence failed.', technical_details: err instanceof Error ? err.message : 'Unknown save error', is_recoverable: true, suggestions: ['Refresh the page','Try again later'], timestamp: new Date().toISOString(), severity: 'error' } }); }
+    
+    // CRITICAL FIX: Remove duplicate completion persistence call
+    // The backend already handles completion persistence in task_manager.complete_task()
+    // This was causing duplicate API calls and "Invalid status" errors
+    console.log('✅ Blog completion handled locally - backend already persisted completion');
+    
+    // Refresh data without making duplicate completion API call
+    try { 
+      await Promise.all([refetchStats(), fetchPreviousBlogs()]); 
+      console.log('✅ Refreshed stats and blog list after completion');
+    }
+    catch (err) { 
+      console.error('Failed to refresh data after completion:', err);
+      // Don't mark as failed since completion itself succeeded
+    }
   }, [activeConnectionId, jobs, updateJob, refetchStats, fetchPreviousBlogs]);
 
   const handleTaskError = useCallback(async (taskId: string, errorMessage: string) => {
@@ -85,8 +106,8 @@ export function useBlogGenerator() {
       createJob(data.task_id, topic.trim(), instructions.trim());
       setCurrentJobId(data.task_id);
       setActiveConnectionId(data.task_id);
-      // Immediately refresh blog list to show the new blog card
-      await fetchPreviousBlogs();
+      // REMOVED: Immediate blog refresh that was causing duplicate cards
+      // The blog will appear in the sidebar through createJob() and get updated via SSE
       try {
         await connectToTaskStream(
           data.task_id,
@@ -116,7 +137,7 @@ export function useBlogGenerator() {
           }
         }
         
-        setGenerationError('Failed to establish real-time connection. Generation continues in background.');
+        setGenerationError('Real-time updates unavailable, but your blog is being generated in the background. Refresh the page in a few minutes to see your completed blog.');
         setIsGenerating(false);
       }
     } catch (err) {

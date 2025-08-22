@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSL Certificate Test</title>
+</head>
+<body>
+    <h1>SSL Certificate & Connection Test</h1>
+    <div id="results"></div>
+    
+    <script>
+        const resultsDiv = document.getElementById('results');
+        
+        function addResult(msg, isError = false) {
+            const p = document.createElement('p');
+            p.style.color = isError ? 'red' : 'green';
+            p.textContent = new Date().toISOString() + ': ' + msg;
+            resultsDiv.appendChild(p);
+            console.log(msg);
+        }
+        
+        async function testConnections() {
+            addResult('🔄 Starting connection tests...');
+            
+            // Test 1: Basic HTTPS connection to backend
+            try {
+                addResult('1️⃣ Testing basic HTTPS connection to backend...');
+                const response = await fetch('https://localhost:5000/health', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addResult('✅ Backend HTTPS connection successful: ' + JSON.stringify(data));
+                } else {
+                    addResult('❌ Backend HTTPS connection failed: ' + response.status, true);
+                }
+            } catch (error) {
+                addResult('❌ Backend HTTPS connection error: ' + error.message, true);
+            }
+            
+            // Test 2: Use working JWT token (since no auth session)
+            try {
+                addResult('2️⃣ Using working JWT token for testing...');
+                
+                // Use our known working token
+                const workingToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWRhaXY1NTMwMDAwejlueHFteWc0NDV2IiwiZW1haWwiOiJjaGFybGVzLnZvZ3RAZ21haWwuY29tIiwibmFtZSI6IkNoYXJsZXMgVm9ndCIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc1NTU1Mzg0OCwiZXhwIjoxNzU1NjQwMjQ4fQ.OJATsfAwge4JbV2wfDlWTXLkfhgvjxibbXrTrlEkIt0";
+                
+                if (workingToken) {
+                    addResult('✅ Using working JWT token: ' + workingToken.substring(0, 50) + '...');
+                    
+                    // Test 3: Simple EventSource connection test
+                    addResult('3️⃣ Testing EventSource connection...');
+                    
+                    const testUrl = `https://localhost:5000/stream/test-connection?token=${encodeURIComponent(workingToken)}`;
+                    addResult('🔗 Testing URL: ' + testUrl);
+                    
+                    const eventSource = new EventSource(testUrl);
+                    
+                    const timeout = setTimeout(() => {
+                        addResult('⏰ EventSource test timed out after 5 seconds', true);
+                        eventSource.close();
+                    }, 5000);
+                    
+                    eventSource.onopen = function(event) {
+                        clearTimeout(timeout);
+                        addResult('✅ EventSource connection opened successfully!');
+                        eventSource.close();
+                    };
+                    
+                    eventSource.onmessage = function(event) {
+                        clearTimeout(timeout);
+                        addResult('📨 EventSource message received: ' + event.data);
+                        eventSource.close();
+                    };
+                    
+                    eventSource.onerror = function(event) {
+                        clearTimeout(timeout);
+                        addResult('❌ EventSource error - ReadyState: ' + eventSource.readyState, true);
+                        addResult('❌ EventSource error details: ' + JSON.stringify({
+                            type: event.type,
+                            readyState: eventSource.readyState,
+                            url: eventSource.url
+                        }), true);
+                        eventSource.close();
+                    };
+                    
+                } else {
+                    addResult('❌ No working token available', true);
+                }
+            } catch (error) {
+                addResult('❌ Token test error: ' + error.message, true);
+            }
+            
+            // Test 4: Certificate information
+            addResult('4️⃣ Certificate and security information:');
+            addResult('🔒 Page protocol: ' + window.location.protocol);
+            addResult('🏠 Page origin: ' + window.location.origin);
+            addResult('🌐 User agent: ' + navigator.userAgent.substring(0, 100) + '...');
+            
+            // Test if we're in a secure context
+            if (window.isSecureContext) {
+                addResult('🔐 Running in secure context');
+            } else {
+                addResult('⚠️ Not running in secure context', true);
+            }
+        }
+        
+        window.addEventListener('load', testConnections);
+    </script>
+</body>
+</html>

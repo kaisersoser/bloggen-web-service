@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import { useSSEConnection } from '@/hooks/useSSEConnection';
+import { useEnhancedSSEConnection } from '@/hooks/useEnhancedSSE';
 import { useStreamingContent } from './useStreamingContent';
 import { JobState, LogEntry } from '../types/blog';
 
@@ -16,7 +16,7 @@ export const useStreamingBlogGeneration = ({
   onJobError,
   onJobLogUpdate
 }: StreamingBlogGenerationProps) => {
-  const { connectToTaskStream, closeConnection } = useSSEConnection();
+  const { connectToTaskStream, closeConnection } = useEnhancedSSEConnection();
   const { 
     streamingContent, 
     handleContentStreamMessage, 

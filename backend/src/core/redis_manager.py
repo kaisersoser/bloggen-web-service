@@ -162,8 +162,10 @@ class RedisManager:
         try:
             self.connection_pool = aioredis.ConnectionPool.from_url(
                 self.redis_url,
-                max_connections=20,
-                retry_on_timeout=True
+                max_connections=50,  # Increased from 20 to handle SSE connections
+                retry_on_timeout=True,
+                socket_timeout=5,    # 5 second socket timeout
+                socket_connect_timeout=5  # 5 second connect timeout
             )
             self.redis_client = aioredis.Redis(connection_pool=self.connection_pool)
             
@@ -209,18 +211,59 @@ class RedisManager:
                 
             message_data = task_update.to_redis_message()
             
-            # Publish to task-specific channel
+            # Publish to task-specific channel with timeout
             task_channel = f"task_updates:{task_update.task_id}"
-            await self.redis_client.publish(task_channel, message_data)
+            await asyncio.wait_for(
+                self.redis_client.publish(task_channel, message_data), 
+                timeout=3.0
+            )
             
-            # Publish to user-specific channel
+            # Publish to user-specific channel with timeout
             user_channel = f"user_updates:{task_update.user_id}"
-            await self.redis_client.publish(user_channel, message_data)
+            await asyncio.wait_for(
+                self.redis_client.publish(user_channel, message_data), 
+                timeout=3.0
+            )
             
             logger.info(f"📡 Published task update: {task_update.task_id} -> {task_update.phase}")
             
+        except asyncio.TimeoutError:
+            logger.error(f"❌ Timeout publishing task update: {task_update.task_id}")
         except Exception as e:
             logger.error(f"❌ Failed to publish task update: {e}")
+    
+    async def publish_immediate_message(self, task_id: str, message_data: Dict[str, Any]):
+        """
+        Publish immediate SSE message for instant user feedback (Phase 1 Foundation).
+        
+        Sends structured SSE messages directly to task channels for real-time updates
+        including agent decisions, tool usage, and content streaming.
+        """
+        try:
+            if not self.redis_client:
+                logger.error("❌ Redis client not connected for immediate message")
+                return
+            
+            # Add timestamp if not present
+            if 'timestamp' not in message_data:
+                message_data['timestamp'] = datetime.utcnow().isoformat()
+            
+            # Serialize message for Redis
+            message_json = json.dumps(message_data)
+            
+            # Publish to SSE-specific task channel for immediate delivery with timeout
+            sse_channel = f"sse_immediate:{task_id}"
+            await asyncio.wait_for(
+                self.redis_client.publish(sse_channel, message_json), 
+                timeout=3.0
+            )
+            
+            logger.debug(f"📡 Published immediate message: {task_id} -> {message_data.get('message_type', 'unknown')}")
+            
+        except asyncio.TimeoutError:
+            logger.error(f"❌ Timeout publishing immediate message for task {task_id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to publish immediate message for task {task_id}: {e}")
             
     async def create_subscriber(self, subscriber_id: str, callback: Callable) -> RedisSubscriber:
         """Create a new Redis subscriber"""
@@ -294,14 +337,19 @@ class RedisManager:
             
             serialized_data = serialize_datetime(status_data)
             
-            await self.redis_client.setex(
-                status_key, 
-                ttl, 
-                json.dumps(serialized_data)
+            await asyncio.wait_for(
+                self.redis_client.setex(
+                    status_key, 
+                    ttl, 
+                    json.dumps(serialized_data)
+                ),
+                timeout=3.0
             )
             
             logger.debug(f"💾 Cached task status: {task_id}")
             
+        except asyncio.TimeoutError:
+            logger.error(f"❌ Timeout caching task status for {task_id}")
         except Exception as e:
             logger.error(f"❌ Failed to cache task status: {e}")
             
