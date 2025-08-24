@@ -381,6 +381,16 @@ class TaskManager:
     async def complete_task(self, task_id: str, content: str, hero_image_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Mark task as completed with final content."""
         
+        # THEORY 3 TEST: Track multiple completion calls
+        import traceback
+        call_stack = traceback.format_stack()
+        caller_info = [line for line in call_stack[-3:-1]]  # Get calling context
+        
+        logger.warning(f"🚨 COMPLETION CALL #{hash(call_stack[-2]) % 1000} for task {task_id}")
+        logger.warning(f"   📞 Called from: {caller_info}")
+        logger.warning(f"   📊 Content length: {len(content) if content else 0}")
+        logger.warning(f"   📋 Content preview: {content[:100] if content else '❌ EMPTY'}...")
+        
         # CRITICAL DEBUG: Enhanced logging for content tracking
         logger.info(f"🔍 TASK_MANAGER complete_task received:")
         logger.info(f"   task_id: {task_id}")
@@ -389,6 +399,16 @@ class TaskManager:
         logger.info(f"   content is_empty: {not content or not content.strip()}")
         logger.info(f"   content preview: {content[:300] if content else 'EMPTY CONTENT RECEIVED'}...")
         logger.info(f"   hero_image_url: {hero_image_url}")
+        
+        # THEORY 3 TEST: Check if task is already completed
+        current_task = await self.get_task(task_id)
+        if current_task and current_task.get('status') == TaskStatus.COMPLETED:
+            logger.error(f"🚨 DOUBLE COMPLETION DETECTED! Task {task_id} already completed")
+            logger.error(f"   Previous completion: {current_task.get('current_step', 'unknown')}")
+            logger.error(f"   Previous content length: {len(current_task.get('content', '')) if current_task.get('content') else 0}")
+            logger.error(f"   New content length: {len(content) if content else 0}")
+            logger.error(f"   This is likely the root cause of '0 words' issue!")
+            # Don't return early - let's see what happens with multiple completions
         
         updates = {
             'status': TaskStatus.COMPLETED,
@@ -421,10 +441,20 @@ class TaskManager:
         # CRITICAL FIX: Send completion message with content via immediate Redis message
         if self._redis_manager and task_result:
             try:
-                logger.info(f"🔍 REDIS COMPLETION - Creating completion message:")
-                logger.info(f"   task_id: {task_id}")
-                logger.info(f"   content length: {len(content) if content else 0}")
-                logger.info(f"   content preview: {content[:200] if content else 'NO CONTENT TO SEND'}...")
+                # Import required modules
+                import time
+                import json
+                import redis
+                
+                # REDIS MESSAGE SEQUENCE TRACKING - Track message order and content
+                timestamp = time.time()
+                sequence_id = int(timestamp * 1000000)  # Microsecond precision
+                
+                logger.warning(f"🔍 REDIS SEQUENCE #{sequence_id} - COMPLETION MESSAGE START:")
+                logger.warning(f"   task_id: {task_id}")
+                logger.warning(f"   content length: {len(content) if content else 0}")
+                logger.warning(f"   content preview: {content[:200] if content else 'NO CONTENT TO SEND'}...")
+                logger.warning(f"   timestamp: {timestamp}")
                 
                 completion_message = create_completed_message(
                     task_id=task_id,
@@ -433,14 +463,23 @@ class TaskManager:
                 )
                 
                 completion_dict = completion_message.to_dict()
-                logger.info(f"🔍 REDIS COMPLETION - Message created:")
-                logger.info(f"   completion_dict keys: {list(completion_dict.keys())}")
-                logger.info(f"   final_content in dict: {completion_dict.get('final_content', 'MISSING')[:200] if completion_dict.get('final_content') else 'EMPTY IN DICT'}...")
-                logger.info(f"   word_count in dict: {completion_dict.get('word_count', 'MISSING')}")
+                logger.warning(f"🔍 REDIS SEQUENCE #{sequence_id} - MESSAGE CREATED:")
+                logger.warning(f"   completion_dict keys: {list(completion_dict.keys())}")
+                logger.warning(f"   final_content in dict: {completion_dict.get('final_content', 'MISSING')[:200] if completion_dict.get('final_content') else 'EMPTY IN DICT'}...")
+                logger.warning(f"   word_count in dict: {completion_dict.get('word_count', 'MISSING')}")
                 
-                # Send via immediate message to bypass database query race condition
-                await self._redis_manager.publish_immediate_message(task_id, completion_dict)
-                logger.info(f"✅ REDIS COMPLETION - Sent completion message with content ({len(content)} chars) for task {task_id}")
+                # Send completion message to the task_updates channel that SSE is listening to
+                # Use sync Redis to match the pattern from send_redis_only_update method
+                import redis
+                sync_redis = redis.Redis.from_url(
+                    self._redis_manager.redis_url,
+                    encoding='utf-8',
+                    decode_responses=True
+                )
+                
+                task_channel = f"task_updates:{task_id}"
+                sync_redis.publish(task_channel, json.dumps(completion_dict))
+                logger.warning(f"✅ REDIS SEQUENCE #{sequence_id} - COMPLETION MESSAGE PUBLISHED to {task_channel} with content ({len(content)} chars) for task {task_id}")
                 
             except Exception as e:
                 logger.error(f"❌ Failed to send completion message for task {task_id}: {e}")

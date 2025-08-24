@@ -89,15 +89,24 @@ class ToolsManager:
         tools = []
         
         try:
+            from core.config import config
             from bloggen.tools import UnsplashImageTool
-            from bloggen.tools.openai_image_tool import OpenAIImageTool
+            
+            # Always include Unsplash tool as it's free
             tools.append(UnsplashImageTool(audit_tracker=self.audit_tracker))
-            tools.append(OpenAIImageTool(audit_tracker=self.audit_tracker))
-            logger.debug("✅ UnsplashImageTool + OpenAIImageTool loaded")
+            
+            # Conditionally include OpenAI image tool based on configuration
+            if config.features.enable_ai_image_generation:
+                from bloggen.tools.openai_image_tool import OpenAIImageTool
+                tools.append(OpenAIImageTool(audit_tracker=self.audit_tracker))
+                logger.debug("✅ UnsplashImageTool + OpenAIImageTool loaded")
+            else:
+                logger.debug("✅ UnsplashImageTool loaded (OpenAI image generation disabled)")
+                
         except ImportError as e:
-            logger.warning(f"UnsplashImageTool not available: {e}")
+            logger.warning(f"Image tools not available: {e}")
         except Exception as e:
-            logger.error(f"Error loading UnsplashImageTool: {e}")
+            logger.error(f"Error loading image tools: {e}")
         
         # Add other content tools here as needed
         logger.info(f"Loaded {len(tools)} content tools")

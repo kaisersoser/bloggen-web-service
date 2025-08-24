@@ -112,7 +112,7 @@ export function useEnhancedSSEConnection() {
               console.log('✅ Calling onCompletion with valid final_content');
               onCompletion(taskId, data.final_content, (data as any).hero_image_url);
             } else {
-              console.error('❌ Completed message has no final_content - checking fallback fields');
+              console.warn('⚠️ Completed message has no final_content - checking fallback fields');
               
               // Check if content is in a different field  
               const fallbackContent = (data as any).content || (data as any).final_blog_post || '';
@@ -120,8 +120,16 @@ export function useEnhancedSSEConnection() {
                 console.log('✅ Found content in fallback field, using that');
                 onCompletion(taskId, fallbackContent, (data as any).hero_image_url);
               } else {
-                console.error('❌ No content found in any field - raw data:', data);
-                onCompletion(taskId, '', (data as any).hero_image_url); // Fallback to empty for now
+                // Check if message indicates 0 words - this might be old/persistent code
+                const isZeroWordMessage = (data.message || '').includes('(0 words)');
+                if (isZeroWordMessage) {
+                  console.warn('⚠️ Received completion message with 0 words - may be persistent old completion message');
+                  // Don't call onCompletion for 0-word messages to avoid overriding valid content
+                  return;
+                } else {
+                  console.error('❌ No content found in any field - raw data:', data);
+                  onCompletion(taskId, '', (data as any).hero_image_url); // Fallback to empty for now
+                }
               }
             }
             

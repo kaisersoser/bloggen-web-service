@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .message { margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+        .completed { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .status { background-color: #d1ecf1; border-color: #bee5eb; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        .stats { margin-top: 20px; padding: 10px; background: #e9ecef; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>SSE Connection Test for Blog Generation</h1>
+    
+    <div>
+        <label>Task ID: </label>
+        <input type="text" id="taskId" value="cmenfx7xm0001z931eywqcxk0" style="width: 300px;">
+        <button onclick="connectSSE()">Connect</button>
+        <button onclick="disconnectSSE()">Disconnect</button>
+    </div>
+    
+    <div class="stats">
+        <div>Connection Status: <span id="connectionStatus">Disconnected</span></div>
+        <div>Messages Received: <span id="messageCount">0</span></div>
+        <div>Last Message Time: <span id="lastMessageTime">-</span></div>
+        <div>Completion Received: <span id="completionReceived">No</span></div>
+    </div>
+    
+    <div id="messages"></div>
+
+    <script>
+        let eventSource = null;
+        let messageCount = 0;
+        let completionReceived = false;
+
+        async function getJWTToken() {
+            try {
+                const response = await fetch('https://localhost:3001/api/auth/jwt-token', {
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                return data.token;
+            } catch (error) {
+                console.error('Failed to get JWT token:', error);
+                addMessage('error', 'Failed to get JWT token: ' + error.message);
+                return null;
+            }
+        }
+
+        async function connectSSE() {
+            const taskId = document.getElementById('taskId').value.trim();
+            if (!taskId) {
+                alert('Please enter a task ID');
+                return;
+            }
+
+            // Get JWT token first
+            addMessage('status', 'Getting JWT token...');
+            const token = await getJWTToken();
+            if (!token) {
+                return;
+            }
+
+            // Close existing connection
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            // Reset stats
+            messageCount = 0;
+            completionReceived = false;
+            updateStats();
+            document.getElementById('messages').innerHTML = '';
+
+            // Connect to SSE
+            const sseUrl = `https://localhost:5000/stream/${taskId}?token=${token}`;
+            addMessage('status', `Connecting to: ${sseUrl}`);
+            
+            eventSource = new EventSource(sseUrl);
+            
+            eventSource.onopen = function(event) {
+                console.log('SSE connection opened:', event);
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                addMessage('status', 'SSE connection established');
+            };
+            
+            eventSource.onerror = function(event) {
+                console.error('SSE connection error:', event);
+                document.getElementById('connectionStatus').textContent = 'Error';
+                addMessage('error', 'SSE connection error: ' + JSON.stringify(event));
+            };
+            
+            eventSource.onmessage = function(event) {
+                console.log('SSE message received:', event.data);
+                messageCount++;
+                updateStats();
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Check if this is a completion message
+                    if (data.message_type === 'completed' || data.type === 'completed') {
+                        completionReceived = true;
+                        updateStats();
+                        addMessage('completed', `COMPLETION MESSAGE RECEIVED!`, data);
+                    } else {
+                        addMessage('status', `Message: ${data.message || data.status || 'Unknown'}`, data);
+                    }
+                } catch (error) {
+                    addMessage('error', `Failed to parse message: ${error.message}`, event.data);
+                }
+            };
+        }
+
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                addMessage('status', 'SSE connection closed');
+            }
+        }
+
+        function addMessage(type, message, data = null) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            let content = `[${timestamp}] ${message}`;
+            
+            if (data) {
+                content += `\n\nRaw Data:\n${JSON.stringify(data, null, 2)}`;
+            }
+            
+            messageDiv.innerHTML = `<pre>${content}</pre>`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            
+            document.getElementById('lastMessageTime').textContent = timestamp;
+        }
+
+        function updateStats() {
+            document.getElementById('messageCount').textContent = messageCount;
+            document.getElementById('completionReceived').textContent = completionReceived ? 'Yes' : 'No';
+        }
+
+        // Auto-connect on page load if task ID is present
+        window.onload = function() {
+            const taskId = document.getElementById('taskId').value.trim();
+            if (taskId) {
+                setTimeout(connectSSE, 1000); // Give page time to load
+            }
+        };
+    </script>
+</body>
+</html>
