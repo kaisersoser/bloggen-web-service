@@ -829,6 +829,38 @@ async def delete_task(
         logger.error(f"❌ Failed to delete task {task_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete task")
 
+@app.post("/tasks/{task_id}/acknowledge-completion")
+async def acknowledge_completion(
+    task_id: str,
+    user: User = Depends(get_current_user)
+):
+    """
+    Acknowledge that the frontend has received the blog completion.
+    Part of the Enhanced Completion Protocol to prevent race conditions.
+    """
+    try:
+        # Verify the task belongs to the user
+        task_result = await task_manager.get_task(task_id)
+        if not task_result or task_result.get('user_id') != user.id:
+            raise HTTPException(status_code=404, detail="Task not found or access denied")
+        
+        # Send acknowledgment via Redis
+        await redis_manager.send_completion_acknowledgment(task_id)
+        
+        logger.info(f"✅ Frontend acknowledged completion for task {task_id} by user {user.id}")
+        
+        return {
+            "message": "Completion acknowledgment received",
+            "task_id": task_id,
+            "acknowledged": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to acknowledge completion for task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to acknowledge completion")
+
 @app.post("/generate-title", response_model=TitleGenerationResponse)
 async def generate_title(
     request: TitleGenerationRequest,

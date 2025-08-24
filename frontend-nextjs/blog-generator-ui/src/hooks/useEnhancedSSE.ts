@@ -9,8 +9,53 @@ export function useEnhancedSSEConnection() {
   const sseConnectionRef = useRef<TimeoutResistantSSE | null>(null);
   const completedTasksRef = useRef<Set<string>>(new Set());
 
+  // Helper function to send completion acknowledgment to backend
+  const sendCompletionAcknowledgment = useCallback(async (taskId: string) => {
+    try {
+      if (status !== 'authenticated' || !session) {
+        throw new Error('Please sign in to send acknowledgment');
+      }
+
+      // Get fresh JWT token for authentication
+      const tokenResponse = await fetch('/api/auth/jwt-token', {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!tokenResponse.ok) {
+        throw new Error(`Failed to get auth token: ${tokenResponse.status}`);
+      }
+      
+      const { token } = await tokenResponse.json();
+      if (!token) {
+        throw new Error('No authentication token received');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/acknowledge-completion`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Completion acknowledgment sent:', result);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ Failed to send completion acknowledgment:', error);
+      throw error;
+    }
+  }, [session, status]);
+
   // Helper function to process SSE messages
-  const processSSEMessage = useCallback((
+  const processSSEMessage = useCallback(async (
     data: SSEUpdate,
     taskId: string,
     onUpdate: (taskId: string, updates: Partial<JobState>) => void,
@@ -18,7 +63,7 @@ export function useEnhancedSSEConnection() {
     onError: (taskId: string, error: string) => void,
     onLogUpdate?: (taskId: string, log: LogEntry) => void
   ) => {
-    console.log('📨 Processing SSE message:', data.message_type || data.type);
+    console.log('📨 Processing SSE message at', new Date().toISOString(), ':', data.message_type || data.type);
 
     // Handle enhanced message types from Phase 1 Foundation
     if (data.message_type) {
@@ -93,61 +138,39 @@ export function useEnhancedSSEConnection() {
           }
           break;
         case 'completed':
+          // Handle direct completion messages (new format)
+          console.log('🎉 Direct completion message received for task', taskId);
           if (!completedTasksRef.current.has(taskId)) {
             completedTasksRef.current.add(taskId);
-            console.log('🔍 SSE completed message data:', {
-              taskId,
-              message_type: data.type,
-              has_final_content: !!data.final_content,
-              final_content_length: data.final_content?.length || 0,
-              final_content_preview: data.final_content?.substring(0, 100) + '...',
-              hero_image_url: (data as any).hero_image_url,
-              raw_data_keys: Object.keys(data),
-              content_field: (data as any).content?.length || 0,
-              final_blog_post_field: (data as any).final_blog_post?.length || 0
-            });
+            const finalContent = data.final_content || data.content || '';
+            const heroImageUrl = data.hero_image_url;
+            onCompletion(taskId, finalContent, heroImageUrl);
             
-            // Only call completion if we have actual content
-            if (data.final_content && data.final_content.trim().length > 0) {
-              console.log('✅ Calling onCompletion with valid final_content');
-              onCompletion(taskId, data.final_content, (data as any).hero_image_url);
-            } else {
-              console.warn('⚠️ Completed message has no final_content - checking fallback fields');
-              
-              // Check if content is in a different field  
-              const fallbackContent = (data as any).content || (data as any).final_blog_post || '';
-              if (fallbackContent && fallbackContent.trim().length > 0) {
-                console.log('✅ Found content in fallback field, using that');
-                onCompletion(taskId, fallbackContent, (data as any).hero_image_url);
-              } else {
-                // Check if message indicates 0 words - this might be old/persistent code
-                const isZeroWordMessage = (data.message || '').includes('(0 words)');
-                if (isZeroWordMessage) {
-                  console.warn('⚠️ Received completion message with 0 words - may be persistent old completion message');
-                  // Don't call onCompletion for 0-word messages to avoid overriding valid content
-                  return;
-                } else {
-                  console.error('❌ No content found in any field - raw data:', data);
-                  onCompletion(taskId, '', (data as any).hero_image_url); // Fallback to empty for now
-                }
-              }
-            }
-            
-            // Close the SSE connection when task completes
-            if (sseConnectionRef.current) {
-              console.log('✅ Task completed - closing SSE connection');
-              sseConnectionRef.current.close();
-              sseConnectionRef.current = null;
+            // Send acknowledgment to backend for 2-phase completion protocol
+            try {
+              await sendCompletionAcknowledgment(taskId);
+              console.log('✅ Completion acknowledgment sent to backend for task', taskId);
+            } catch (error) {
+              console.warn('⚠️ Failed to send completion acknowledgment:', error);
             }
           }
           break;
-        case 'error':
-          onError(taskId, data.error_details || data.message || 'Unknown error occurred');
-          // Close the SSE connection on error
-          if (sseConnectionRef.current) {
-            console.log('❌ Task failed - closing SSE connection');
-            sseConnectionRef.current.close();
-            sseConnectionRef.current = null;
+        case 'completion_pending':
+          // Handle 2-phase completion protocol
+          console.log('⏳ Completion pending message received for task', taskId);
+          if (!completedTasksRef.current.has(taskId)) {
+            completedTasksRef.current.add(taskId);
+            const finalContent = data.final_content || data.content || '';
+            const heroImageUrl = data.hero_image_url;
+            onCompletion(taskId, finalContent, heroImageUrl);
+            
+            // Send acknowledgment to backend for 2-phase completion protocol
+            try {
+              await sendCompletionAcknowledgment(taskId);
+              console.log('✅ Completion acknowledgment sent to backend for task', taskId);
+            } catch (error) {
+              console.warn('⚠️ Failed to send completion acknowledgment:', error);
+            }
           }
           break;
         case 'keepalive':
@@ -156,6 +179,7 @@ export function useEnhancedSSEConnection() {
           break;
         default:
           console.log('❓ Unknown message type:', data.message_type, data);
+          break;
       }
       return;
     }
@@ -237,7 +261,7 @@ export function useEnhancedSSEConnection() {
         console.error('❌ Stream error:', data.message);
         break;
     }
-  }, []);
+  }, [sendCompletionAcknowledgment]);
 
   const connectToTaskStream = useCallback(async (
     taskId: string,
@@ -283,9 +307,9 @@ export function useEnhancedSSEConnection() {
       
       // Create enhanced SSE connection with proper timeout strategy
       const sseConnection = new TimeoutResistantSSE(streamUrl, {
-        timeout: 300000, // Keep 5 minutes for the overall stream (blog generation can take time)
-        retryDelay: 5000, // Increased to 5 seconds to avoid overwhelming server
-        maxRetries: 2, // Reduced retries since each retry is expensive
+        timeout: 600000, // Increase to 10 minutes for blog generation + acknowledgment protocol
+        retryDelay: 3000, // Reduced to 3 seconds for faster recovery
+        maxRetries: 5, // Increased retries for better reliability
         reconnectOnError: true
       });
 
@@ -293,33 +317,33 @@ export function useEnhancedSSEConnection() {
 
       // Set up event listeners
       sseConnection.addEventListener('open', (data) => {
-        console.log('✅ Enhanced SSE connection established for task', taskId);
+        console.log('✅ Enhanced SSE connection established for task', taskId, 'at', new Date().toISOString());
       });
 
       sseConnection.addEventListener('error', (error) => {
-        console.error('❌ Enhanced SSE connection error for task', taskId, ':', error);
+        console.error('❌ Enhanced SSE connection error for task', taskId, 'at', new Date().toISOString(), ':', error);
         onError(taskId, error.message || 'Connection failed. Your blog generation continues in the background.');
       });
 
       sseConnection.addEventListener('close', (data) => {
-        console.log('🔌 Enhanced SSE connection closed for task', taskId, ':', data.reason);
+        console.log('🔌 Enhanced SSE connection closed for task', taskId, 'at', new Date().toISOString(), ':', data.reason);
       });
 
       // Handle regular messages
-      sseConnection.addEventListener('message', (data) => {
-        processSSEMessage(data, taskId, onUpdate, onCompletion, onError, onLogUpdate);
+      sseConnection.addEventListener('message', async (data) => {
+        await processSSEMessage(data, taskId, onUpdate, onCompletion, onError, onLogUpdate);
       });
 
       // Handle all other message types
       const messageTypes = [
         'status', 'taskcreated', 'initializing', 'agentthinking', 'toolcall',
-        'contentstream', 'researchfinding', 'completed', 'error', 'keepalive',
+        'contentstream', 'researchfinding', 'completed', 'completion_pending', 'error', 'keepalive',
         'connected', 'log_update', 'status_update', 'stream_ended'
       ];
 
       messageTypes.forEach(type => {
-        sseConnection.addEventListener(type, (data) => {
-          processSSEMessage({ ...data, message_type: type }, taskId, onUpdate, onCompletion, onError, onLogUpdate);
+        sseConnection.addEventListener(type, async (data) => {
+          await processSSEMessage({ ...data, message_type: type }, taskId, onUpdate, onCompletion, onError, onLogUpdate);
         });
       });
 
@@ -356,7 +380,7 @@ export function useEnhancedSSEConnection() {
       console.error('Failed to create Enhanced SSE connection:', err);
       throw err;
     }
-  }, [session, status, processSSEMessage]);
+  }, [session, status, processSSEMessage, sendCompletionAcknowledgment]);
 
   const closeConnection = useCallback(() => {
     if (sseConnectionRef.current) {

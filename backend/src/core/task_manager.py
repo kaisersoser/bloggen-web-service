@@ -446,40 +446,78 @@ class TaskManager:
                 import json
                 import redis
                 
-                # REDIS MESSAGE SEQUENCE TRACKING - Track message order and content
+                # ENHANCED COMPLETION PROTOCOL - 2-Phase completion with acknowledgment
                 timestamp = time.time()
                 sequence_id = int(timestamp * 1000000)  # Microsecond precision
                 
-                logger.warning(f"🔍 REDIS SEQUENCE #{sequence_id} - COMPLETION MESSAGE START:")
+                logger.warning(f"🔍 REDIS SEQUENCE #{sequence_id} - ENHANCED COMPLETION PROTOCOL START:")
                 logger.warning(f"   task_id: {task_id}")
                 logger.warning(f"   content length: {len(content) if content else 0}")
                 logger.warning(f"   content preview: {content[:200] if content else 'NO CONTENT TO SEND'}...")
                 logger.warning(f"   timestamp: {timestamp}")
                 
-                completion_message = create_completed_message(
-                    task_id=task_id,
-                    final_content=content,  # Include actual content in Redis message
-                    generation_time=None
-                )
-                
-                completion_dict = completion_message.to_dict()
-                logger.warning(f"🔍 REDIS SEQUENCE #{sequence_id} - MESSAGE CREATED:")
-                logger.warning(f"   completion_dict keys: {list(completion_dict.keys())}")
-                logger.warning(f"   final_content in dict: {completion_dict.get('final_content', 'MISSING')[:200] if completion_dict.get('final_content') else 'EMPTY IN DICT'}...")
-                logger.warning(f"   word_count in dict: {completion_dict.get('word_count', 'MISSING')}")
-                
-                # Send completion message to the task_updates channel that SSE is listening to
                 # Use sync Redis to match the pattern from send_redis_only_update method
-                import redis
                 sync_redis = redis.Redis.from_url(
                     self._redis_manager.redis_url,
                     encoding='utf-8',
                     decode_responses=True
                 )
-                
                 task_channel = f"task_updates:{task_id}"
-                sync_redis.publish(task_channel, json.dumps(completion_dict))
-                logger.warning(f"✅ REDIS SEQUENCE #{sequence_id} - COMPLETION MESSAGE PUBLISHED to {task_channel} with content ({len(content)} chars) for task {task_id}")
+                
+                # PHASE 1: Send completion_pending message with content
+                completion_pending_message = {
+                    "message_type": "completion_pending",
+                    "task_id": task_id,
+                    "message": f"Blog generation completed ({self._count_words(content)} words)",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "type": "completion_pending",
+                    "final_content": content,
+                    "word_count": self._count_words(content),
+                    "hero_image_url": hero_image_url
+                }
+                
+                logger.warning(f"🔍 REDIS SEQUENCE #{sequence_id} - PHASE 1: SENDING COMPLETION_PENDING:")
+                logger.warning(f"   completion_pending keys: {list(completion_pending_message.keys())}")
+                logger.warning(f"   final_content length: {len(completion_pending_message['final_content']) if completion_pending_message['final_content'] else 0}")
+                
+                sync_redis.publish(task_channel, json.dumps(completion_pending_message))
+                logger.warning(f"✅ REDIS SEQUENCE #{sequence_id} - PHASE 1: COMPLETION_PENDING PUBLISHED to {task_channel}")
+                
+                # PHASE 2: Wait for acknowledgment from frontend
+                logger.info(f"⏳ PHASE 2: Waiting for completion acknowledgment for {task_id}")
+                ack_received = await self._redis_manager.wait_for_completion_acknowledgment(task_id, timeout=30)
+                
+                # PHASE 3: Send final confirmation based on acknowledgment
+                if ack_received:
+                    # Send completion_confirmed message
+                    confirmation_message = {
+                        "message_type": "completion_confirmed",
+                        "task_id": task_id,
+                        "message": "Blog generation confirmed and delivered",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "type": "completion_confirmed"
+                    }
+                    
+                    sync_redis.publish(task_channel, json.dumps(confirmation_message))
+                    logger.warning(f"✅ REDIS SEQUENCE #{sequence_id} - PHASE 3: COMPLETION_CONFIRMED sent for {task_id}")
+                    
+                else:
+                    # Send completion_timeout message (fallback)
+                    timeout_message = {
+                        "message_type": "completion_timeout",
+                        "task_id": task_id,
+                        "message": "Blog generation completed (delivery confirmed via timeout)",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "type": "completion_timeout",
+                        "final_content": content,  # Resend content as fallback
+                        "word_count": self._count_words(content),
+                        "hero_image_url": hero_image_url
+                    }
+                    
+                    sync_redis.publish(task_channel, json.dumps(timeout_message))
+                    logger.warning(f"⏰ REDIS SEQUENCE #{sequence_id} - PHASE 3: COMPLETION_TIMEOUT sent for {task_id} (no ack received)")
+                
+                logger.warning(f"🏁 REDIS SEQUENCE #{sequence_id} - ENHANCED COMPLETION PROTOCOL COMPLETE for {task_id}")
                 
             except Exception as e:
                 logger.error(f"❌ Failed to send completion message for task {task_id}: {e}")
@@ -613,6 +651,31 @@ class TaskManager:
                 logger.debug(f"Set up content streaming for task {task_id}")
             except Exception as e:
                 logger.error(f"Failed to setup content streaming: {e}")
+    
+    def _count_words(self, content: str) -> int:
+        """Count words in content, excluding markdown formatting."""
+        if not content or not content.strip():
+            return 0
+        
+        # Remove common markdown formatting for more accurate word count
+        import re
+        
+        # Remove markdown headers
+        content = re.sub(r'^#+\s+', '', content, flags=re.MULTILINE)
+        # Remove markdown links [text](url)
+        content = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', content)
+        # Remove markdown images ![alt](url)
+        content = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', '', content)
+        # Remove markdown bold/italic
+        content = re.sub(r'\*\*([^\*]+)\*\*', r'\1', content)
+        content = re.sub(r'\*([^\*]+)\*', r'\1', content)
+        # Remove markdown code blocks
+        content = re.sub(r'```[^`]*```', '', content, flags=re.DOTALL)
+        content = re.sub(r'`([^`]+)`', r'\1', content)
+        
+        # Split by whitespace and count non-empty words
+        words = [word.strip() for word in content.split() if word.strip()]
+        return len(words)
 
 # Global instance
 task_manager = TaskManager()

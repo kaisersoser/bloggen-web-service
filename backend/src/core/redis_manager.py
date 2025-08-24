@@ -340,6 +340,55 @@ class RedisManager:
             logger.error(f"❌ Failed to get task status from Redis: {e}")
             return None
             
+    async def wait_for_completion_acknowledgment(self, task_id: str, timeout: int = 30) -> bool:
+        """
+        Wait for completion acknowledgment from frontend.
+        Returns True if ack received, False if timeout.
+        """
+        try:
+            if not self.redis_client:
+                logger.error("❌ Redis client not connected for acknowledgment wait")
+                return False
+                
+            ack_key = f"completion_ack:{task_id}"
+            
+            logger.info(f"⏳ Waiting for completion acknowledgment for {task_id} (timeout: {timeout}s)")
+            
+            # Poll for acknowledgment with timeout
+            for i in range(timeout):
+                ack_status = await self.redis_client.get(ack_key)
+                if ack_status:
+                    logger.info(f"✅ Completion acknowledgment received for {task_id} after {i+1}s")
+                    # Clean up the acknowledgment key
+                    await self.redis_client.delete(ack_key)
+                    return True
+                await asyncio.sleep(1)
+            
+            logger.warning(f"⏰ Completion acknowledgment timeout for {task_id} after {timeout}s")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Error waiting for completion acknowledgment {task_id}: {e}")
+            return False
+    
+    async def send_completion_acknowledgment(self, task_id: str):
+        """
+        Send completion acknowledgment from frontend to backend.
+        """
+        try:
+            if not self.redis_client:
+                logger.error("❌ Redis client not connected for acknowledgment")
+                return
+                
+            ack_key = f"completion_ack:{task_id}"
+            
+            # Set acknowledgment with 60-second TTL
+            await self.redis_client.setex(ack_key, 60, "acknowledged")
+            logger.info(f"✅ Sent completion acknowledgment for {task_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error sending completion acknowledgment {task_id}: {e}")
+
     async def cache_task_status(self, task_id: str, status_data: Dict[str, Any], ttl: int = 3600):
         """Cache task status in Redis with TTL"""
         try:
