@@ -650,8 +650,16 @@ async def stream_task(task_id: str, token: str):
                                 # Send the completion message immediately
                                 final_update = send_update(completion_task_data)
                                 if final_update:
+                                    # DEBUG: Log the exact SSE message being sent
+                                    logger.info(f"🔍 EXACT SSE COMPLETION MESSAGE: {final_update[:500]}...")
                                     yield final_update
                                 logger.info(f"✅ Sent completion with content ({len(final_content)} chars) for {task_id}")
+                                
+                                # Add a small delay to ensure frontend receives the completion message
+                                # before the SSE connection closes
+                                logger.info(f"⏳ Waiting 5 seconds for completion message delivery for {task_id}")
+                                await asyncio.sleep(5)
+                                logger.info(f"✅ Completion message delivery delay completed for {task_id}")
                                 break
                             elif redis_data.get('message_type') == 'error':
                                 # Handle error completion
@@ -667,6 +675,12 @@ async def stream_task(task_id: str, token: str):
                                 final_update = send_update(error_task_data)
                                 if final_update:
                                     yield final_update
+                                
+                                # Add a small delay to ensure frontend receives the error message
+                                # before the SSE connection closes
+                                logger.info(f"⏳ Waiting 5 seconds for error message delivery for {task_id}")
+                                await asyncio.sleep(5)
+                                logger.info(f"✅ Error message delivery delay completed for {task_id}")
                                 break
                             else:
                                 # Regular status updates - use Redis data for real-time updates
@@ -1020,20 +1034,26 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                     await asyncio.sleep(0.3)
                 final_topic = getattr(flow, 'topic', None) or topic or 'AI Blog'
                 update_phase('image_generation')
-                from bloggen.tools.openai_image_tool import OpenAIImageTool
-                from bloggen.tools.unsplash_tool import UnsplashImageTool
-                prompt = f"High quality, modern illustrative hero image representing: {final_topic}"
-                hero_tool = OpenAIImageTool(audit_tracker=audit_tracker)
-                hero_result = hero_tool.run(prompt)
-                hero_url = hero_result.get('url') if isinstance(hero_result, dict) else None
-                if not hero_url or 'placeholder' in (hero_url or ''):
-                    try:
-                        unsplash_tool = UnsplashImageTool()
-                        unsplash_res = unsplash_tool.run(final_topic)
-                        if isinstance(unsplash_res, dict):
-                            hero_url = unsplash_res.get('url') or hero_url
-                    except Exception:
-                        logger.debug('Unsplash fallback failed', exc_info=True)
+                
+                # Check if AI image generation is enabled
+                hero_url = None
+                if config.features.enable_hero_image_generation:
+                    from bloggen.tools.openai_image_tool import OpenAIImageTool
+                    from bloggen.tools.unsplash_tool import UnsplashImageTool
+                    prompt = f"High quality, modern illustrative hero image representing: {final_topic}"
+                    hero_tool = OpenAIImageTool(audit_tracker=audit_tracker)
+                    hero_result = hero_tool.run(prompt)
+                    hero_url = hero_result.get('url') if isinstance(hero_result, dict) else None
+                    if not hero_url or 'placeholder' in (hero_url or ''):
+                        try:
+                            unsplash_tool = UnsplashImageTool()
+                            unsplash_res = unsplash_tool.run(final_topic)
+                            if isinstance(unsplash_res, dict):
+                                hero_url = unsplash_res.get('url') or hero_url
+                        except Exception:
+                            logger.debug('Unsplash fallback failed', exc_info=True)
+                else:
+                    logger.info("AI image generation disabled - skipping hero image generation")
                         
                 # Update hero image in database if found
                 if hero_url:

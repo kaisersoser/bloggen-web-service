@@ -77,6 +77,14 @@ class RateLimitConfig:
 
 
 @dataclass
+class FeatureConfig:
+    """Feature toggle configuration"""
+    enable_ai_image_generation: bool = True
+    enable_hero_image_generation: bool = True
+    enable_content_image_injection: bool = True
+
+
+@dataclass
 class PathConfig:
     """File system paths configuration"""
     base_dir: Path
@@ -150,6 +158,7 @@ class UnifiedConfig:
         self.models = self._init_models()
         self.security = self._init_security()
         self.rate_limit = self._init_rate_limit()
+        self.features = self._init_features()
         
         self.logger.info(f"Configuration initialized for environment: {self.server.environment}")
     
@@ -223,6 +232,14 @@ class UnifiedConfig:
             base_delay=float(self.env.get_string("RATE_LIMIT_BASE_DELAY", "1.0")),
             max_delay=float(self.env.get_string("RATE_LIMIT_MAX_DELAY", "60.0")),
             enable_chunking=self.env.get_string("RATE_LIMIT_ENABLE_CHUNKING", "true").lower() == "true"
+        )
+    
+    def _init_features(self) -> FeatureConfig:
+        """Initialize feature toggle configuration"""
+        return FeatureConfig(
+            enable_ai_image_generation=self.env.get_bool("ENABLE_AI_IMAGE_GENERATION", False),
+            enable_hero_image_generation=self.env.get_bool("ENABLE_HERO_IMAGE_GENERATION", False),
+            enable_content_image_injection=self.env.get_bool("ENABLE_CONTENT_IMAGE_INJECTION", False)
         )
     
     def get_cors_origins(self) -> List[str]:

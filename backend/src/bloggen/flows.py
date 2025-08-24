@@ -671,10 +671,17 @@ class BlogGenerationFlow(Flow):
                 force_tool_usage=True
             )
             
-            # Ensure adequate images (2-3) - inject missing images if necessary
-            from .mandatory_image_injector import create_mandatory_image_injector
-            image_injector = create_mandatory_image_injector()
-            final_content = image_injector.ensure_adequate_images(processed_post, topic)
+            # Conditionally ensure adequate images (2-3) - inject missing images if necessary
+            from core.config import config
+            final_content = processed_post
+            
+            if config.features.enable_content_image_injection:
+                from .mandatory_image_injector import create_mandatory_image_injector
+                image_injector = create_mandatory_image_injector()
+                final_content = image_injector.ensure_adequate_images(processed_post, topic)
+                logger.info("✅ Content image injection completed")
+            else:
+                logger.info("📷 Content image injection disabled - using content as-is")
             
             # CRITICAL DEBUG: Check what we're returning as final content
             logger.info(f"🔍 FLOW FINALIZE - About to return final content:")

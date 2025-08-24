@@ -84,6 +84,53 @@
 - If functionality breaks, rollback ALL changes and reassess
 - Always have a clear restoration path before making changes
 
+### ⚠️ Rule #6: AI Image Generation Cost Management
+**CRITICAL: AI image generation is DISABLED by default for cost savings**
+
+#### Image Generation Toggle System
+- **Current State**: AI image generation is **DISABLED** (cost optimization)
+- **Location**: Settings stored in `backend/.env` file
+- **Toggle Script**: Use `backend/toggle_image_generation.py` for easy enable/disable
+
+#### Configuration Settings
+Three granular toggles control different aspects of image generation:
+```bash
+ENABLE_AI_IMAGE_GENERATION=false      # Master toggle for OpenAI DALL-E usage
+ENABLE_HERO_IMAGE_GENERATION=false    # Hero images in main.py
+ENABLE_CONTENT_IMAGE_INJECTION=false  # Automatic image injection in blog content
+```
+
+#### Quick Toggle Commands
+```bash
+# Disable AI image generation (SAVE COSTS - Current default)
+cd backend && source .venv/bin/activate
+python toggle_image_generation.py disable
+
+# Enable AI image generation (INCREASES COSTS)
+cd backend && source .venv/bin/activate  
+python toggle_image_generation.py enable
+
+# After any toggle, restart backend:
+python src/main.py
+```
+
+#### Cost Impact
+- **When DISABLED** (current): ❌ No OpenAI DALL-E API calls, ✅ Only free Unsplash images
+- **When ENABLED**: 💸 OpenAI image generation costs ~$0.040 per image (DALL-E 3)
+- **Typical blog**: 1 hero + 2-3 content images = ~$0.12-0.16 per blog in image costs
+
+#### Implementation Details
+- **Hero Image Generation**: `backend/src/main.py` conditionally calls OpenAIImageTool
+- **Content Tools**: `backend/src/bloggen/tools_manager.py` conditionally loads OpenAIImageTool  
+- **Content Injection**: `backend/src/bloggen/flows.py` conditionally runs mandatory image injection
+- **Configuration**: `backend/src/core/config.py` FeatureConfig dataclass with environment variable loading
+
+#### When to Re-enable
+- For production deployments requiring premium visuals
+- When cost budget allows for enhanced image quality
+- For specific client requirements demanding AI-generated images
+- Always verify current toggle state before debugging image-related issues
+
 ## Code Quality Principles
 
 ### Principles of Writing Good Code
@@ -199,6 +246,18 @@ cd frontend-nextjs/blog-generator-ui && npm run dev:http
 
 # Database setup
 cd frontend-nextjs/blog-generator-ui && npx prisma db push
+```
+
+### Image Generation Management
+```bash
+# Disable AI image generation (save costs - current default)
+cd backend && source .venv/bin/activate && python toggle_image_generation.py disable
+
+# Enable AI image generation (increases costs)
+cd backend && source .venv/bin/activate && python toggle_image_generation.py enable
+
+# Check current configuration
+cd backend && grep -E "ENABLE_.*IMAGE" .env
 ```
 
 ### Docker Deployment

@@ -244,12 +244,34 @@ class RedisManager:
                 logger.error("❌ Redis client not connected for immediate message")
                 return
             
+            # REDIS PUBLISHING TRACKING - Detailed message analysis
+            import time
+            publish_timestamp = time.time()
+            publish_sequence_id = int(publish_timestamp * 1000000)
+            
+            logger.warning(f"🔍 REDIS PUBLISH #{publish_sequence_id} - MESSAGE ANALYSIS START:")
+            logger.warning(f"   task_id: {task_id}")
+            logger.warning(f"   message_data keys: {list(message_data.keys())}")
+            logger.warning(f"   message_type: {message_data.get('message_type', 'MISSING')}")
+            
+            # Track completion message content specifically
+            if message_data.get('message_type') == 'completion':
+                final_content = message_data.get('final_content', '')
+                word_count = message_data.get('word_count', 0)
+                logger.warning(f"🔍 REDIS PUBLISH #{publish_sequence_id} - COMPLETION MESSAGE:")
+                logger.warning(f"   final_content length: {len(final_content) if final_content else 0}")
+                logger.warning(f"   final_content preview: {final_content[:200] if final_content else 'EMPTY CONTENT'}...")
+                logger.warning(f"   word_count: {word_count}")
+            
             # Add timestamp if not present
             if 'timestamp' not in message_data:
                 message_data['timestamp'] = datetime.utcnow().isoformat()
             
             # Serialize message for Redis
             message_json = json.dumps(message_data)
+            logger.warning(f"🔍 REDIS PUBLISH #{publish_sequence_id} - JSON SERIALIZED:")
+            logger.warning(f"   json length: {len(message_json)}")
+            logger.warning(f"   json preview: {message_json[:300]}...")
             
             # Publish to SSE-specific task channel for immediate delivery with timeout
             sse_channel = f"sse_immediate:{task_id}"
@@ -258,6 +280,7 @@ class RedisManager:
                 timeout=3.0
             )
             
+            logger.warning(f"✅ REDIS PUBLISH #{publish_sequence_id} - MESSAGE PUBLISHED to channel: {sse_channel}")
             logger.debug(f"📡 Published immediate message: {task_id} -> {message_data.get('message_type', 'unknown')}")
             
         except asyncio.TimeoutError:
