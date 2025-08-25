@@ -22,11 +22,23 @@
 ### ⚠️ Rule #3: Test File Organization
 **ALWAYS place test files in the proper directory structure**
 - **Backend test files**: Must be placed in `backend/src/tests/` directory
-- **Frontend test files**: Must be placed in appropriate test directories within the frontend structure
-- **NO test files** should be created directly in the `backend/` root directory
-- Example: Create `backend/src/tests/test_my_feature.py` NOT `backend/test_my_feature.py`
+- **Frontend test files**: Must be placed in `frontend-nextjs/blog-generator-ui/src/tests/` directory
+- **NO test files** should be created in root directories or other locations
+- Examples: 
+  - Create `backend/src/tests/test_my_feature.py` NOT `backend/test_my_feature.py`
+  - Create `frontend-nextjs/blog-generator-ui/src/tests/test-component.html` NOT `frontend-nextjs/blog-generator-ui/test-component.html`
 
-### ⚠️ Rule #4: HTTPS-Only Development
+### ⚠️ Rule #4: Documentation File Organization
+**ALWAYS place documentation files in the proper directory structure**
+- **Backend documentation**: Must be placed in `backend/docs/` directory
+- **Frontend documentation**: Must be placed in `frontend-nextjs/blog-generator-ui/src/docs/` directory
+- **Project-wide documentation**: Goes in root-level `docs/` directory
+- **NO documentation files** should be created in root directories unless project-wide
+- Examples:
+  - Create `backend/docs/API_GUIDE.md` NOT `backend/API_GUIDE.md`
+  - Create `frontend-nextjs/blog-generator-ui/src/docs/COMPONENT_GUIDE.md` NOT `frontend-nextjs/blog-generator-ui/COMPONENT_GUIDE.md`
+
+### ⚠️ Rule #5: HTTPS-Only Development
 **ALWAYS run the frontend in HTTPS mode**
 - **Frontend development**: Always use `npm run dev` (which now defaults to HTTPS via `dev-https.js`)
 - **HTTP fallback**: Only use `npm run dev:http` for specific debugging scenarios
@@ -34,7 +46,7 @@
 - **SSL certificates**: Located in `frontend-nextjs/blog-generator-ui/certs/` directory
 - This ensures consistent behavior between development and production environments
 
-### ⚠️ Rule #5: Code Cleanup Best Practices
+### ⚠️ Rule #6: Code Cleanup Best Practices
 **MANDATORY PROCESS for any code cleanup tasks - NO EXCEPTIONS**
 
 #### Pre-Cleanup Analysis (REQUIRED)
@@ -84,7 +96,7 @@
 - If functionality breaks, rollback ALL changes and reassess
 - Always have a clear restoration path before making changes
 
-### ⚠️ Rule #6: AI Image Generation Cost Management
+### ⚠️ Rule #7: AI Image Generation Cost Management
 **CRITICAL: AI image generation is DISABLED by default for cost savings**
 
 #### Image Generation Toggle System
@@ -104,11 +116,11 @@ ENABLE_CONTENT_IMAGE_INJECTION=false  # Automatic image injection in blog conten
 ```bash
 # Disable AI image generation (SAVE COSTS - Current default)
 cd backend && source .venv/bin/activate
-python toggle_image_generation.py disable
+python src/utils/toggle_image_generation.py disable
 
 # Enable AI image generation (INCREASES COSTS)
 cd backend && source .venv/bin/activate  
-python toggle_image_generation.py enable
+python src/utils/toggle_image_generation.py enable
 
 # After any toggle, restart backend:
 python src/main.py
@@ -300,7 +312,13 @@ docker-compose up -d
 - **Flow definitions**: Main logic in `backend/src/bloggen/flows.py` with programmatic agent creation
 - **Legacy crew setup**: YAML-based configs exist in `backend/src/bloggen/config/` but are NOT used by main app
 - **Custom tools**: Python classes in `backend/src/bloggen/tools/`
+- **Backend tests**: All test files in `backend/src/tests/` directory
+- **Backend documentation**: All docs in `backend/docs/` directory  
+- **Backend utilities**: Utility scripts in `backend/src/utils/` directory
 - **Frontend components**: React/TypeScript in `src/components/` with shadcn/ui
+- **Frontend tests**: All test files in `frontend-nextjs/blog-generator-ui/src/tests/` directory
+- **Frontend documentation**: All docs in `frontend-nextjs/blog-generator-ui/src/docs/` directory
+- **Frontend utilities**: Utility scripts in `frontend-nextjs/blog-generator-ui/src/utils/` directory
 - **Custom hooks**: Business logic in `src/hooks/` (e.g., `useAuth.ts`, `useUserStats.ts`)
 - **Service layer**: API interactions in `src/lib/services/` (e.g., `user.ts`)
 - **Database models**: Prisma schema in `frontend-nextjs/blog-generator-ui/prisma/schema.prisma`
@@ -349,6 +367,47 @@ const BlogCard = ({ blog, onClick, variant = "default" }) => (
 - **OpenAI**: Configured via CrewAI agents, uses `OPENAI_API_KEY`
 - **Unsplash**: Custom tool class, handles rate limiting and fallbacks
 - **Database**: Prisma ORM handles user management, ChromaDB for vector storage
+
+## Project Directory Structure
+
+### 📁 **Organized Project Layout**
+```
+bloggen-web-service/
+├── backend/
+│   ├── docs/                      # 📚 Backend documentation
+│   ├── src/
+│   │   ├── tests/                 # 🧪 Backend test files
+│   │   ├── utils/                 # 🛠️ Backend utility scripts
+│   │   ├── bloggen/               # Core blog generation logic
+│   │   ├── config/                # Configuration modules
+│   │   ├── core/                  # Core system modules
+│   │   ├── api.py
+│   │   └── main.py
+│   └── [other backend files...]
+├── frontend-nextjs/blog-generator-ui/
+│   ├── src/
+│   │   ├── docs/                  # 📚 Frontend documentation
+│   │   ├── tests/                 # 🧪 Frontend test files
+│   │   ├── utils/                 # 🛠️ Frontend utility scripts
+│   │   ├── app/                   # Next.js application routes
+│   │   ├── components/            # React components
+│   │   ├── hooks/                 # Custom React hooks
+│   │   ├── lib/                   # Library code and services
+│   │   └── [other frontend directories...]
+│   └── [other frontend files...]
+├── docs/                          # 📚 Project-wide documentation
+├── database/                      # 🗄️ Database scripts and backups
+└── [project root files...]
+```
+
+### 🎯 **Key Organization Rules**
+1. **Backend tests** → `backend/src/tests/`
+2. **Backend docs** → `backend/docs/`
+3. **Backend utils** → `backend/src/utils/`
+4. **Frontend tests** → `frontend-nextjs/blog-generator-ui/src/tests/`
+5. **Frontend docs** → `frontend-nextjs/blog-generator-ui/src/docs/`
+6. **Frontend utils** → `frontend-nextjs/blog-generator-ui/src/utils/`
+7. **Project-wide docs** → `docs/`
 
 ## Security Considerations
 
