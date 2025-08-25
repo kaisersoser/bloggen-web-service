@@ -18,7 +18,8 @@ from pathlib import Path
 
 def get_env_file_path():
     """Get the path to the .env file"""
-    return Path(__file__).parent / ".env"
+    # Go up two levels from utils to backend root, then to .env
+    return Path(__file__).parent.parent.parent / ".env"
 
 def read_env_file():
     """Read current .env file content"""
