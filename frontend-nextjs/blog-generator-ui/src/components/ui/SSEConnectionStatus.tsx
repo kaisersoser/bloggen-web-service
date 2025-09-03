@@ -18,7 +18,7 @@ export function SSEConnectionStatus({
   onRetry,
   className = '' 
 }: SSEConnectionStatusProps) {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
 
   // Don't show anything if there's no active task
   if (!isConnecting && !isConnected && !error) {

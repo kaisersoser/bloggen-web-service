@@ -316,7 +316,7 @@ export function useEnhancedSSEConnection() {
       sseConnectionRef.current = sseConnection;
 
       // Set up event listeners
-      sseConnection.addEventListener('open', (data) => {
+      sseConnection.addEventListener('open', () => {
         console.log('✅ Enhanced SSE connection established for task', taskId, 'at', new Date().toISOString());
       });
 
@@ -380,7 +380,7 @@ export function useEnhancedSSEConnection() {
       console.error('Failed to create Enhanced SSE connection:', err);
       throw err;
     }
-  }, [session, status, processSSEMessage, sendCompletionAcknowledgment]);
+  }, [session, status, processSSEMessage]);
 
   const closeConnection = useCallback(() => {
     if (sseConnectionRef.current) {

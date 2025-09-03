@@ -45,16 +45,16 @@ export function BlogHistorySidebar({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Selection handlers
-  const activateSelectionMode = useCallback((blogId: string) => {
-    setSelectionState(prev => ({
-      ...prev,
-      isSelectionMode: true,
-      selectedBlogIds: new Set([blogId]),
-      longPressTimer: null,
-      targetBlogId: null,
-      pulsingBlogId: null,
-    }));
-  }, []);
+  // const activateSelectionMode = useCallback((blogId: string) => {
+  //   setSelectionState(prev => ({
+  //     ...prev,
+  //     isSelectionMode: true,
+  //     selectedBlogIds: new Set([blogId]),
+  //     longPressTimer: null,
+  //     targetBlogId: null,
+  //     pulsingBlogId: null,
+  //   }));
+  // }, []);
 
   const exitSelectionMode = useCallback(() => {
     setSelectionState({

@@ -63,16 +63,16 @@ export default function BlogGenerator() {
     streamingStats,
     currentTaskId: streamingTaskId
   } = useStreamingBlogGeneration({
-    onJobUpdate: (_taskId, _updates) => {
+    onJobUpdate: () => {
       // TODO: This will be integrated with the existing job management system
     },
-    onJobCompletion: (_taskId, _content, _heroImageUrl) => {
+    onJobCompletion: () => {
       // TODO: This will be integrated with the existing job management system  
     },
     onJobError: (_taskId, error) => {
       setGenerationError(error);
     },
-    onJobLogUpdate: (_taskId, _log) => {
+    onJobLogUpdate: () => {
       // TODO: This will be integrated with the existing job management system
     }
   });

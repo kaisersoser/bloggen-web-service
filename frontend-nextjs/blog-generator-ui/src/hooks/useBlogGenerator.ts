@@ -157,7 +157,7 @@ export function useBlogGenerator() {
       if (activeConnectionId) setActiveConnectionId(null);
       setIsGenerating(false);
     }
-  }, [canGenerate, activeConnectionId, closeConnection, completedTasksRef, createJob, updateJob, connectToTaskStream, handleTaskCompletion, handleTaskError, fetchPreviousBlogs, handleAuthError]);
+  }, [canGenerate, activeConnectionId, closeConnection, completedTasksRef, createJob, updateJob, connectToTaskStream, handleTaskCompletion, handleTaskError, handleAuthError]);
 
   const handleJobClick = useCallback((jobId: string) => { 
     if (activeConnectionId && activeConnectionId !== jobId) { 
