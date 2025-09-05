@@ -1,10 +1,9 @@
 "use client"
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { UserProfileDropdown } from "@/components/auth/UserProfileDropdown";
-import { ChatPromptInput } from "@/components/blog/ChatPromptInput";
-import { BlogGenerationView } from "@/components/blog/BlogGenerationView";
-import { BlogHistorySidebar } from "@/components/blog/BlogHistorySidebar";
+import { CenterChatInterface } from "@/components/blog/CenterChatInterface";
+import { BlogTileGrid } from "@/components/blog/BlogTileGrid";
+import { MinimizedCrewConsole } from "@/components/blog/MinimizedCrewConsole";
 import { BlogViewModal } from "@/components/blog/BlogViewModal";
 import { DeleteConfirmationDialog } from "@/components/blog/DeleteConfirmationDialog";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
@@ -16,15 +15,11 @@ import { signIn } from "next-auth/react";
 
 export default function BlogGenerator() {
   const { theme, setTheme } = useTheme();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const {
     isAuthenticated,
     isLoading,
     stats,
-    statsLoading,
-    isFree,
-    jobs,
     previousBlogs,
     blogsLoading,
     currentJobId,
@@ -38,19 +33,14 @@ export default function BlogGenerator() {
     selectedBlog,
     showBlogModal,
     handleGenerateBlog,
-    handleJobClick,
     handleBlogClick,
-    handleDeleteBlog,
     handleBulkDeleteBlogs,
-    handleDeleteStuckTask,
     confirmDeleteBlog,
-    handleNewBlog,
-  // handleDeleteCurrentItem removed (Delete action bar button deprecated)
-    setShowDeleteDialog,
     setBlogToDelete,
     setIsDeleting,
     setSelectedBlog,
     setShowBlogModal,
+    setShowDeleteDialog,
     setGenerationError
   } = useBlogGenerator();
 
@@ -58,10 +48,8 @@ export default function BlogGenerator() {
   const {
     startStreamingGeneration,
     stopStreaming,
-    isConnected: streamingConnected,
-    streamingContent,
-    streamingStats,
-    currentTaskId: streamingTaskId
+    isConnected,
+    streamingStats
   } = useStreamingBlogGeneration({
     onJobUpdate: () => {
       // TODO: This will be integrated with the existing job management system
@@ -81,6 +69,7 @@ export default function BlogGenerator() {
   void startStreamingGeneration;
   void stopStreaming;
   void streamingStats;
+  void isConnected;
 
   // Loading state while authenticating
   if (isLoading) {
@@ -108,126 +97,109 @@ export default function BlogGenerator() {
   }
 
   return (
-    <div className="h-screen bg-gray-50 dark:bg-gray-900 flex">
-      {/* Sidebar */}
-      <BlogHistorySidebar
-        blogs={previousBlogs}
-        jobs={jobs}
-        loading={blogsLoading}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onBlogClick={handleBlogClick}
-        onJobClick={handleJobClick}
-        onDeleteBlog={handleDeleteBlog}
-        onBulkDeleteBlogs={handleBulkDeleteBlogs}
-        onDeleteStuckTask={handleDeleteStuckTask}
-        onNewBlog={handleNewBlog}
-      />
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">AI Blog Generator</h1>
-          <UserProfileDropdown themeMode={theme} onThemeChange={setTheme} />
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 flex flex-col">
-          {currentJobId && currentJob ? (
-            <>
-              {/* Top inline status + progress */}
-              {currentJob.status === 'in_progress' && (
-                <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-3 flex flex-col gap-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-700 dark:text-gray-300 font-medium truncate">{currentJob.currentStep || 'Working...'}</span>
-                    <span className="text-gray-500 dark:text-gray-400 tabular-nums">{Math.round(currentJob.progress)}%</span>
-                  </div>
-                  <ProgressBar value={currentJob.progress} />
-                </div>
-              )}
-
-              <BlogGenerationView
-                job={currentJob}
-                isGenerating={isGenerating || currentJob.status === 'in_progress'}
-                logs={currentJobId ? taskLogs[currentJobId] || [] : []}
-                streamingContent={streamingContent}
-                showStreamingPreview={streamingConnected && streamingTaskId === currentJobId}
-              />
-
-              {/* Unified action bar for all terminal / active states */}
-              {(currentJob.status === 'completed' || currentJob.status === 'in_progress' || currentJob.status === 'failed') && (
-                <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-                  <div className="max-w-4xl mx-auto flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
-                    <div className="flex items-center gap-3">
-                      <Button
-                        variant="outline"
-                        onClick={handleNewBlog}
-                        disabled={isDeleting || currentJob.status === 'in_progress'}
-                      >
-                        New Blog
-                      </Button>
-                    </div>
-                    {/* Delete/Cancel button removed per updated UX: deletion via blog cards only */}
-                  </div>
-                </div>
-              )}
-
-              {generationError && (
-                <div className="px-6 py-4">
-                  <ErrorBanner
-                    message={generationError}
-                    onClose={() => setGenerationError(null)}
-                  />
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex-1 flex flex-col">
-              {/* Welcome Message */}
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center max-w-md">
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                    Welcome to AI Blog Generator
-                  </h2>
-                  <p className="text-gray-600 dark:text-gray-400 mb-8">
-                    Create engaging, well-researched blog posts with the power of AI. Our CrewAI-powered system researches, writes, and fact-checks your content automatically.
-                  </p>
-                  <div className="grid grid-cols-3 gap-4 text-sm text-gray-500 dark:text-gray-400">
-                    <div>🔍 Research</div>
-                    <div>✍️ Generate</div>
-                    <div>✅ Verify</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Input Area */}
-              <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div className="max-w-4xl mx-auto p-6">
-                  <ChatPromptInput
-                    onGenerate={handleGenerateBlog}
-                    stats={stats}
-                    isFree={isFree}
-                    generationError={generationError}
-                    statsLoading={statsLoading}
-                    isGenerating={isGenerating}
-                  />
-                  {generationError && (
-                    <div className="mt-4">
-                      <ErrorBanner
-                        message={generationError}
-                        onClose={() => setGenerationError(null)}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
+      {/* Fixed Header */}
+      <div className="sticky top-0 z-40 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl">
+              <span className="text-white text-lg font-bold">AI</span>
             </div>
-          )}
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Blog Generator</h1>
+          </div>
+          <UserProfileDropdown themeMode={theme} onThemeChange={setTheme} />
         </div>
       </div>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Center Chat Interface */}
+        <div className="flex justify-center">
+          <CenterChatInterface
+            onSubmit={(prompt) => handleGenerateBlog(prompt, '')}
+            isGenerating={isGenerating}
+            disabled={false}
+            remainingGenerations={stats?.remainingGenerations}
+            userRole={stats?.role as 'FREE' | 'PREMIUM' | 'ADMIN'}
+          />
+        </div>
+
+        {/* Generation Progress (when active) */}
+        {currentJobId && currentJob && currentJob.status === 'in_progress' && (
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
+              <div className="flex items-center justify-between text-sm mb-3">
+                <span className="text-gray-700 dark:text-gray-300 font-medium">
+                  {currentJob.currentStep || 'Processing your request...'}
+                </span>
+                <span className="text-gray-500 dark:text-gray-400 tabular-nums">
+                  {Math.round(currentJob.progress)}%
+                </span>
+              </div>
+              <ProgressBar value={currentJob.progress} showLabel={false} />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                AI agents are collaborating to create your blog. This may take a few minutes.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Error Display */}
+        {generationError && (
+          <div className="max-w-4xl mx-auto">
+            <ErrorBanner
+              message={generationError}
+              onClose={() => setGenerationError(null)}
+            />
+          </div>
+        )}
+
+        {/* Blog Tile Grid */}
+        <div>
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Your Blog Collection
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400">
+              Browse and manage your AI-generated blog posts
+            </p>
+          </div>
+          
+          <BlogTileGrid
+            blogs={previousBlogs || []}
+            onBlogView={handleBlogClick}
+            onBlogDelete={(blog) => {
+              setBlogToDelete(blog);
+              setShowDeleteDialog(true);
+            }}
+            onBulkDeleteBlogs={handleBulkDeleteBlogs}
+            isLoading={blogsLoading}
+          />
+        </div>
+      </div>
+
+      {/* Minimized Crew Console */}
+      <MinimizedCrewConsole
+        isVisible={true}
+        isExpanded={false}
+        currentJob={currentJob ? {
+          id: currentJob.id,
+          status: currentJob.status,
+          progress: currentJob.progress,
+          topic: currentJob.topic || ''
+        } : undefined}
+        taskLogs={currentJobId ? (taskLogs[currentJobId] || []).map(log => ({
+          id: `${log.timestamp}-${Math.random()}`,
+          timestamp: log.timestamp,
+          step: log.step,
+          progress: 0,
+          details: log.message,
+          status: 'completed' as const
+        })) : []}
+        isGenerating={isGenerating || (currentJob?.status === 'in_progress')}
+      />
+
+      {/* Modals */}
       <DeleteConfirmationDialog
         isOpen={showDeleteDialog}
         onClose={() => {
@@ -240,7 +212,6 @@ export default function BlogGenerator() {
         isDeleting={isDeleting}
       />
 
-      {/* Blog View Modal */}
       <BlogViewModal
         blog={selectedBlog}
         isOpen={showBlogModal}

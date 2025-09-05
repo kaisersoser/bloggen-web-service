@@ -50,8 +50,10 @@ def _send_status_update(self, step_name, progress, details):
 
 ### Image Integration
 - **Automatic image search**: `UnsplashImageTool` in `backend/src/bloggen/tools/unsplash_tool.py`
+- **Photorealistic AI generation**: Enhanced OpenAI DALL-E 3 prompts for premium quality
 - **Markdown generation**: Tool outputs formatted `![alt](url "caption")` syntax
-- **Fallback placeholders**: When Unsplash API unavailable, generates placeholder images
+- **Quality standards**: Photorealistic, professional, modern aesthetic images
+- **Fallback placeholders**: When image APIs unavailable, generates professional placeholders
 
 ## Essential Development Commands
 

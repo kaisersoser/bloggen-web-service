@@ -90,8 +90,8 @@ class MandatoryImageInjector:
         """Generate a hero image for the blog topic using intelligent selection."""
         logger.info(f"Generating hero image for topic: {topic}")
         
-        # Create a focused query for hero images
-        hero_query = f"{topic} professional overview"
+        # Create a focused, detailed query for photorealistic hero images
+        hero_query = f"{topic} professional photorealistic modern stylish"
         
         # The enhanced Unsplash tool will automatically fall back to AI if no relevant images
         try:
@@ -113,12 +113,12 @@ class MandatoryImageInjector:
         """Generate a supporting image using intelligent selection."""
         logger.info(f"Generating supporting image #{image_number} for topic: {topic}")
         
-        # Create more specific queries for supporting images
+        # Create more specific queries for photorealistic supporting images
         supporting_queries = [
-            f"{topic} technology implementation",
-            f"{topic} business application", 
-            f"{topic} team collaboration",
-            f"{topic} data visualization"
+            f"{topic} photorealistic professional technology implementation modern",
+            f"{topic} photorealistic business application professional modern", 
+            f"{topic} photorealistic team collaboration modern office professional",
+            f"{topic} photorealistic data visualization modern professional dashboard"
         ]
         query = supporting_queries[(image_number - 2) % len(supporting_queries)]
         

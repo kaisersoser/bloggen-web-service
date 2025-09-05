@@ -128,13 +128,13 @@ class UnsplashImageTool(BaseTool):
             # Generate images using AI
             results = []
             for i in range(count):
-                # Create contextual prompts for AI generation
+                # Create contextual prompts for AI generation with photorealistic emphasis
                 if i == 0:
-                    # Hero image
-                    prompt = f"Professional illustration of {query}, clean modern style, high-tech aesthetic, suitable for blog header"
+                    # Hero image - photorealistic and directly relevant
+                    prompt = f"Photorealistic professional image of {query}, modern stylish composition, premium quality lighting, sharp focus, cinematic aesthetic, directly relevant to the topic, suitable for high-end blog header"
                 else:
-                    # Supporting images
-                    prompt = f"Diagram or infographic about {query}, professional design, educational visualization"
+                    # Supporting images - still photorealistic but more informational
+                    prompt = f"Photorealistic professional image illustrating {query}, modern clean style, high-quality photography, educational and informative visual representation"
                 
                 # Map orientation to size for AI generation
                 size_mapping = {

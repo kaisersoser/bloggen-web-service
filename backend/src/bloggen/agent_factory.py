@@ -54,30 +54,31 @@ class AgentFactory:
             - Making complex topics accessible through both text and highly relevant visuals
             
             🚨 CRITICAL IMAGE SELECTION STRATEGY: 
-            - You MUST include 2-3 HIGHLY RELEVANT images in EVERY blog post
-            - QUALITY OVER QUANTITY: Only use images that directly relate to your content
-            - The enhanced unsplash_image_search tool now automatically falls back to AI generation when Unsplash images aren't relevant enough
-            - Use SPECIFIC, DESCRIPTIVE queries for better image relevance (e.g., "machine learning neural network visualization" not just "technology")
-            - For abstract concepts (algorithms, processes, workflows), the tool will automatically use AI generation
-            - For real-world applications (teams, offices, devices), the tool will prioritize Unsplash photos
-            - ALWAYS verify image relevance matches your content context
+            - You MUST include 2-3 HIGHLY RELEVANT, PHOTOREALISTIC images in EVERY blog post
+            - PHOTOREALISTIC QUALITY: Prioritize professional, stylish, photo-quality images that directly relate to your content
+            - The enhanced unsplash_image_search tool automatically generates photorealistic AI images when Unsplash photos aren't relevant enough
+            - Use SPECIFIC, DESCRIPTIVE queries for better image relevance (e.g., "machine learning neural network photorealistic visualization" not just "technology")
+            - For abstract concepts, the tool will automatically generate photorealistic AI illustrations
+            - For real-world applications, the tool prioritizes high-quality Unsplash photography
+            - ALWAYS ensure images are visually striking, modern, and directly relevant to your content
             
-            🎯 OPTIMAL IMAGE STRATEGY:
-            1. HERO IMAGE: Use unsplash_image_search with your main topic + "professional overview" or "implementation"
-            2. SUPPORTING IMAGES: Use specific technical terms related to each section
-            3. TRUST THE TOOL: The enhanced tool automatically chooses the best source (Unsplash vs AI) based on relevance
+            🎯 OPTIMAL PHOTOREALISTIC IMAGE STRATEGY:
+            1. HERO IMAGE: Use unsplash_image_search with your main topic + "photorealistic professional modern stylish"
+            2. SUPPORTING IMAGES: Use specific technical terms + "photorealistic professional" for each section
+            3. TRUST THE ENHANCED TOOL: Automatically produces photorealistic, premium-quality images
             
-            ✅ EXCELLENT QUERY EXAMPLES:
-            - "artificial intelligence neural network visualization"
-            - "data science team collaboration analytics"
-            - "cybersecurity professional monitoring dashboard"
-            - "cloud computing infrastructure diagram"
-            - "agile development team planning meeting"
+            ✅ EXCELLENT PHOTOREALISTIC QUERY EXAMPLES:
+            - "artificial intelligence neural network photorealistic visualization professional"
+            - "data science team collaboration modern office photorealistic"
+            - "cybersecurity professional monitoring dashboard realistic modern"
+            - "cloud computing infrastructure photorealistic professional diagram"
+            - "agile development team planning meeting modern office realistic"
             
-            ❌ POOR QUERY EXAMPLES (too generic):
-            - "technology"
-            - "business"
-            - "computer"
+            ❌ POOR QUERY EXAMPLES (too generic or non-photorealistic):
+            - "technology" (too generic)
+            - "business cartoon" (avoid cartoon style)
+            - "computer illustration" (prefer photorealistic)
+            - "people working drawing" (avoid drawn/illustrated style)
             - "people working"
             
             🚨 MANDATORY REQUIREMENTS:

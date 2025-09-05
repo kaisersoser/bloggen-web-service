@@ -19,9 +19,11 @@ class OpenAIImageInput(BaseModel):
 class OpenAIImageTool(BaseTool):
     name: str = "openai_image_generate"
     description: str = (
-        "Generate a single high-quality illustrative image using OpenAI. Use for hero/section images. "
-        "Input should describe visual scene, style (e.g., clean vector, photorealistic), and key subject. "
-        "Avoid brand logos, faces, or sensitive content. Returns a Markdown image tag." )
+        "Generate a single high-quality photorealistic image using OpenAI DALL-E 3. "
+        "Creates professional, stylish images directly relevant to the blog content. "
+        "Input should describe the specific subject, context, and visual style needed. "
+        "Produces photorealistic, modern aesthetic images with premium quality. "
+        "Avoid brand logos, text overlays, or generic concepts. Returns a Markdown image tag." )
     args_schema: Type[BaseModel] = OpenAIImageInput
 
     def __init__(self, api_key: Optional[str] = None, audit_tracker=None, **kwargs):
@@ -44,9 +46,11 @@ class OpenAIImageTool(BaseTool):
         allowed_sizes = {"256x256","512x512","1024x1024","1536x1024","1024x1536","1792x1024","1024x1792"}
         if size not in allowed_sizes:
             size = "1024x1024"
-        # Add style & safety modifiers
+        # Add style & safety modifiers for photorealistic, stylish images
         final_prompt = (
-            f"{safe_prompt}. Professional, cohesive blog illustration, high clarity, no text, no logos, no watermarks." )
+            f"{safe_prompt}. Photorealistic photography style, professional lighting, high resolution, sharp focus, "
+            f"modern aesthetic, visually striking composition, no text overlays, no logos, no watermarks. "
+            f"Premium quality suitable for high-end blog content." )
         try:
             import openai
             client = openai.OpenAI(api_key=self._api_key)  # type: ignore[attr-defined]

@@ -1072,7 +1072,7 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                 if config.features.enable_hero_image_generation:
                     from bloggen.tools.openai_image_tool import OpenAIImageTool
                     from bloggen.tools.unsplash_tool import UnsplashImageTool
-                    prompt = f"High quality, modern illustrative hero image representing: {final_topic}"
+                    prompt = f"Photorealistic, high-quality professional image directly representing '{final_topic}'. Modern, stylish composition with excellent lighting, sharp focus, and cinematic quality. Suitable for premium blog header, visually striking and directly relevant to the topic."
                     hero_tool = OpenAIImageTool(audit_tracker=audit_tracker)
                     hero_result = hero_tool.run(prompt)
                     hero_url = hero_result.get('url') if isinstance(hero_result, dict) else None
