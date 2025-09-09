@@ -35,6 +35,13 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      // AWS S3 bucket for permanent hero image storage
+      {
+        protocol: 'https',
+        hostname: 'blog-hero-images-bloggen-app.s3.eu-west-3.amazonaws.com',
+        port: '',
+        pathname: '/**',
+      },
     ],
     // Disable optimization for OpenAI images due to short-lived URLs
     unoptimized: false, // Keep optimization for other images

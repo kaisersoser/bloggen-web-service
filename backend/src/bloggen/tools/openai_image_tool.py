@@ -1,5 +1,6 @@
 """OpenAI Image Generation Tool for CrewAI content phase.
 Generates an illustrative image based on a blog section or title.
+Downloads, converts to JPEG, and stores permanently in S3.
 Tracks cost via audit tracker using a flat per-image cost estimate (adjust if pricing changes).
 """
 from __future__ import annotations
@@ -15,6 +16,7 @@ class OpenAIImageInput(BaseModel):
     prompt: str = Field(..., description="Descriptive prompt of the image content (no disallowed content)")
     size: str = Field("1024x1024", description="Image size: 512x512, 768x768, 1024x1024")
     aspect: str = Field("square", description="Aspect ratio hint: square|landscape|portrait")
+    blog_id: Optional[str] = Field(None, description="Blog ID for S3 file naming (optional)")
 
 class OpenAIImageTool(BaseTool):
     name: str = "openai_image_generate"
@@ -37,7 +39,7 @@ class OpenAIImageTool(BaseTool):
             self._openai_available = False
             logger.warning("OpenAI library not installed; image tool will return placeholder.")
 
-    def _run(self, prompt: str, size: str = "1024x1024", aspect: str = "square") -> str:  # type: ignore
+    def _run(self, prompt: str, size: str = "1024x1024", aspect: str = "square", blog_id: Optional[str] = None) -> str:  # type: ignore
         safe_prompt = prompt.strip()[:900]
         if not self._api_key or not self._openai_available:
             return self._placeholder(safe_prompt)
@@ -50,7 +52,7 @@ class OpenAIImageTool(BaseTool):
         final_prompt = (
             f"{safe_prompt}. Photorealistic photography style, professional lighting, high resolution, sharp focus, "
             f"modern aesthetic, visually striking composition, no text overlays, no logos, no watermarks. "
-            f"Premium quality suitable for high-end blog content." )
+            f"Premium quality suitable for high-end blog content. Style: professional magazine photography." )
         try:
             import openai
             client = openai.OpenAI(api_key=self._api_key)  # type: ignore[attr-defined]
@@ -67,11 +69,29 @@ class OpenAIImageTool(BaseTool):
                 n=1,
                 response_format="url",
             )
-            url = resp.data[0].url if resp and resp.data else None
-            if not url:
+            temp_url = resp.data[0].url if resp and resp.data else None
+            if not temp_url:
                 return self._placeholder(safe_prompt)
-            alt = safe_prompt[:120]
-            markdown = f"![{alt}]({url} \"{alt}\")"
+            
+            # Store image permanently in S3
+            try:
+                from core.s3_storage import get_s3_storage
+                s3_storage = get_s3_storage()
+                
+                # Use blog_id or generate unique ID for file naming
+                file_id = blog_id if blog_id else f"temp-{hash(safe_prompt) % 10000}"
+                permanent_url = s3_storage.store_hero_image(temp_url, file_id)
+                
+                alt = safe_prompt[:120]
+                markdown = f"![{alt}]({permanent_url} \"{alt}\")"
+                logger.info(f"Image stored permanently in S3: {permanent_url}")
+                
+            except Exception as e:
+                logger.error(f"Failed to store image in S3: {e}")
+                # Fallback to temporary URL if S3 fails
+                alt = safe_prompt[:120]
+                markdown = f"![{alt}]({temp_url} \"{alt}\")"
+            
             # Track cost (approx per image). Adjust if pricing changes.
             try:
                 if self._audit_tracker and hasattr(self._audit_tracker, 'track_api_call'):

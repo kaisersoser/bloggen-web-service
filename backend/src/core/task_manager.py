@@ -538,14 +538,14 @@ class TaskManager:
         )
     
     async def delete_task(self, task_id: str, user_id: str) -> bool:
-        """Delete a task/blog from the database."""
+        """Delete a task/blog from the database with S3 image cleanup."""
         try:
             pool = await self._get_db_connection()
             
             async with pool.acquire() as conn:
-                # First check if the task exists and belongs to the user
+                # First check if the task exists and belongs to the user, and get image data
                 existing_task = await conn.fetchrow("""
-                    SELECT id, user_id, status FROM blogs 
+                    SELECT id, user_id, status, content, hero_image_url FROM blogs 
                     WHERE id = $1 AND user_id = $2
                 """, task_id, user_id)
                 
@@ -553,14 +553,31 @@ class TaskManager:
                     logger.warning(f"Task {task_id} not found or doesn't belong to user {user_id}")
                     return False
                 
-                # Delete the task
+                # Enqueue S3 cleanup asynchronously (non-blocking)
+                try:
+                    from .s3_cleanup_queue import get_cleanup_queue
+                    
+                    cleanup_queue = await get_cleanup_queue()
+                    await cleanup_queue.enqueue_cleanup(
+                        blog_id=task_id,
+                        user_id=user_id,
+                        content=existing_task['content'],
+                        hero_image_url=existing_task['hero_image_url']
+                    )
+                    logger.info(f"Enqueued S3 cleanup for blog {task_id}")
+                    
+                except Exception as cleanup_error:
+                    # S3 cleanup failure should not prevent blog deletion
+                    logger.error(f"Failed to enqueue S3 cleanup for blog {task_id}: {cleanup_error}")
+                
+                # Delete the task from database (proceeds regardless of S3 cleanup status)
                 result = await conn.execute("""
                     DELETE FROM blogs 
                     WHERE id = $1 AND user_id = $2
                 """, task_id, user_id)
                 
                 if result == "DELETE 1":
-                    logger.info(f"✅ Deleted task {task_id} for user {user_id}")
+                    logger.info(f"✅ Deleted task {task_id} for user {user_id} (S3 cleanup in progress)")
                     
                     # Notify subscribers about deletion
                     await self._notify_subscribers(task_id, {"deleted": True})

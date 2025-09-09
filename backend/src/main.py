@@ -139,12 +139,28 @@ async def lifespan(app: FastAPI):
     task_manager.set_content_streaming_manager(content_streaming_manager)
     logger.info("✅ Redis and Content Streaming managers connected to TaskManager")
 
+    # Initialize S3 cleanup queue
+    try:
+        from core.s3_cleanup_queue import get_cleanup_queue
+        cleanup_queue = await get_cleanup_queue()
+        logger.info("✅ S3 cleanup queue initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize S3 cleanup queue: {e}")
+
     logger.info("✅ FastAPI application startup complete")
     
     yield  # Application runs here
     
     # Shutdown
     logger.info("🛑 Shutting down FastAPI Blog Generation Service")
+    
+    # Shutdown S3 cleanup queue
+    try:
+        from core.s3_cleanup_queue import cleanup_queue_shutdown
+        await cleanup_queue_shutdown()
+        logger.info("✅ S3 cleanup queue shutdown complete")
+    except Exception as e:
+        logger.warning(f"S3 cleanup queue shutdown error: {e}")
     
     # Disconnect Redis
     try:

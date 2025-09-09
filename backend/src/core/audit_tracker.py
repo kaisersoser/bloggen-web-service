@@ -442,6 +442,46 @@ class DatabaseAuditTracker:
         
         # Log the successful interception
         self.logger.info(f"Intercepted actual API call: {model} - {input_tokens + output_tokens} tokens")
+    
+    def track_storage_cleanup(self, blog_id: str, images_deleted: int, estimated_storage_gb: float, monthly_savings: float, status: str = "success"):
+        """
+        Track S3 storage cleanup metrics for cost analysis.
+        
+        Args:
+            blog_id: Blog identifier
+            images_deleted: Number of images successfully deleted
+            estimated_storage_gb: Estimated storage freed in GB
+            monthly_savings: Estimated monthly cost savings in USD
+            status: Cleanup status ('success', 'partial', 'failed')
+        """
+        try:
+            # Log storage cleanup as a special LLM call entry for audit purposes
+            # Note: We track negative costs as savings in the existing system
+            self.track_llm_call(
+                model='s3-storage-cleanup',
+                input_tokens=images_deleted,  # Reuse input_tokens field for image count
+                output_tokens=int(estimated_storage_gb * 1000),  # Convert GB to MB for storage tracking
+                phase='storage_cleanup',
+                agent_role='s3_cleanup_system',
+                call_type='storage'
+            )
+            
+            # Update total cost with negative savings (represents cost reduction)
+            self.total_cost -= monthly_savings
+            
+            # Detailed logging
+            self.logger.info(f"S3 Storage Cleanup Tracked: blog_id={blog_id}, "
+                           f"images={images_deleted}, storage={estimated_storage_gb:.4f}GB, "
+                           f"savings=${monthly_savings:.6f}/month, status={status}")
+            
+            # Console output for immediate feedback
+            print(f"💾 Storage Cleanup: {images_deleted} images deleted")
+            print(f"   Storage freed: ~{estimated_storage_gb:.4f} GB")
+            print(f"   Monthly savings: ~${monthly_savings:.6f}")
+            print(f"   Status: {status}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to track storage cleanup metrics: {e}")
 
     def _process_crew_metrics(self, metrics: Any, phase: str):
         """Process actual CrewAI metrics."""

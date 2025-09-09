@@ -75,19 +75,20 @@ class HeroImageGenerator:
                 print(f"  ⚠️  AI image generation is disabled - skipping")
                 return None
             
-            # Generate image using OpenAI
+            # Generate image using OpenAI with S3 storage
             prompt = f"Photorealistic, high-quality professional image directly representing '{topic}'. Modern, stylish composition with excellent lighting, sharp focus, and cinematic quality. Suitable for premium blog header, visually striking and directly relevant to the topic."
             
             hero_tool = OpenAIImageTool()
-            hero_result = hero_tool.run(prompt)
+            # Pass blog_id for S3 file naming
+            hero_result = hero_tool.run(prompt=prompt, blog_id=blog_id)
             
             hero_url = None
             if isinstance(hero_result, str):
                 hero_url = self.extract_url_from_markdown(hero_result)
-                print(f"  ✅ OpenAI generated image: {hero_url[:80]}..." if hero_url else "  ❌ Failed to extract URL from OpenAI result")
+                print(f"  ✅ OpenAI generated image (stored in S3): {hero_url[:80]}..." if hero_url else "  ❌ Failed to extract URL from OpenAI result")
             elif isinstance(hero_result, dict):
                 hero_url = hero_result.get('url')
-                print(f"  ✅ OpenAI generated image: {hero_url[:80]}..." if hero_url else "  ❌ No URL in OpenAI result dict")
+                print(f"  ✅ OpenAI generated image (stored in S3): {hero_url[:80]}..." if hero_url else "  ❌ No URL in OpenAI result dict")
             
             # Fallback to Unsplash if OpenAI failed or returned placeholder
             if not hero_url or 'placeholder' in (hero_url or '') or 'placehold.co' in (hero_url or ''):
