@@ -36,6 +36,10 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+    // Disable optimization for OpenAI images due to short-lived URLs
+    unoptimized: false, // Keep optimization for other images
+    // Reduce cache time for external images with temporary URLs
+    minimumCacheTTL: 60, // 1 minute cache for external images
   },
   
   // HTTPS configuration for development

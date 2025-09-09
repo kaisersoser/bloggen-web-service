@@ -2,8 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { API_BASE_URL } from '@/config/constants';
 import { getFrontendUrl } from '@/config/protocol';
+import { authenticatedBackendFetch } from '@/lib/backend-fetch';
 
 export const runtime = 'nodejs';
 
@@ -34,14 +34,8 @@ export async function DELETE(
 
     const { token } = await tokenResponse.json();
 
-    // Forward request to FastAPI backend (HTTP mode)
-    const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    // Forward request to FastAPI backend with SSL handling
+    const response = await authenticatedBackendFetch(`/tasks/${taskId}`, token);
 
     if (!response.ok) {
       if (response.status === 404) {

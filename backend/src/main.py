@@ -1072,11 +1072,20 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                 if config.features.enable_hero_image_generation:
                     from bloggen.tools.openai_image_tool import OpenAIImageTool
                     from bloggen.tools.unsplash_tool import UnsplashImageTool
+                    import re
+                    
                     prompt = f"Photorealistic, high-quality professional image directly representing '{final_topic}'. Modern, stylish composition with excellent lighting, sharp focus, and cinematic quality. Suitable for premium blog header, visually striking and directly relevant to the topic."
                     hero_tool = OpenAIImageTool(audit_tracker=audit_tracker)
                     hero_result = hero_tool.run(prompt)
-                    hero_url = hero_result.get('url') if isinstance(hero_result, dict) else None
-                    if not hero_url or 'placeholder' in (hero_url or ''):
+                    
+                    # Extract URL from markdown format: ![alt](url "caption")
+                    if isinstance(hero_result, str):
+                        url_match = re.search(r'!\[.*?\]\((.*?)\s*(?:\".*?\")?\)', hero_result)
+                        hero_url = url_match.group(1) if url_match else None
+                    elif isinstance(hero_result, dict):
+                        hero_url = hero_result.get('url')
+                    
+                    if not hero_url or 'placeholder' in (hero_url or '') or 'placehold.co' in (hero_url or ''):
                         try:
                             unsplash_tool = UnsplashImageTool()
                             unsplash_res = unsplash_tool.run(final_topic)

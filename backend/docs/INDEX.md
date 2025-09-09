@@ -19,6 +19,10 @@ This directory contains **backend-specific documentation** for the CrewAI Blog G
 - [`BACKEND_CLEANUP_SUMMARY.md`](./BACKEND_CLEANUP_SUMMARY.md) - Backend directory cleanup report
 - [`UNUSED_FILES_ANALYSIS.md`](./UNUSED_FILES_ANALYSIS.md) - Unused file analysis and removal report
 
+### Utilities & Tools
+- [`HERO_IMAGE_GENERATION_UTILITY.md`](./HERO_IMAGE_GENERATION_UTILITY.md) - Bulk hero image generation utility guide
+- [`RATE_LIMITING_GUIDE.md`](./RATE_LIMITING_GUIDE.md) - Rate limiting implementation guide
+
 ## 🧪 Testing
 
 Backend tests are located in [`../src/tests/`](../src/tests/) and include:

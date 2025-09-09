@@ -2,8 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { API_BASE_URL } from '@/config/constants';
 import { getFrontendUrl } from '@/config/protocol';
+import { authenticatedBackendFetch } from '@/lib/backend-fetch';
 
 export const runtime = 'nodejs'
 
@@ -30,14 +30,8 @@ export async function GET(request: NextRequest) {
 
     const { token } = await tokenResponse.json();
 
-    // Forward request to FastAPI backend (HTTP mode)
-    const response = await fetch(`${API_BASE_URL}/tasks/active`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    // Use utility function for backend fetch with SSL handling
+    const response = await authenticatedBackendFetch('/tasks/active', token);
 
     if (!response.ok) {
       const errorText = await response.text();
