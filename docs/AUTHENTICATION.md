@@ -36,7 +36,7 @@ pip install -r requirements.txt
 Ensure your `backend/.env` file includes:
 ```bash
 # NextAuth.js Configuration (must match frontend)
-NEXTAUTH_SECRET="Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w="
+NEXTAUTH_SECRET="your-secure-secret-here"
 NEXTAUTH_URL="http://localhost:3001"
 
 # Frontend URL for CORS

@@ -18,6 +18,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from core.audit_tracker import DatabaseAuditTracker
+from core.model_config import get_research_model, get_content_model, get_fact_check_model
 from core.audit_database import audit_manager
 
 async def test_audit_tracking():
@@ -47,7 +48,7 @@ async def test_audit_tracking():
         
         # Simulate research phase
         tracker.track_llm_call(
-            model="gpt-4o",
+            model=get_research_model(),
             input_tokens=1500,
             output_tokens=800,
             phase="research",
@@ -58,7 +59,7 @@ async def test_audit_tracking():
         
         # Simulate content generation phase
         tracker.track_llm_call(
-            model="gpt-4o",
+            model=get_content_model(),
             input_tokens=2200,
             output_tokens=1200,
             phase="content_generation",
@@ -69,7 +70,7 @@ async def test_audit_tracking():
         
         # Simulate fact checking phase
         tracker.track_llm_call(
-            model="gpt-4o",
+            model=get_fact_check_model(),
             input_tokens=1800,
             output_tokens=600,
             phase="fact_checking",

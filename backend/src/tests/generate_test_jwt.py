@@ -11,7 +11,9 @@ def generate_test_jwt():
     """Generate a valid JWT token for testing"""
     
     # Use the same secret as the backend
-    secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
+    secret = os.getenv("NEXTAUTH_SECRET")
+    if not secret:
+        raise ValueError("NEXTAUTH_SECRET environment variable is required")
     
     # Create test user payload
     now = int(time.time())

@@ -9,6 +9,10 @@ export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
+    // Debug: Check environment variables
+    console.log('Active tasks route - NODE_TLS_REJECT_UNAUTHORIZED:', process.env.NODE_TLS_REJECT_UNAUTHORIZED);
+    console.log('Active tasks route - API_BASE_URL:', process.env.API_BASE_URL);
+    
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
@@ -31,6 +35,7 @@ export async function GET(request: NextRequest) {
     const { token } = await tokenResponse.json();
 
     // Use utility function for backend fetch with SSL handling
+    console.log('About to call authenticatedBackendFetch with token:', token ? 'present' : 'missing');
     const response = await authenticatedBackendFetch('/tasks/active', token);
 
     if (!response.ok) {
@@ -42,7 +47,14 @@ export async function GET(request: NextRequest) {
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error('Active tasks API error:', error);
+    console.error('Active tasks API error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      code: error instanceof Error && 'code' in error ? error.code : undefined,
+      cause: error instanceof Error && 'cause' in error ? error.cause : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
+      errorType: typeof error,
+      error: error
+    });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

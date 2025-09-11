@@ -11,7 +11,7 @@ The backend is now configured to handle multiple deployment scenarios automatica
 ENVIRONMENT=development
 FRONTEND_URL=http://localhost:3001
 NEXTAUTH_URL=http://localhost:3001
-NEXTAUTH_SECRET=Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=
+NEXTAUTH_SECRET=your-development-secret-here
 ```
 
 ### Production (Deployed) - HTTPS REQUIRED

@@ -55,7 +55,9 @@ def comprehensive_timezone_solution():
     # Step 3: JWT Token generation test
     print(f"\n3️⃣ JWT TOKEN GENERATION TEST")
     
-    secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
+    secret = os.getenv("NEXTAUTH_SECRET")
+    if not secret:
+        raise ValueError("NEXTAUTH_SECRET environment variable is required")
     user_id = "cmdaiv5530000z9nxqmyg445v"
     
     # Python method (backend equivalent)

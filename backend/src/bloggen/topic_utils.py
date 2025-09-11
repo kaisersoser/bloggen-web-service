@@ -12,6 +12,8 @@ import os
 import re
 import logging
 
+from core.model_config import get_default_model
+
 logger = logging.getLogger(__name__)
 
 FALLBACK_TOPIC = "AI Blog Topic"
@@ -79,7 +81,7 @@ def _openai_refine(base_topic: str, instructions: str, *, api_key: str, model: O
             "\n\nExisting draft topic: " + base_topic +
             "\n\nRefine to a concise neutral blog topic (5-12 words, noun phrase, no imperative verbs, no quotes). Return ONLY the topic." )
         resp = client.chat.completions.create(
-            model=model or "gpt-4o-mini",
+            model=model or get_default_model(),
             messages=[
                 {"role": "system", "content": "You produce only refined concise blog topics."},
                 {"role": "user", "content": prompt_user},

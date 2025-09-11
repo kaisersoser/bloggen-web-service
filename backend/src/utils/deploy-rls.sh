@@ -25,7 +25,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-DATABASE_URL=${DATABASE_URL:-"postgresql://postgres:Qmb53tsDkLY1y7Pa@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?schema=public"}
+DATABASE_URL=${DATABASE_URL:-"postgresql://postgres:[YOUR_NEW_PASSWORD]@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?schema=public"}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATABASE_DIR="$SCRIPT_DIR/database"
 

@@ -52,7 +52,11 @@ if (PROTOCOL_MODE === 'https') {
   // Use the existing dev-https.js
   const httpsServer = spawn('node', ['dev-https.js'], {
     stdio: 'inherit',
-    cwd: __dirname
+    cwd: __dirname,
+    env: { 
+      ...process.env, 
+      NODE_TLS_REJECT_UNAUTHORIZED: '0' 
+    }
   });
   
   httpsServer.on('close', (code) => {
@@ -65,7 +69,11 @@ if (PROTOCOL_MODE === 'https') {
   
   const httpServer = spawn('npx', ['next', 'dev', '--hostname', HOST, '--port', PORT], {
     stdio: 'inherit',
-    cwd: __dirname
+    cwd: __dirname,
+    env: { 
+      ...process.env, 
+      NODE_TLS_REJECT_UNAUTHORIZED: '0' 
+    }
   });
   
   httpServer.on('close', (code) => {

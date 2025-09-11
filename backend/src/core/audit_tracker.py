@@ -12,13 +12,17 @@ from contextlib import asynccontextmanager
 
 from core.common import get_logger, format_timestamp
 from core.audit_database import audit_manager, create_audit_session, log_llm_call, complete_audit_session
+from core.model_config import get_default_model
 
 # Import OPENAI_PRICING from the constants file
 try:
     from bloggen.constants import OPENAI_PRICING
 except ImportError:
-    # Fallback pricing if constants not available
+    # Fallback pricing if constants not available - using official OpenAI pricing
     OPENAI_PRICING = {
+        'gpt-5': {'input': 0.0006, 'output': 0.0048},
+        'gpt-5-mini': {'input': 0.00025, 'output': 0.002},
+        'gpt-5-nano': {'input': 0.00005, 'output': 0.0004},
         'gpt-4': {'input': 0.03, 'output': 0.06},
         'gpt-3.5-turbo': {'input': 0.001, 'output': 0.002}
     }
@@ -279,7 +283,8 @@ class DatabaseAuditTracker:
             response_metadata: Additional response metadata
         """
         # Calculate costs
-        pricing = OPENAI_PRICING.get(model, OPENAI_PRICING['gpt-3.5-turbo'])
+        default_model = get_default_model()
+        pricing = OPENAI_PRICING.get(model, OPENAI_PRICING.get(default_model, OPENAI_PRICING.get('gpt-5-nano', {'input': 0.000001, 'output': 0.000002})))
         input_cost = (input_tokens / 1000) * pricing['input']
         output_cost = (output_tokens / 1000) * pricing['output']
         total_cost = input_cost + output_cost
@@ -495,7 +500,7 @@ class DatabaseAuditTracker:
                 
                 # Track a single aggregated call since we don't have per-agent breakdown
                 self.track_llm_call(
-                    model='gpt-3.5-turbo',  # Default model
+                    model=get_default_model(),  # Default model
                     input_tokens=prompt_tokens,
                     output_tokens=completion_tokens,
                     phase=phase,
@@ -505,7 +510,7 @@ class DatabaseAuditTracker:
             elif isinstance(metrics, dict):
                 # Handle dictionary format
                 for agent_metrics in metrics.get('agents', []):
-                    model = agent_metrics.get('model', 'gpt-3.5-turbo')
+                    model = agent_metrics.get('model', get_default_model())
                     input_tokens = agent_metrics.get('prompt_tokens', 0)
                     output_tokens = agent_metrics.get('completion_tokens', 0)
                     agent_role = agent_metrics.get('agent_name', 'unknown')

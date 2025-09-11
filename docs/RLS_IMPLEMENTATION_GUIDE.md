@@ -7,13 +7,13 @@
 **1.1 Run RLS Setup Script**
 ```bash
 # Connect to your Supabase database and run the setup script
-psql "postgresql://postgres:Qmb53tsDkLY1y7Pa@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?schema=public" < database/rls-setup.sql
+psql "postgresql://postgres:[YOUR_NEW_PASSWORD]@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?schema=public" < database/rls-setup.sql
 ```
 
 **1.2 Verify RLS Status**
 ```bash
 # Run the testing script to verify all policies work correctly
-psql "postgresql://postgres:Qmb53tsDkLY1y7Pa@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?schema=public" < database/rls-testing.sql
+psql "postgresql://postgres:[YOUR_NEW_PASSWORD]@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?schema=public" < database/rls-testing.sql
 ```
 
 **1.3 Check Policy Summary**

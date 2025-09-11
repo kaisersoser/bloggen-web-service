@@ -18,6 +18,8 @@ import os
 import time
 from typing import Dict, List, Optional, Any
 from contextlib import contextmanager
+
+from core.model_config import get_default_model
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -121,8 +123,8 @@ class CostTracker:
             estimated_input_tokens = 1000 * agent_count  # Base prompt tokens per agent
             estimated_output_tokens = max(content_length // 4, 100)  # ~4 chars per token
             
-            # Use default model (gpt-3.5-turbo) for estimation
-            model = "gpt-3.5-turbo"
+            # Use environment-configured default model for estimation  
+            model = get_default_model()
             
             # Calculate costs
             input_cost, output_cost, total_cost = self._calculate_cost(
@@ -161,7 +163,7 @@ class CostTracker:
         estimated_input_tokens = 150  # Small prompt
         estimated_output_tokens = 20   # Short title
         
-        model = "gpt-3.5-turbo"
+        model = get_default_model()  # Use environment-configured model
         
         input_cost, output_cost, total_cost = self._calculate_cost(
             model, estimated_input_tokens, estimated_output_tokens

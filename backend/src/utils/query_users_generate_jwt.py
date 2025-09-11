@@ -47,7 +47,9 @@ async def get_user_and_generate_token():
         print(f'   Role: {role}')
         
         # Generate JWT token
-        secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
+        secret = os.getenv("NEXTAUTH_SECRET")
+        if not secret:
+            raise ValueError("NEXTAUTH_SECRET environment variable is required")
         
         # Use time.time() for proper UTC timestamps (datetime.utcnow().timestamp() has timezone issues)
         current_time = int(time.time())

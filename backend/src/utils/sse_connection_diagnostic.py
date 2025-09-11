@@ -19,7 +19,9 @@ REAL_USER_ID = "cmebux3a00000z983mtma7n8j"  # Real user from Supabase
 
 def generate_valid_jwt() -> str:
     """Generate a JWT token with a real user ID from Supabase"""
-    secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
+    secret = os.getenv("NEXTAUTH_SECRET")
+    if not secret:
+        raise ValueError("NEXTAUTH_SECRET environment variable is required")
     current_time = int(time.time())
     payload = {
         "sub": REAL_USER_ID,

@@ -16,15 +16,17 @@ from datetime import datetime, timedelta
 import threading
 from collections import deque
 
+from core.model_config import model_repository
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class RateLimitConfig:
     """Configuration for rate limiting behavior"""
-    # Token limits (per minute)
-    tokens_per_minute: int = 30000  # OpenAI default for most models
-    requests_per_minute: int = 3500  # OpenAI default
+    # Default limits (will be overridden by model-specific configs)
+    tokens_per_minute: int = 30000
+    requests_per_minute: int = 3500
     
     # Retry configuration
     max_retries: int = 5
@@ -36,15 +38,6 @@ class RateLimitConfig:
     # Token management
     token_buffer: float = 0.1  # Keep 10% buffer to avoid edge cases
     chunk_size: int = 25000  # Split large requests into chunks
-    
-    # Model-specific overrides
-    model_limits: Dict[str, Dict[str, int]] = field(default_factory=lambda: {
-        'gpt-4o': {'tokens_per_minute': 30000, 'requests_per_minute': 10000},
-        'gpt-4o-mini': {'tokens_per_minute': 200000, 'requests_per_minute': 10000},
-        'gpt-4': {'tokens_per_minute': 10000, 'requests_per_minute': 500},
-        'gpt-4-turbo': {'tokens_per_minute': 30000, 'requests_per_minute': 500},
-        'gpt-3.5-turbo': {'tokens_per_minute': 90000, 'requests_per_minute': 3500},
-    })
 
 
 class TokenBucket:
@@ -95,15 +88,7 @@ class AdvancedRateLimiter:
         
     def _get_model_limits(self, model: str) -> Tuple[int, int]:
         """Get token and request limits for a specific model"""
-        model_key = model.lower().replace('-', '_')
-        
-        # Check for exact match first
-        for config_model, limits in self.config.model_limits.items():
-            if config_model.lower().replace('-', '_') == model_key:
-                return limits['tokens_per_minute'], limits['requests_per_minute']
-        
-        # Fallback to defaults
-        return self.config.tokens_per_minute, self.config.requests_per_minute
+        return model_repository.get_rate_limits(model)
     
     def _get_or_create_buckets(self, model: str) -> Tuple[TokenBucket, TokenBucket]:
         """Get or create token buckets for a model"""
@@ -265,7 +250,7 @@ class SmartTokenEstimator:
     """Intelligent token estimation for different content types"""
     
     @staticmethod
-    def estimate_tokens(text: str, model: str = "gpt-4o") -> int:
+    def estimate_tokens(text: str, model: str = "gpt-5") -> int:
         """Estimate token count for text"""
         # Basic estimation: ~4 characters per token (conservative)
         base_estimate = len(text) // 4
@@ -300,7 +285,7 @@ global_rate_limiter = AdvancedRateLimiter()
 
 
 def rate_limited_api_call(
-    model: str = "gpt-4o",
+    model: str = "gpt-5",
     estimated_tokens: Optional[int] = None,
     max_retries: int = 5
 ):
@@ -308,7 +293,7 @@ def rate_limited_api_call(
     Decorator for rate-limited API calls with intelligent token estimation
     
     Usage:
-        @rate_limited_api_call(model="gpt-4o", estimated_tokens=15000)
+        @rate_limited_api_call(model="gpt-5", estimated_tokens=15000)
         async def my_api_call():
             # Your API call here
             pass

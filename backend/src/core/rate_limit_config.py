@@ -16,9 +16,23 @@ from core.rate_limiter import RateLimitConfig
 class BlogGenRateLimitConfig(RateLimitConfig):
     """Extended rate limit configuration for blog generation"""
     
-    # Model-specific token limits (OpenAI's current limits as of 2024)
+    # Model-specific token limits (updated for GPT-5 models)
     model_limits: Dict[str, Dict[str, int]] = field(default_factory=lambda: {
-        # GPT-4o family (most used for blog generation)
+        # GPT-5 family (latest models for blog generation)
+        'gpt-5': {
+            'tokens_per_minute': 40000,
+            'requests_per_minute': 12000
+        },
+        'gpt-5-mini': {
+            'tokens_per_minute': 250000,
+            'requests_per_minute': 12000
+        },
+        'gpt-5-nano': {
+            'tokens_per_minute': 500000,
+            'requests_per_minute': 15000
+        },
+        
+        # GPT-4o family (legacy support)
         'gpt-4o': {
             'tokens_per_minute': 30000,
             'requests_per_minute': 10000
@@ -72,13 +86,13 @@ class BlogGenRateLimitConfig(RateLimitConfig):
         'research': {
             'estimated_tokens': 15000,
             'max_retries': 5,
-            'preferred_model': 'gpt-4o',
+            'preferred_model': 'gpt-5',
             'chunk_size': 20000
         },
         'content_generation': {
             'estimated_tokens': 12000,
             'max_retries': 3,
-            'preferred_model': 'gpt-4o-mini',
+            'preferred_model': 'gpt-5-mini',
             'chunk_size': 25000
         },
         'fact_checking': {
@@ -170,15 +184,17 @@ def suggest_model_for_phase(phase: str, user_tier: str = "premium") -> str:
     config = get_rate_limit_config_from_env()
     phase_config = config.phase_configs.get(phase, {})
     
-    preferred_model = phase_config.get('preferred_model', 'gpt-4o-mini')
+    preferred_model = phase_config.get('preferred_model', 'gpt-5-mini')
     
     # Ensure we always have a string return value
     if not isinstance(preferred_model, str):
-        preferred_model = 'gpt-4o-mini'
+        preferred_model = 'gpt-5-mini'
     
     # Downgrade models for free tier users
     if user_tier == "free":
         model_downgrades = {
+            'gpt-5': 'gpt-5-mini',
+            'gpt-5-mini': 'gpt-5-nano',
             'gpt-4o': 'gpt-4o-mini',
             'gpt-4': 'gpt-4o-mini',
             'gpt-4-turbo': 'gpt-4o-mini'

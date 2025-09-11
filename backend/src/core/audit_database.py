@@ -6,7 +6,7 @@ for             # Calculate individual costs using centralized pricing
             try:
                 from bloggen.constants import OPENAI_PRICING, normalize_model_name
                 normalized_model = normalize_model_name(model)
-                pricing = OPENAI_PRICING.get(normalized_model, OPENAI_PRICING.get('gpt-4o-mini', {'input': 0.10, 'output': 0.40}))
+                pricing = OPENAI_PRICING.get(normalized_model, OPENAI_PRICING.get('gpt-5-mini', {'input': 0.0003, 'output': 0.0012}))
             except ImportError as e:
                 logger.error(f"Failed to import centralized pricing constants: {e}")
                 # This should not happen in production - indicates missing dependency

@@ -175,8 +175,8 @@ class SimpleCostTracker:
         # Output estimation based on response length
         estimated_output_tokens = max(content_length // 4, 100)
         
-        # Default to gpt-4o-mini for estimation
-        model = "gpt-4o-mini"
+        # Default to gpt-5-mini for estimation
+        model = "gpt-5-mini"
         
         # Track this as an estimated call
         import asyncio

@@ -17,6 +17,7 @@ sys.path.append('src')
 
 from core.config import config
 from core.common import get_logger
+from core.model_config import get_default_model
 
 logger = get_logger(__name__)
 
@@ -188,7 +189,7 @@ async def test_audit_tracker():
         
         # Track a test API call
         tracker.track_api_call(
-            model="gpt-3.5-turbo",
+            model=get_default_model(),
             input_tokens=50,
             output_tokens=25,
             phase="diagnostic_test"

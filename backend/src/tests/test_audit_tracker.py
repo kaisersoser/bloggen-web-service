@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, '/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src')
 
 from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
+from core.model_config import get_content_model, get_default_model
 
 async def test_audit_tracker():
     """Test the enhanced audit tracker"""
@@ -31,7 +32,7 @@ async def test_audit_tracker():
     # Test API call tracking
     print("\n💰 Testing API call tracking...")
     tracker.track_api_call(
-        model="gpt-4o-mini",
+        model=get_default_model(),
         input_tokens=100,
         output_tokens=50,
         phase="test_phase",
@@ -39,7 +40,7 @@ async def test_audit_tracker():
     )
     
     tracker.track_api_call(
-        model="gpt-3.5-turbo",
+        model=get_default_model(),
         input_tokens=200,
         output_tokens=75,
         phase="test_phase_2",

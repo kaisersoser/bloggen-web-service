@@ -9,10 +9,13 @@ constants that are used across multiple modules to avoid duplication.
 from core.pricing_constants import OPENAI_PRICING, normalize_model_name
 
 # Default model for cost estimation
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-5-mini"
 
 # Model name normalization mapping
 MODEL_NAME_MAPPING = {
+    "gpt-5": "gpt-5",
+    "gpt-5-mini": "gpt-5-mini", 
+    "gpt-5-nano": "gpt-5-nano",
     "gpt-4o-mini": "gpt-4o-mini",
     "gpt-4o": "gpt-4o", 
     "gpt-4-turbo": "gpt-4-turbo",

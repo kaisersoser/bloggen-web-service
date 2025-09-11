@@ -454,7 +454,7 @@ class BlogGenerationFlow(Flow):
             )
             
             tools = self.tools_manager.get_research_tools()
-            agent = self.agent_factory.create_researcher(tools)
+            agent = self.agent_factory.create_researcher(tools, year)
             task = self.task_factory.create_research_task(
                 agent, topic, year, self.instructions
             )
@@ -513,7 +513,7 @@ class BlogGenerationFlow(Flow):
             )
             
             tools = self.tools_manager.get_content_tools()
-            agent = self.agent_factory.create_content_creator(tools)
+            agent = self.agent_factory.create_content_creator(tools, year)
             task = self.task_factory.create_content_task(
                 agent, topic, year, self.instructions
             )
@@ -594,7 +594,7 @@ class BlogGenerationFlow(Flow):
                     try:
                         # Get content creation tools and agent
                         tools = self.tools_manager.get_content_tools()
-                        agent = self.agent_factory.create_content_creator(tools)
+                        agent = self.agent_factory.create_content_creator(tools, self.flow_state.current_year)
                         
                         # Create a task specifically for adding images to existing content
                         image_task = self.task_factory.create_image_enhancement_task(
@@ -641,7 +641,7 @@ class BlogGenerationFlow(Flow):
         try:
             topic = cast(str, self.flow_state.topic)
             tools = self.tools_manager.get_research_tools()
-            agent = self.agent_factory.create_fact_checker(tools)
+            agent = self.agent_factory.create_fact_checker(tools, self.flow_state.current_year)
             task = self.task_factory.create_fact_check_task(agent, topic, self.instructions)
             checked = self._execute(agent, task, "fact_checking")
             self.flow_state.results["fact_checked"] = checked
@@ -660,7 +660,7 @@ class BlogGenerationFlow(Flow):
         self._status("Finalizing blog post...", step=4, detail="Polishing output")
         try:
             topic = cast(str, self.flow_state.topic)
-            agent = self.agent_factory.create_finalizer()
+            agent = self.agent_factory.create_finalizer(self.flow_state.current_year)
             task = self.task_factory.create_finalization_task(agent, topic, self.instructions)
             final_post = self._execute(agent, task, "finalization")
             

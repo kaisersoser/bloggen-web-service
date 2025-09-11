@@ -4,13 +4,16 @@ Generate a valid JWT token using the backend's default secret
 """
 
 import jwt
+import os
 from datetime import datetime, timedelta
 
 def create_jwt_token():
     """Create JWT token with default secret from backend"""
     
-    # Default secret from backend
-    secret = "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w="
+    # Get secret from environment
+    secret = os.getenv("NEXTAUTH_SECRET")
+    if not secret:
+        raise ValueError("NEXTAUTH_SECRET environment variable is required")
     
     # Token payload for real user
     payload = {

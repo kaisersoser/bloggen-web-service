@@ -282,7 +282,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         import os
         
         # Get the secret key (same as used by NextAuth.js)
-        secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
+        secret = os.getenv("NEXTAUTH_SECRET")
+        if not secret:
+            raise ValueError("NEXTAUTH_SECRET environment variable is required")
         
         # Decode and validate the JWT token
         payload = jwt.decode(credentials.credentials, secret, algorithms=["HS256"])
@@ -315,7 +317,9 @@ async def get_current_user_from_query_token(token: str) -> User:
         import os
         
         # Get the secret key (same as used by NextAuth.js)
-        secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
+        secret = os.getenv("NEXTAUTH_SECRET")
+        if not secret:
+            raise ValueError("NEXTAUTH_SECRET environment variable is required")
         
         # Decode and validate the JWT token
         payload = jwt.decode(token, secret, algorithms=["HS256"])

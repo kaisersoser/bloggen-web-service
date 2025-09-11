@@ -45,6 +45,14 @@ export function useBlogGenerator() {
   }, [jobs, currentJobId, creatingNew]);
   useEffect(() => { setGenerationError(null); }, [currentJobId]);
   useEffect(() => () => { if (activeConnectionId) { closeConnection(); setActiveConnectionId(null); } }, [activeConnectionId, closeConnection]);
+  
+  // Safety mechanism: Reset generating state when an error occurs
+  useEffect(() => {
+    if (generationError && isGenerating) {
+      console.log('🔧 Safety reset: Setting isGenerating(false) due to generation error');
+      setIsGenerating(false);
+    }
+  }, [generationError, isGenerating]);
 
   const handleTaskCompletion = useCallback(async (taskId: string, content: string, heroImageUrl?: string) => {
     console.log('🔍 Frontend handleTaskCompletion called:', {

@@ -63,7 +63,7 @@ class CrewAIRateLimitManager:
         estimated_tokens = self.estimate_crew_execution_tokens(crew, topic)
         
         # Determine primary model (use first agent's model if available)
-        primary_model = "gpt-4o"  # Default
+        primary_model = "gpt-5"  # Default
         if crew.agents:
             agent_llm = getattr(crew.agents[0], 'llm', None)
             if agent_llm and hasattr(agent_llm, 'model'):
@@ -112,7 +112,7 @@ class CrewAIRateLimitManager:
 def rate_limited_flow_method(
     phase_name: str,
     estimated_tokens: Optional[int] = None,
-    model: str = "gpt-4o",
+    model: str = "gpt-5",
     max_retries: int = 3
 ):
     """

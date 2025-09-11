@@ -11,9 +11,15 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import logging
 
-# Load environment variables from core.env file
+# Load environment variables from .env file
 from dotenv import load_dotenv
-load_dotenv()
+import os
+from pathlib import Path
+
+# Load .env file from backend directory
+backend_dir = Path(__file__).parent.parent.parent  # Go up to backend/ directory
+env_file = backend_dir / '.env'
+load_dotenv(env_file)
 
 
 @dataclass
@@ -27,6 +33,7 @@ class DatabaseConfig:
 class APIConfig:
     """External API configuration"""
     openai_key: Optional[str]
+    google_key: Optional[str]
     serper_key: Optional[str] 
     unsplash_key: Optional[str]
 
@@ -35,16 +42,16 @@ class APIConfig:
 class ModelsConfig:
     """Configuration for AI models used in blog generation."""
     # Content creation models (balanced performance/cost)
-    content_model: str = "gpt-4o-mini"
-    finalization_model: str = "gpt-4o-mini"
+    content_model: str
+    finalization_model: str
     
     # Research and reasoning models (high performance)
-    research_model: str = "gpt-4o"
-    fact_check_model: str = "gpt-4o"
+    research_model: str
+    fact_check_model: str
     
     # Basic task models (cost efficient)
-    default_model: str = "gpt-4o-mini"
-    summary_model: str = "gpt-4o-mini"
+    default_model: str
+    summary_model: str
 
 
 @dataclass
@@ -197,8 +204,14 @@ class UnifiedConfig:
     
     def _init_api(self) -> APIConfig:
         """Initialize external API configuration"""
+        # Also set Google API key in environment for CrewAI/LiteLLM
+        google_key = self.env.get_optional("GOOGLE_API_KEY")
+        if google_key:
+            os.environ["GOOGLE_API_KEY"] = google_key
+        
         return APIConfig(
             openai_key=self.env.get_optional("OPENAI_API_KEY"),
+            google_key=google_key,
             serper_key=self.env.get_optional("SERPER_API_KEY"),
             unsplash_key=self.env.get_optional("UNSPLASH_ACCESS_KEY")
         )
@@ -206,12 +219,12 @@ class UnifiedConfig:
     def _init_models(self) -> ModelsConfig:
         """Initialize model configuration from environment variables."""
         return ModelsConfig(
-            content_model=os.getenv('CONTENT_MODEL', 'gpt-4o-mini'),
-            research_model=os.getenv('RESEARCH_MODEL', 'gpt-4o'),
-            fact_check_model=os.getenv('FACT_CHECK_MODEL', 'gpt-4o'),
-            finalization_model=os.getenv('FINALIZATION_MODEL', 'gpt-4o-mini'),
-            default_model=os.getenv('DEFAULT_MODEL', 'gpt-4o-mini'),
-            summary_model=os.getenv('SUMMARY_MODEL', 'gpt-4o-mini')
+            content_model=os.getenv('CONTENT_MODEL', 'gpt-5-mini'),
+            research_model=os.getenv('RESEARCH_MODEL', 'gpt-5'),
+            fact_check_model=os.getenv('FACT_CHECK_MODEL', 'gpt-5'),
+            finalization_model=os.getenv('FINALIZATION_MODEL', 'gpt-5-mini'),
+            default_model=os.getenv('DEFAULT_MODEL', 'gpt-5-nano'),
+            summary_model=os.getenv('SUMMARY_MODEL', 'gpt-5-nano')
         )
     
     def _init_security(self) -> SecurityConfig:
@@ -287,6 +300,7 @@ class UnifiedConfig:
         """Validate that required API keys are configured"""
         return {
             'openai': bool(self.api.openai_key),
+            'google': bool(self.api.google_key),
             'unsplash': bool(self.api.unsplash_key),
             'nextauth_secret': bool(self.security.nextauth_secret)
         }

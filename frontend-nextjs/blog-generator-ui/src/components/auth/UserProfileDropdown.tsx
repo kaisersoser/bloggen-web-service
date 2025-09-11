@@ -186,7 +186,7 @@ export function UserProfileDropdown({ themeMode = 'light', onThemeChange }: User
                 <Button 
                   onClick={() => {
                     setIsOpen(false)
-                    router.push('/admin/audit')
+                    window.open('/admin/audit', '_blank')
                   }} 
                   variant="outline" 
                   className="w-full mb-2"

@@ -21,6 +21,7 @@ import asyncio
 
 # Import shared constants and utilities
 from .constants import OPENAI_PRICING, calculate_openai_cost, normalize_model_name, DEFAULT_MODEL
+from core.model_config import get_summary_model
 
 # Import new core utilities
 from core.logging_utils import setup_cost_tracking_logger
@@ -114,7 +115,7 @@ class DatabaseCostTracker:
             estimated_output_tokens = max(content_length // 4, 100)
             
             model = DEFAULT_MODEL
-            input_cost, output_cost, total_cost = calculate_openai_cost(
+            input_cost, output_cost, total_cost, cached_cost = calculate_openai_cost(
                 model, estimated_input_tokens, estimated_output_tokens
             )
             
@@ -147,9 +148,9 @@ class DatabaseCostTracker:
         try:
             estimated_input_tokens = 150
             estimated_output_tokens = 20
-            model = "gpt-3.5-turbo"
+            model = get_summary_model()  # Use environment-configured model
             
-            input_cost, output_cost, total_cost = calculate_openai_cost(
+            input_cost, output_cost, total_cost, cached_cost = calculate_openai_cost(
                 model, estimated_input_tokens, estimated_output_tokens
             )
             
@@ -179,7 +180,7 @@ class DatabaseCostTracker:
             input_tokens = getattr(usage, 'prompt_tokens', 0)
             output_tokens = getattr(usage, 'completion_tokens', 0)
             
-            input_cost, output_cost, total_cost = calculate_openai_cost(
+            input_cost, output_cost, total_cost, cached_cost = calculate_openai_cost(
                 model, input_tokens, output_tokens
             )
             

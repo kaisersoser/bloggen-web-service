@@ -19,7 +19,9 @@ def test_backend_blog_generation():
     print("=" * 50)
     
     # Create a test JWT token (same as frontend does)
-    secret = "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w="  # From .env
+    secret = os.getenv("NEXTAUTH_SECRET")
+    if not secret:
+        raise ValueError("NEXTAUTH_SECRET environment variable is required")
     test_user_id = "test_user_123"
     
     # Create JWT token

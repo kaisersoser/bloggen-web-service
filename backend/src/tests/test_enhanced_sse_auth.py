@@ -21,7 +21,9 @@ def generate_jwt_for_user(email: str) -> str:
     """Generate JWT token for user email with proper format"""
     import os
     import time
-    secret = os.getenv("NEXTAUTH_SECRET", "Ver0EvKSf1T5hN4/6NDsnPyZf8S7dJZ/Ewksc2Y2L7w=")
+    secret = os.getenv("NEXTAUTH_SECRET")
+    if not secret:
+        raise ValueError("NEXTAUTH_SECRET environment variable is required")
     current_time = int(time.time())
     payload = {
         "sub": "test-user-id-123",  # Required: user ID
