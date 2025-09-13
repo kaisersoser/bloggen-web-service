@@ -7,15 +7,32 @@ import { STEP_COLOR_MAP } from '@/config/constants';
 interface BlogGenerationConsoleProps {
   isGenerating: boolean;
   logs: LogEntry[];
+  generationStartTime?: string; // ISO timestamp when generation started
 }
 
-export function BlogGenerationConsole({ isGenerating, logs }: BlogGenerationConsoleProps) {
+export function BlogGenerationConsole({ isGenerating, logs, generationStartTime }: BlogGenerationConsoleProps) {
   const [consoleCollapsed, setConsoleCollapsed] = useState(false);
   const logsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight; }, [logs]);
 
-  const formatTime = (timestamp: string) => { try { return new Date(timestamp).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});} catch {return '';} };
+  const formatRelativeTime = (timestamp: string) => {
+    try {
+      if (!generationStartTime) return '0:00';
+      
+      const elapsed = new Date(timestamp).getTime() - new Date(generationStartTime).getTime();
+      const minutes = Math.floor(elapsed / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      
+      // Ensure we don't show negative times (can happen with clock skew)
+      if (elapsed < 0) return '0:00';
+      
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    } catch {
+      return '0:00';
+    }
+  };
+  
   const getStepColor = (step: string) => STEP_COLOR_MAP[step.toLowerCase()] || 'text-gray-300';
 
   if (!isGenerating && logs.length === 0) return null;
@@ -45,14 +62,14 @@ export function BlogGenerationConsole({ isGenerating, logs }: BlogGenerationCons
             <div className="space-y-1">
               {logs.map((log, idx) => (
                 <div key={idx} className="flex items-start space-x-3">
-                  <span className="text-gray-500 text-xs mt-0.5 w-20 flex-shrink-0">{formatTime(log.timestamp)}</span>
+                  <span className="text-gray-500 text-xs mt-0.5 w-20 flex-shrink-0">[{formatRelativeTime(log.timestamp)}]</span>
                   <span className={`text-xs font-semibold w-24 flex-shrink-0 ${getStepColor(log.step)}`}>[{log.step}]</span>
                   <span className="text-gray-300 dark:text-gray-400 leading-relaxed">{log.message}</span>
                 </div>
               ))}
               {isGenerating && (
                 <div className="flex items-start space-x-3">
-                  <span className="text-gray-500 text-xs mt-0.5 w-20 flex-shrink-0">{formatTime(new Date().toISOString())}</span>
+                  <span className="text-gray-500 text-xs mt-0.5 w-20 flex-shrink-0">[{formatRelativeTime(new Date().toISOString())}]</span>
                   <span className="text-blue-400 text-xs font-semibold w-24 flex-shrink-0">[SYSTEM]</span>
                   <span className="text-gray-300 dark:text-gray-400"><span className="animate-pulse">Processing...</span></span>
                 </div>

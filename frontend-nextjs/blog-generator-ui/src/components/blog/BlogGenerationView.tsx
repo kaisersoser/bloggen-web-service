@@ -39,7 +39,11 @@ export function BlogGenerationView({
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900">
-  <BlogGenerationConsole isGenerating={isGenerating} logs={logs} />
+  <BlogGenerationConsole 
+    isGenerating={isGenerating} 
+    logs={logs} 
+    generationStartTime={job?.createdAt}
+  />
 
       {/* Blog Content Area */}
       <div className="flex-1 overflow-auto">
