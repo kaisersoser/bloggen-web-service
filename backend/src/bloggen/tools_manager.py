@@ -35,6 +35,19 @@ class ToolsManager:
         """Load research tools with proper error handling."""
         tools = []
         
+        # Add URL validation tools for fact checking
+        try:
+            from bloggen.tools import URLValidationTool, BulkURLValidationTool
+            
+            url_tool = URLValidationTool(audit_tracker=self.audit_tracker)
+            bulk_url_tool = BulkURLValidationTool(audit_tracker=self.audit_tracker)
+            tools.extend([url_tool, bulk_url_tool])
+            logger.debug("✅ URL validation tools loaded")
+        except ImportError as e:
+            logger.warning(f"URL validation tools not available: {e}")
+        except Exception as e:
+            logger.error(f"Error loading URL validation tools: {e}")
+        
         # Try to load external research tools from crewai_tools
         try:
             from crewai_tools import SerperDevTool, ScrapeWebsiteTool

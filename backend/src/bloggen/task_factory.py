@@ -127,34 +127,44 @@ class TaskFactory:
 
     @staticmethod
     def create_fact_check_task(agent: Agent, topic: str, instructions: Optional[str] = None) -> Task:
-        """Create a fact-checking task for verifying content accuracy with live re-validation."""
+        """Create a fact-checking task for verifying content accuracy with mandatory URL validation."""
         extra = ("\n\nUSER ORIGINAL DIRECTIVES (retain intent while enforcing verification):\n" + instructions.strip()) if instructions else ""
         return Task(
-            description=f"""Thoroughly fact-check the blog post about '{topic}'.
+            description=f"""Thoroughly fact-check the blog post about '{topic}' with MANDATORY URL validation.
+
+            🔍 URL VALIDATION REQUIREMENT (CRITICAL):
+            BEFORE providing final output, you MUST use the URLValidationTool or BulkURLValidationTool to test EVERY link in the content:
+            - Test each URL to verify it returns HTTP 200 (accessible)
+            - Replace any broken links (404, timeout, SSL errors) with working alternatives
+            - For broken links: search for current working sources on the same topic
+            - Document all URL changes in your fact-check summary
 
             LIVE RE-VALIDATION (MANDATORY): Use the provided web research/search tool(s) to re-check every statistic, date, numeric metric, market figure, quote, and technical claim.
             For each claim:
-              - Confirm the link is still valid and authoritative.
-              - Replace broken / low-credibility sources with better ones.
-              - Add missing links where claims lack sourcing (search for them; if no credible source found, mark the claim UNSOURCED and recommend removal or rewrite).
+              - Confirm the link is still valid and authoritative using URL validation tools
+              - Replace broken / low-credibility sources with better ones
+              - Add missing links where claims lack sourcing (search for them; if no credible source found, mark the claim UNSOURCED and recommend removal or rewrite)
 
             Verification process:
             1. Re-verify all statistical claims (ensure numbers & units match current context)
             2. Confirm examples & case studies still accurate / up to date
             3. Validate technical terminology and version references
-            4. Ensure EVERY factual sentence has an inline markdown link (except clearly marked opinion / synthesis)
-            5. Flag outdated (>2 years) data unless historically framed
-            6. Provide a concise correction log summarizing changes
+            4. **VALIDATE ALL URLS**: Use URL validation tools to test every link before final output
+            5. Ensure EVERY factual sentence has an inline markdown link (except clearly marked opinion / synthesis)
+            6. Flag outdated (>2 years) data unless historically framed
+            7. Provide a concise correction log summarizing changes including URL fixes
 
             Output MUST keep existing structure but update references accordingly.{extra}
             """,
             agent=agent,
             expected_output="""A fact-checked version with:
             - All factual claims verified with current sources
+            - ALL URLs validated and working (no 404s, timeouts, or broken links)
             - Added / updated inline links where missing or weak
             - Outdated or unsourced claims flagged or revised
             - Consolidated, deduplicated 'References' section (numbered)
-            - A short 'Fact Check Summary' section listing corrections & replaced sources"""
+            - A 'Fact Check Summary' section listing corrections, replaced sources, and URL validation results
+            - 'URL Validation Report' showing tested links and any replacements made"""
         )
 
     @staticmethod

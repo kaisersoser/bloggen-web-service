@@ -31,6 +31,9 @@ from .tools_manager import ToolsManager
 from .topic_utils import generate_concise_topic
 from .content_validator import ContentValidator
 from .flow_post_processor import FlowPostProcessor
+from .tools.content_integrity_validator import ContentIntegrityValidator, format_integrity_report
+from .tools.url_validation_enforcer import URLValidationEnforcer, create_validation_enforcer
+from .tools.reference_deduplicator import ReferenceDeduplicator, create_reference_deduplicator, format_deduplication_report
 from core.llm_interceptor import _register_audit_tracker
 from core.config import config  # reuse existing config for model + key
 from core.crewai_rate_limiter import CrewAIRateLimitManager
@@ -638,19 +641,182 @@ class BlogGenerationFlow(Flow):
         self.flow_state.current_phase = "fact_checking"
         self._update_audit_phase("fact_checking")
         self._status("Fact-checking content...", step=3, detail="Verifying claims")
+        
         try:
             topic = cast(str, self.flow_state.topic)
             tools = self.tools_manager.get_research_tools()
-            agent = self.agent_factory.create_fact_checker(tools, self.flow_state.current_year)
-            task = self.task_factory.create_fact_check_task(agent, topic, self.instructions)
-            checked = self._execute(agent, task, "fact_checking")
+            
+            # Get the content to be fact-checked
+            content_to_check = content_data.get("blog_content", "")
+            if not content_to_check:
+                logger.warning("No content found for fact checking")
+                return content_data
+            
+            # 🔒 VALIDATION LOOP ENFORCEMENT
+            self._status("Analyzing URLs for validation enforcement...", step=3, detail="URL validation setup")
+            validation_enforcer = create_validation_enforcer()
+            enforcement_result = validation_enforcer.enforce_validation_loop(str(content_to_check), topic)
+            
+            # Store validation requirements for audit
+            self.flow_state.results["url_validation_requirements"] = {
+                "validation_required": enforcement_result.validation_required,
+                "urls_found": enforcement_result.urls_found,
+                "url_count": len(enforcement_result.urls_found)
+            }
+            
+            if enforcement_result.validation_required:
+                logger.info(f"🔒 URL Validation Enforcement: {len(enforcement_result.urls_found)} URLs require validation")
+                self._status(f"URL validation required for {len(enforcement_result.urls_found)} URLs", 
+                            step=3, detail="Enforcing validation compliance")
+                
+                # Create enhanced fact checker with validation requirements
+                checked = self._execute_fact_check_with_validation_loop(
+                    topic, tools, content_to_check, enforcement_result
+                )
+            else:
+                logger.info("🔒 URL Validation Enforcement: No URLs found - proceeding with standard fact check")
+                self._status("No URLs to validate - proceeding with fact check", step=3, detail="Standard verification")
+                
+                # Standard fact checking without validation loop
+                agent = self.agent_factory.create_fact_checker(tools, self.flow_state.current_year)
+                task = self.task_factory.create_fact_check_task(agent, topic, self.instructions)
+                checked = self._execute(agent, task, "fact_checking")
+            
             self.flow_state.results["fact_checked"] = checked
             self._status("Fact-check complete", step=3, detail="Content validated")
             return {**content_data, "fact_checked_content": checked}
+            
         except Exception as e:  # pragma: no cover
             logger.exception("Fact checking failed")
             self._error(f"Fact checking failed: {e}")
             raise
+    
+    def _execute_fact_check_with_validation_loop(self, topic: str, tools: list, content: str, 
+                                                enforcement_result) -> Any:
+        """Execute fact checking with URL validation loop enforcement"""
+        max_retries = 3
+        retry_count = 0
+        validation_enforcer = create_validation_enforcer()
+        
+        while retry_count < max_retries:
+            try:
+                if retry_count == 0:
+                    # First attempt - include validation requirements
+                    self._status(f"Fact checking with URL validation (attempt {retry_count + 1})", 
+                                step=3, detail=f"Validating {len(enforcement_result.urls_found)} URLs")
+                    
+                    enhanced_task_description = self._create_enhanced_fact_check_task(
+                        topic, enforcement_result, is_retry=False
+                    )
+                else:
+                    # Retry attempt - enhanced enforcement
+                    self._status(f"Retry fact checking with enhanced validation (attempt {retry_count + 1})", 
+                                step=3, detail="Enforcing compliance")
+                    
+                    enhanced_task_description = self._create_enhanced_fact_check_task(
+                        topic, enforcement_result, is_retry=True, 
+                        retry_count=retry_count
+                    )
+                
+                # Create fact checker agent and task
+                agent = self.agent_factory.create_fact_checker(tools, self.flow_state.current_year)
+                
+                # Create custom task with enhanced validation requirements
+                from crewai import Task
+                task = Task(
+                    description=enhanced_task_description,
+                    agent=agent,
+                    expected_output="""A fact-checked version with:
+                    - All factual claims verified with current sources
+                    - MANDATORY: Complete URL validation evidence for ALL links
+                    - URL Validation Report showing URLValidationTool usage and results
+                    - Compliance confirmation that all URLs were tested
+                    - Corrected/replaced broken URLs with working alternatives
+                    - 'Validation Compliance Summary' confirming all requirements met"""
+                )
+                
+                # Execute fact checking
+                logger.info(f"🔒 Executing fact check with validation enforcement (attempt {retry_count + 1})")
+                result = self._execute(agent, task, "fact_checking")
+                
+                # Check compliance of the result
+                is_compliant, compliance_score, compliance_issues = validation_enforcer.check_validation_compliance(
+                    str(result), enforcement_result.urls_found
+                )
+                
+                # Store compliance results for audit
+                self.flow_state.results[f"validation_compliance_attempt_{retry_count + 1}"] = {
+                    "compliant": is_compliant,
+                    "score": compliance_score,
+                    "issues": compliance_issues,
+                    "retry_count": retry_count
+                }
+                
+                if is_compliant:
+                    logger.info(f"✅ URL Validation Compliance achieved! Score: {compliance_score:.1%}")
+                    self._status("URL validation compliance achieved", step=3, 
+                                detail=f"Score: {compliance_score:.1%}")
+                    return result
+                else:
+                    logger.warning(f"❌ URL Validation Compliance failed. Score: {compliance_score:.1%}")
+                    logger.warning(f"Issues: {compliance_issues}")
+                    
+                    if retry_count < max_retries - 1:
+                        self._status(f"Compliance failed - retry required", step=3, 
+                                    detail=f"Score: {compliance_score:.1%}")
+                        retry_count += 1
+                        continue
+                    else:
+                        logger.error(f"❌ Maximum retries reached. Final compliance score: {compliance_score:.1%}")
+                        self._status("Max retries reached - proceeding with partial compliance", 
+                                    step=3, detail=f"Final score: {compliance_score:.1%}")
+                        return result
+                        
+            except Exception as e:
+                logger.error(f"Fact checking attempt {retry_count + 1} failed: {e}")
+                if retry_count < max_retries - 1:
+                    retry_count += 1
+                    continue
+                else:
+                    raise
+        
+        raise RuntimeError("Fact checking with validation loop failed after maximum retries")
+    
+    def _create_enhanced_fact_check_task(self, topic: str, enforcement_result, 
+                                       is_retry: bool = False, retry_count: int = 0) -> str:
+        """Create enhanced fact check task description with validation loop enforcement"""
+        base_description = f"""Thoroughly fact-check the blog post about '{topic}' with MANDATORY URL validation compliance.
+
+🚨 CRITICAL VALIDATION LOOP ENFORCEMENT - COMPLIANCE REQUIRED
+
+{enforcement_result.enforcement_instructions}
+
+{enforcement_result.validation_evidence_required}
+"""
+        
+        if is_retry:
+            retry_section = f"""
+🔄 RETRY ATTEMPT #{retry_count + 1} - ENHANCED ENFORCEMENT
+
+THIS IS A COMPLIANCE RETRY due to insufficient URL validation evidence in previous attempt.
+
+⚠️ CRITICAL COMPLIANCE REQUIREMENTS:
+- You MUST demonstrate actual URLValidationTool usage
+- You MUST provide explicit validation results for each URL
+- You MUST show status codes and accessibility testing
+- You MUST document any URL replacements or corrections
+- Missing compliance evidence will trigger another retry
+
+ENHANCED ENFORCEMENT MEASURES:
+- Tool usage monitoring is active
+- Compliance scoring is being tracked
+- Evidence verification is mandatory
+- Non-compliance triggers automatic retry
+
+"""
+            base_description = retry_section + base_description
+        
+        return base_description
 
     @listen(fact_checking_phase)
     def finalization_phase(self, verified_content: Dict[str, Any]) -> Dict[str, Any]:  # Phase 4
@@ -662,11 +828,28 @@ class BlogGenerationFlow(Flow):
             topic = cast(str, self.flow_state.topic)
             agent = self.agent_factory.create_finalizer(self.flow_state.current_year)
             task = self.task_factory.create_finalization_task(agent, topic, self.instructions)
-            final_post = self._execute(agent, task, "finalization")
+            raw_final_post = self._execute(agent, task, "finalization")
+            
+            # 🧹 CONTENT CLEANING - Remove leaked instructions and meta-commentary
+            self._status("Cleaning finalization output...", step=4, detail="Removing leaked instructions")
+            logger.info("🧹 Starting Content Cleaning - removing leaked processing instructions")
+            
+            from .blog_content_cleaner import create_blog_content_cleaner
+            content_cleaner = create_blog_content_cleaner()
+            final_post, removed_sections = content_cleaner.clean_finalization_output(str(raw_final_post))
+            
+            if removed_sections:
+                logger.info(f"🧹 Content Cleaning removed {len(removed_sections)} problematic sections:")
+                for section in removed_sections:
+                    logger.info(f"   • {section}")
+                self._status("Content cleaning completed", step=4, detail=f"Removed {len(removed_sections)} instruction leaks")
+            else:
+                logger.info("✅ Content Cleaning: No instruction leakage detected - content was clean")
+                self._status("Content cleaning completed", step=4, detail="Content verified clean")
             
             # Post-process to ensure proper image usage and clean deprecated sources
             processed_post = FlowPostProcessor.process_blog_content(
-                content=str(final_post),
+                content=final_post,
                 topic=topic,
                 force_tool_usage=True
             )
@@ -682,6 +865,69 @@ class BlogGenerationFlow(Flow):
                 logger.info("✅ Content image injection completed")
             else:
                 logger.info("📷 Content image injection disabled - using content as-is")
+            
+            # � CONTENT INTEGRITY VALIDATION - Remove hallucinated content and invalid references
+            self._status("Running content integrity validation...", step=4, detail="Removing hallucinated content")
+            logger.info("� Starting Content Integrity Validation - removing hallucinated content and invalid references")
+            
+            integrity_validator = ContentIntegrityValidator()
+            integrity_cleaned_content, integrity_report = integrity_validator.validate_content_integrity(final_content)
+            
+            # Log integrity validation results
+            integrity_summary = format_integrity_report(integrity_report)
+            logger.info(f"� Content Integrity Validation completed:\n{integrity_summary}")
+            
+            # Update final content with integrity-validated content
+            final_content = integrity_cleaned_content
+            
+            if integrity_report.content_quality_score < 100:
+                removed_refs = integrity_report.removed_references
+                removed_paragraphs = integrity_report.content_paragraphs_removed
+                logger.info(f"� Content Integrity Validation removed {removed_refs} invalid references and {removed_paragraphs} problematic content sections")
+                self._status("Content integrity validation completed", step=4, 
+                            detail=f"Removed {removed_refs} invalid references, {removed_paragraphs} content sections")
+            else:
+                logger.info("✅ Content Integrity Validation: All content verified - no cleanup needed")
+                self._status("Content integrity validation completed", step=4, detail="All content verified successfully")
+            
+            # Store integrity report in flow state for audit purposes
+            self.flow_state.results["content_integrity_report"] = {
+                "total_references": integrity_report.total_references,
+                "valid_references": integrity_report.valid_references,
+                "removed_references": integrity_report.removed_references,
+                "content_paragraphs_removed": integrity_report.content_paragraphs_removed,
+                "content_quality_score": integrity_report.content_quality_score
+            }
+            
+            # 🔧 REFERENCE DEDUPLICATION - Remove duplicate references and consolidate citations
+            self._status("Running reference deduplication...", step=4, detail="Consolidating references")
+            logger.info("🔧 Starting Reference Deduplication - removing duplicate citations")
+            
+            reference_deduplicator = create_reference_deduplicator()
+            deduplicated_content, dedup_report = reference_deduplicator.deduplicate_references(final_content)
+            
+            # Log deduplication results
+            dedup_summary = format_deduplication_report(dedup_report)
+            logger.info(f"🔧 Reference Deduplication completed:\n{dedup_summary}")
+            
+            # Update final content with deduplicated references
+            final_content = deduplicated_content
+            
+            if dedup_report.content_updated:
+                logger.info(f"🔧 Reference Deduplication removed {dedup_report.duplicates_removed} duplicate references")
+                self._status("Reference deduplication completed", step=4, 
+                            detail=f"Removed {dedup_report.duplicates_removed} duplicates")
+            else:
+                logger.info("✅ Reference Deduplication: No duplicate references found")
+                self._status("Reference deduplication completed", step=4, detail="No duplicates found")
+            
+            # Store deduplication report in flow state for audit purposes
+            self.flow_state.results["reference_deduplication_report"] = {
+                "total_references": dedup_report.total_references_found,
+                "unique_references": dedup_report.unique_references,
+                "duplicates_removed": dedup_report.duplicates_removed,
+                "content_updated": dedup_report.content_updated
+            }
             
             # CRITICAL DEBUG: Check what we're returning as final content
             logger.info(f"🔍 FLOW FINALIZE - About to return final content:")
