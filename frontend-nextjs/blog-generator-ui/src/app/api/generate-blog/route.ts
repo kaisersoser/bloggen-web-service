@@ -65,13 +65,59 @@ export async function POST(request: NextRequest) {
     // NOTE: Do NOT increment generation count here - only increment on successful completion
     // await UserService.incrementGenerationCount(session.user.id)
 
+    // Handle long topic descriptions by auto-generating concise titles
+    let finalTopic = topic.trim();
+    const originalInstructions = instructions?.trim() || '';
+
+    // If topic exceeds backend's 200-character limit, generate a concise title
+    if (finalTopic.length > 200) {
+      console.log(`Topic too long (${finalTopic.length} chars), generating concise title...`);
+      
+      try {
+        // Use existing title generation API to create concise topic
+        const titleResponse = await fetch(`${process.env.API_BASE_URL}/generate-title`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${backendJWT}`,
+          },
+          body: JSON.stringify({ instructions: finalTopic })
+        });
+
+        if (titleResponse.ok) {
+          const titleData = await titleResponse.json();
+          if (titleData.title && titleData.title.trim()) {
+            finalTopic = titleData.title.trim();
+            console.log(`Generated concise title: "${finalTopic}"`);
+          } else {
+            // Fallback: intelligent truncation
+            finalTopic = finalTopic.substring(0, 197) + '...';
+            console.log('Title generation returned empty, using truncated topic');
+          }
+        } else {
+          // Fallback: intelligent truncation
+          finalTopic = finalTopic.substring(0, 197) + '...';
+          console.log('Title generation failed, using truncated topic');
+        }
+      } catch (error) {
+        console.warn('Title generation error, using truncated topic:', error);
+        // Fallback: intelligent truncation
+        finalTopic = finalTopic.substring(0, 197) + '...';
+      }
+    }
+
+    // Prepare instructions: use original long description if we generated a title
+    const finalInstructions = finalTopic !== topic.trim() 
+      ? topic.trim()  // Original long description becomes instructions
+      : originalInstructions;  // Keep original instructions if topic was short
+
     // Forward request to Python backend with authentication
     // Use manual HTTP request to backend
     const backendUrl = new URL(`${process.env.API_BASE_URL}/generate-blog`)
     const postData = JSON.stringify({
       task_id: blog.id,
-      topic: topic.trim(),
-      instructions: instructions?.trim(),
+      topic: finalTopic,                    // Concise topic (≤200 chars)
+      instructions: finalInstructions,      // Full original description or original instructions
       user_id: session.user.id
     })
 

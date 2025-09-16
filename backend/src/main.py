@@ -394,14 +394,28 @@ async def generate_blog(
     # Create task record in database instead of memory
     await task_manager.create_task(task_id, user.id, normalized_topic or '<auto-generating>', (request.instructions or '').strip() or None)
     
-    # Send immediate task creation notification for SSE streams
+    # Send immediate initialization status for SSE streams
     if task_manager._redis_manager:
+        # Send task creation notification
         task_created_message = create_task_created_message(
             task_id=task_id,
             message=f"Blog generation task created for topic: {normalized_topic or 'auto-generating'}"
         )
         await task_manager._redis_manager.publish_immediate_message(task_id, task_created_message.to_dict())
-    
+        
+        # Send immediate initialization status update with 10% progress
+        init_status_message = {
+            'message_type': 'status',
+            'task_id': task_id,
+            'status': 'in_progress',
+            'message': 'Initializing blog generation...',
+            'progress': 10,  # 10% as per user's request
+            'current_step': 'Step 1/5: Initialization',
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        await task_manager._redis_manager.publish_immediate_message(task_id, init_status_message)
+        logger.info(f"🚀 Sent immediate init status with 10% progress for task {task_id}")
+
     # Start background blog generation
     background_tasks.add_task(
         async_blog_generation,
@@ -525,11 +539,15 @@ async def stream_task(task_id: str, token: str):
             if task_manager._redis_manager and hasattr(task_manager._redis_manager, 'redis_client') and task_manager._redis_manager.redis_client:
                 try:
                     redis_pubsub = task_manager._redis_manager.redis_client.pubsub()
-                    channel = f"task_updates:{task_id}"
+                    
+                    # Subscribe to BOTH channels for complete message coverage
+                    task_updates_channel = f"task_updates:{task_id}"
+                    sse_immediate_channel = f"sse_immediate:{task_id}"
                     
                     # Set timeout for Redis operations
-                    await asyncio.wait_for(redis_pubsub.subscribe(channel), timeout=5.0)
-                    logger.info(f"📡 SSE subscribed to Redis channel: {channel}")
+                    await asyncio.wait_for(redis_pubsub.subscribe(task_updates_channel), timeout=5.0)
+                    await asyncio.wait_for(redis_pubsub.subscribe(sse_immediate_channel), timeout=5.0)
+                    logger.info(f"📡 SSE subscribed to Redis channels: {task_updates_channel}, {sse_immediate_channel}")
                 except asyncio.TimeoutError:
                     logger.warning(f"Redis subscription timeout for task {task_id}, falling back to database polling")
                     if redis_pubsub:
@@ -559,8 +577,13 @@ async def stream_task(task_id: str, token: str):
                 
                 status = task_data.get('status', '').lower()
                 step = task_data.get('current_step')
-                progress = task_data.get('progress', 0)
+                # Ensure progress is a number (handle both string and number from Redis)
+                progress_raw = task_data.get('progress', 0)
+                progress = float(progress_raw) if progress_raw is not None else 0
                 hero_url = task_data.get('hero_image_url')
+                
+                # Debug logging for SSE progress values
+                logger.info(f"📡 SSE {task_id}: Sending progress {progress}% (raw: {progress_raw}, step: {step})")
                 
                 # Send initialization message once when task starts
                 if not sent_initialization and status in ['started', 'in_progress']:
@@ -1011,9 +1034,15 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             progress = status_data.get('progress', 0.0)
             message_type = status_data.get('message_type', 'status')
             
-            # Handle percentage conversion for legacy format
-            if progress <= 1.0:
-                progress = progress * 100
+            # Progress is already in percentage (0-100) from our status_manager
+            # Don't modify it, just ensure it's within bounds
+            if progress > 100:
+                progress = 100
+            elif progress < 0:
+                progress = 0
+            
+            # Debug logging for progress tracking
+            logger.info(f"🔢 Task {task_id}: Progress update - {progress}% (message: {message})")
             
             # Detect if running in CrewAI Flow thread context to avoid asyncio conflicts
             import threading
@@ -1075,6 +1104,19 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             topic=topic,  # may be None
             instructions=instructions
         )
+        
+        # Send immediate status update before flow execution starts
+        if task_manager._redis_manager:
+            pre_flow_message = {
+                'message_type': 'status',
+                'task_id': task_id,
+                'status': 'in_progress',
+                'message': 'Blog generation flow starting...',
+                'progress': 10,  # 10% for initialization
+                'current_step': 'Step 1/5: Initialization',
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            await task_manager._redis_manager.publish_immediate_message(task_id, pre_flow_message)
 
         async def hero_image_task():
             """Generate hero image in parallel once topic becomes available."""
@@ -1217,6 +1259,23 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         logger.error(f"❌ Exception module: {type(e).__module__}")
         logger.error(f"❌ Exception args: {getattr(e, 'args', 'N/A')}")
         logger.error(f"❌ Full traceback:\n{traceback.format_exc()}")
+        
+        # Send immediate error notification via SSE before updating database
+        if task_manager._redis_manager:
+            try:
+                error_message = {
+                    'message_type': 'error',
+                    'task_id': task_id,
+                    'status': 'failed',
+                    'message': f'Blog generation failed: {str(e)}',
+                    'error': str(e),
+                    'progress': 0,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                await task_manager._redis_manager.publish_immediate_message(task_id, error_message)
+                logger.info(f"📡 Sent error notification via SSE for task {task_id}")
+            except Exception as sse_error:
+                logger.error(f"Failed to send SSE error notification: {sse_error}")
         
         # Try to end audit session on error
         try:

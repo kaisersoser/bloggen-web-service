@@ -69,6 +69,8 @@ export function useEnhancedSSEConnection() {
     if (data.message_type) {
       switch (data.message_type) {
         case 'status':
+          console.log('🔢 Frontend: Received status update with progress:', data.progress, 'for task:', taskId);
+          console.log('🔢 Frontend: Message content:', data.message, 'Step:', data.step);
           onUpdate(taskId, {
             status: data.status as JobState['status'],
             currentStep: data.message || data.step,
@@ -189,7 +191,7 @@ export function useEnhancedSSEConnection() {
       onUpdate(taskId, {
         status: data.status as JobState['status'],
         currentStep: data.step,
-        progress: data.progress || (data.status === 'in_progress' ? 50 : 0)
+        progress: data.progress !== undefined ? data.progress : 0  // Use actual progress or 0, not default 50
       });
       if (onLogUpdate) {
         onLogUpdate(taskId, {
@@ -259,6 +261,8 @@ export function useEnhancedSSEConnection() {
         break;
       case 'error':
         console.error('❌ Stream error:', data.message);
+        // Call the onError callback to properly handle the error in the UI
+        onError(taskId, data.error || data.message || 'Unknown error occurred');
         break;
     }
   }, [sendCompletionAcknowledgment]);

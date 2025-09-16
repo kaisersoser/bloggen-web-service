@@ -6,7 +6,7 @@ for comprehensive real-time AI workflow visibility (Phase 1 Foundation).
 Follows Single Responsibility Principle - only manages status updates.
 """
 
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 import logging
 
 # Enhanced SSE message types for Phase 1 Foundation
@@ -27,16 +27,28 @@ class StatusUpdateManager:
     Enhanced with Phase 1 Foundation SSE message types for comprehensive AI workflow visibility.
     """
     
-    def __init__(self, status_callback: Optional[Callable] = None, total_steps: int = 4, task_id: Optional[str] = None):
+    def __init__(self, task_id: str, status_callback: Callable[[Dict[str, Any]], None], total_steps: int = 5):
+        self.task_id = task_id
         self.status_callback = status_callback
         self.total_steps = total_steps
-        self.current_step = 0
-        self.task_id = task_id or "unknown-task"
+        self._current_progress = 0  # Track current progress to avoid overriding
     
     def send_status_update(self, message: str, step: int, detail: Optional[str] = None):
         """Send enhanced status update with new SSE message types."""
         if self.status_callback:
-            progress = min((step / self.total_steps), 1.0)
+            # Map step numbers to specific progress percentages
+            step_progress_map = {
+                1: 10,   # Initialization (10%)
+                2: 25,   # Research (25%)
+                3: 50,   # Content Generation (50%)
+                4: 75,   # Fact Checking (75%)
+                5: 90    # Finalization (90%)
+            }
+            
+            progress = step_progress_map.get(step, min((step / self.total_steps) * 100, 100))
+            
+            # Track current progress to avoid overriding in agent/tool messages
+            self._current_progress = progress
             
             # Create enhanced status message
             status_message = create_status_message(
@@ -44,7 +56,7 @@ class StatusUpdateManager:
                 status='in_progress',
                 message=message,
                 step=f"Step {step}/{self.total_steps}",
-                progress=progress * 100  # Convert to percentage
+                progress=progress  # Already in percentage
             )
             
             # Convert to dict for callback
@@ -78,7 +90,7 @@ class StatusUpdateManager:
                 self.status_callback({
                     'status': 'completed',
                     'message': 'Blog generation completed successfully!',
-                    'progress': 1.0,
+                    'progress': 1.0,  # Always 100% completion
                     'content': final_content,
                     'timestamp': self._get_timestamp()
                 })
@@ -100,31 +112,43 @@ class StatusUpdateManager:
     # Phase 1 Foundation: Enhanced SSE message broadcasting methods
     
     def send_agent_thinking(self, agent_name: str, thought: str):
-        """Send agent thinking update for real-time AI decision visibility."""
+        """Send an agent thinking message without overriding progress."""
+        print(f"🚨 PRINT DEBUG: send_agent_thinking called with agent={agent_name}")
+        logger.info(f"🔍 DEBUG StatusUpdateManager.send_agent_thinking called: agent={agent_name}, thought={thought[:50]}...")
         if self.status_callback:
             try:
-                thinking_message = create_agent_thinking_message(
-                    task_id=self.task_id,
-                    agent_name=agent_name,
-                    thought=thought
-                )
-                self.status_callback(thinking_message.to_dict())
-                logger.debug(f"Agent thinking update sent: {agent_name} - {thought[:50]}...")
+                # Get current progress to avoid overriding it
+                current_progress = getattr(self, '_current_progress', 0)
+                
+                logger.info(f"🔍 DEBUG StatusUpdateManager.send_agent_thinking calling callback with progress={current_progress}")
+                self.status_callback({
+                    'message_type': 'agentthinking',
+                    'agent_name': agent_name,
+                    'thought': thought,
+                    'timestamp': self._get_timestamp(),
+                    'progress': current_progress  # Preserve current progress instead of defaulting to 0
+                })
+                logger.info(f"🔍 DEBUG StatusUpdateManager.send_agent_thinking callback completed successfully")
             except Exception as e:
                 logger.error(f"Failed to send agent thinking update: {e}")
+        else:
+            logger.warning(f"🔍 DEBUG StatusUpdateManager.send_agent_thinking: No status_callback available!")
     
-    def send_tool_usage(self, tool_name: str, input_summary: str, agent_name: Optional[str] = None):
-        """Send tool usage update for real-time tool call visibility."""
+    def send_tool_usage(self, tool_name: str, input_summary: str, agent_name: str = "Unknown"):
+        """Send a tool usage message without overriding progress.""" 
         if self.status_callback:
             try:
-                tool_message = create_tool_call_message(
-                    task_id=self.task_id,
-                    tool_name=tool_name,
-                    input_summary=input_summary,
-                    agent_name=agent_name
-                )
-                self.status_callback(tool_message.to_dict())
-                logger.debug(f"Tool usage update sent: {tool_name} by {agent_name or 'unknown agent'}")
+                # Get current progress to avoid overriding it
+                current_progress = getattr(self, '_current_progress', 0)
+                
+                self.status_callback({
+                    'message_type': 'toolcall',
+                    'tool_name': tool_name,
+                    'input_summary': input_summary,
+                    'agent_name': agent_name,
+                    'timestamp': self._get_timestamp(),
+                    'progress': current_progress  # Preserve current progress instead of defaulting to 0
+                })
             except Exception as e:
                 logger.error(f"Failed to send tool usage update: {e}")
     
@@ -143,17 +167,20 @@ class StatusUpdateManager:
             except Exception as e:
                 logger.error(f"Failed to send content stream update: {e}")
     
-    def send_research_finding(self, finding: str, source: Optional[str] = None):
-        """Send research finding update for enhanced research visibility."""
+    def send_research_finding(self, finding: str, source: str = "Research"):
+        """Send a research finding message without overriding progress."""
         if self.status_callback:
             try:
-                research_message = create_research_finding_message(
-                    task_id=self.task_id,
-                    finding=finding,
-                    source=source
-                )
-                self.status_callback(research_message.to_dict())
-                logger.debug(f"Research finding update sent: {finding[:50]}...")
+                # Get current progress to avoid overriding it
+                current_progress = getattr(self, '_current_progress', 0)
+                
+                self.status_callback({
+                    'message_type': 'researchfinding',
+                    'finding': finding,
+                    'source': source,
+                    'timestamp': self._get_timestamp(),
+                    'progress': current_progress  # Preserve current progress instead of defaulting to 0
+                })
             except Exception as e:
                 logger.error(f"Failed to send research finding update: {e}")
     

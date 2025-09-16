@@ -116,10 +116,12 @@ export function useBlogGenerator() {
       setActiveConnectionId(data.task_id);
       // REMOVED: Immediate blog refresh that was causing duplicate cards
       // The blog will appear in the sidebar through createJob() and get updated via SSE
+      console.log('🔗 Attempting to connect to SSE stream for task:', data.task_id);
       try {
         await connectToTaskStream(
           data.task_id,
           (taskId: string, updates: Partial<JobState>) => {
+            console.log('🔄 useBlogGenerator: SSE Update received:', taskId, updates);
             updateJob(taskId, updates);
             // Set isGenerating to false when we receive the first SSE update
             // This ensures the console stays visible until real-time updates start
@@ -132,6 +134,7 @@ export function useBlogGenerator() {
           handleTaskError,
           (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
         );
+        console.log('✅ SSE connection established successfully for task:', data.task_id);
         // Don't set isGenerating(false) here - let the first SSE update handle it
       } catch (sseErr) {
         console.error('Failed to start SSE stream:', sseErr);

@@ -3,14 +3,12 @@ import { Button } from "@/components/ui/button";
 import { UserProfileDropdown } from "@/components/auth/UserProfileDropdown";
 import { CenterChatInterface } from "@/components/blog/CenterChatInterface";
 import { BlogTileGrid } from "@/components/blog/BlogTileGrid";
-import { MinimizedCrewConsole } from "@/components/blog/MinimizedCrewConsole";
 import { BlogViewModal } from "@/components/blog/BlogViewModal";
 import { DeleteConfirmationDialog } from "@/components/blog/DeleteConfirmationDialog";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
-import { useStreamingBlogGeneration } from "@/hooks/useStreamingBlogGeneration";
 import { signIn } from "next-auth/react";
 
 export default function BlogGenerator() {
@@ -44,32 +42,8 @@ export default function BlogGenerator() {
     setGenerationError
   } = useBlogGenerator();
 
-  // Phase 4 Progressive Content Streaming - TODO: Implement full streaming next
-  const {
-    startStreamingGeneration,
-    stopStreaming,
-    isConnected,
-    streamingStats
-  } = useStreamingBlogGeneration({
-    onJobUpdate: () => {
-      // TODO: This will be integrated with the existing job management system
-    },
-    onJobCompletion: () => {
-      // TODO: This will be integrated with the existing job management system  
-    },
-    onJobError: (_taskId, error) => {
-      setGenerationError(error);
-    },
-    onJobLogUpdate: () => {
-      // TODO: This will be integrated with the existing job management system
-    }
-  });
-
-  // Suppress unused variable warnings for planned streaming functionality
-  void startStreamingGeneration;
-  void stopStreaming;
-  void streamingStats;
-  void isConnected;
+  // Phase 4 Progressive Content Streaming - Future enhancement placeholder
+  // SSE connection is handled by useBlogGenerator hook
 
   // Loading state while authenticating
   if (isLoading) {
@@ -137,6 +111,10 @@ export default function BlogGenerator() {
                 </span>
               </div>
               <ProgressBar value={currentJob.progress} showLabel={false} />
+              {/* Debug info */}
+              <div className="text-xs text-gray-400 mt-1">
+                Debug: progress={currentJob.progress}, rounded={Math.round(currentJob.progress)}
+              </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                 AI agents are collaborating to create your blog. This may take a few minutes.
               </p>
@@ -177,27 +155,6 @@ export default function BlogGenerator() {
           />
         </div>
       </div>
-
-      {/* Minimized Crew Console */}
-      <MinimizedCrewConsole
-        isVisible={true}
-        isExpanded={false}
-        currentJob={currentJob ? {
-          id: currentJob.id,
-          status: currentJob.status,
-          progress: currentJob.progress,
-          topic: currentJob.topic || ''
-        } : undefined}
-        taskLogs={currentJobId ? (taskLogs[currentJobId] || []).map(log => ({
-          id: `${log.timestamp}-${Math.random()}`,
-          timestamp: log.timestamp,
-          step: log.step,
-          progress: 0,
-          details: log.message,
-          status: 'completed' as const
-        })) : []}
-        isGenerating={isGenerating || (currentJob?.status === 'in_progress')}
-      />
 
       {/* Modals */}
       <DeleteConfirmationDialog

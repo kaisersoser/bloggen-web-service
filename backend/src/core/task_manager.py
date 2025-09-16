@@ -279,6 +279,11 @@ class TaskManager:
             import redis
             import os
             
+            # Debug logging
+            logger.info(f"🔍 DEBUG: update_task_redis_only called for task {task_id}")
+            logger.info(f"🔍 DEBUG: status_data keys: {list(status_data.keys())}")
+            logger.info(f"🔍 DEBUG: message_type: {status_data.get('message_type', 'unknown')}")
+            
             # Extract update information from status data
             message = status_data.get('message', 'Processing...')
             progress = status_data.get('progress', 0.0)
@@ -290,9 +295,9 @@ class TaskManager:
                 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
                 sync_redis = redis.from_url(redis_url, decode_responses=True)
                 
-                # Create message for immediate SSE broadcasting
+                # Create message for immediate SSE broadcasting - preserve original message type
                 immediate_message = {
-                    'message_type': 'status',
+                    'message_type': message_type,  # Preserve the original message type (agentthinking, toolcall, etc.)
                     'task_id': task_id,
                     'status': 'in_progress',
                     'message': message,
@@ -300,15 +305,20 @@ class TaskManager:
                     'timestamp': datetime.utcnow().isoformat()
                 }
                 
+                # Add enhanced message fields if present
+                for field in ['agent_name', 'thought', 'tool_name', 'input_summary', 'content_type', 'finding', 'source']:
+                    if field in status_data:
+                        immediate_message[field] = status_data[field]
+                
                 # Publish to task-specific channel for SSE
                 task_channel = f"task_updates:{task_id}"
                 sync_redis.publish(task_channel, json.dumps(immediate_message))
                 
-                # Cache task status in Redis for SSE recovery (using string format for consistency)
+                # Cache task status in Redis for SSE recovery (keep numbers as numbers)
                 status_key = f"task_status:{task_id}"
                 status_data = {
                     'current_step': message,
-                    'progress': str(progress),
+                    'progress': progress,  # Keep as number, not string
                     'status': 'IN_PROGRESS',
                     'updated_at': datetime.utcnow().isoformat(),
                     'message_type': message_type
