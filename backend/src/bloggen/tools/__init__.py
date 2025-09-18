@@ -10,6 +10,7 @@ from .url_validation_tool import URLValidationTool, BulkURLValidationTool
 from .url_quality_gate import URLQualityGate, format_quality_report
 from .url_validation_enforcer import URLValidationEnforcer, create_validation_enforcer
 from .reference_deduplicator import ReferenceDeduplicator, create_reference_deduplicator, format_deduplication_report
+from .safe_research_tools import SafeSerperTool, SafeWebScrapeTool, create_safe_research_tools
 
 __all__ = [
     'UnsplashImageTool',
@@ -22,5 +23,8 @@ __all__ = [
     'create_validation_enforcer',
     'ReferenceDeduplicator',
     'create_reference_deduplicator',
-    'format_deduplication_report'
+    'format_deduplication_report',
+    'SafeSerperTool',
+    'SafeWebScrapeTool',
+    'create_safe_research_tools'
 ]

@@ -24,6 +24,9 @@ except ImportError:  # pragma: no cover
 from crewai.flow.flow import Flow, start, listen
 from crewai import Crew
 
+# CrewAI stdout capture for real-time agent visibility
+from core.crewai_stdout_capture import capture_crewai_output
+
 from .status_manager import StatusUpdateManager
 from .agent_factory import AgentFactory
 from .task_factory import TaskFactory
@@ -251,7 +254,7 @@ class BlogGenerationFlow(Flow):
             return self._execute_with_streaming(crew, phase_name)
     
     def _execute_with_streaming(self, crew, phase_name: str) -> Any:
-        """Execute crew with content streaming support and periodic status updates"""
+        """Execute crew with content streaming support and CrewAI stdout capture"""
         import threading
         import time
         
@@ -263,6 +266,55 @@ class BlogGenerationFlow(Flow):
             if hasattr(self, 'blog_id') and self.blog_id:
                 asyncio.create_task(task_manager.setup_content_streaming(self.blog_id))
             
+            # Define CrewAI event callback for stdout capture
+            def crewai_event_callback(event):
+                """Handle parsed CrewAI stdout events"""
+                try:
+                    event_type = event.get('type')
+                    data = event.get('data', {})
+                    
+                    if event_type == 'agent_thinking':
+                        agent_name = data.get('agent_name', f"{phase_name.title()} Agent")
+                        thought = data.get('thought', 'Processing...')
+                        logger.info(f"🧠 Captured agent thinking: {agent_name} - {thought}")
+                        self.status_manager.send_agent_thinking(agent_name, thought)
+                        
+                    elif event_type == 'tool_usage':
+                        tool_name = data.get('tool_name', 'Unknown Tool')
+                        agent_name = f"{phase_name.title()} Agent"
+                        logger.info(f"🔧 Captured tool usage: {tool_name}")
+                        self.status_manager.send_tool_usage(agent_name, tool_name, "")
+                        
+                    elif event_type == 'tool_input':
+                        tool_input = data.get('input', '')
+                        logger.info(f"📥 Captured tool input: {tool_input}")
+                        
+                    elif event_type == 'observation':
+                        result = data.get('result', '')
+                        agent_name = f"{phase_name.title()} Agent"
+                        logger.info(f"👁️ Captured observation: {result[:100]}...")
+                        self.status_manager.send_agent_thinking(agent_name, f"Received: {result[:100]}...")
+                        
+                    elif event_type == 'final_answer':
+                        answer = data.get('answer', '')
+                        agent_name = f"{phase_name.title()} Agent"
+                        logger.info(f"✅ Captured final answer: {answer[:100]}...")
+                        self.status_manager.send_agent_thinking(agent_name, f"Completed: {answer[:50]}...")
+                        
+                    elif event_type == 'delegation':
+                        delegate_to = data.get('delegate_to', '')
+                        agent_name = f"{phase_name.title()} Agent"
+                        logger.info(f"👥 Captured delegation: {delegate_to}")
+                        self.status_manager.send_agent_thinking(agent_name, f"Delegating to: {delegate_to}")
+                        
+                    elif event_type == 'error':
+                        error = data.get('error', '')
+                        agent_name = f"{phase_name.title()} Agent"
+                        logger.error(f"❌ Captured error: {error}")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing CrewAI event: {e}")
+            
             # Start periodic updates in a background thread
             execution_complete = threading.Event()
             update_thread = threading.Thread(
@@ -272,9 +324,11 @@ class BlogGenerationFlow(Flow):
             update_thread.daemon = True
             update_thread.start()
             
-            # Execute the crew in the main thread
+            # Execute the crew with stdout capture for real-time visibility
+            logger.info(f"🚀 Starting CrewAI execution with stdout capture for {phase_name}")
             try:
-                result = crew.kickoff()
+                with capture_crewai_output(crewai_event_callback):
+                    result = crew.kickoff()
             finally:
                 # Signal completion to stop updates
                 execution_complete.set()
@@ -284,12 +338,37 @@ class BlogGenerationFlow(Flow):
             if hasattr(self, 'blog_id') and self.blog_id:
                 self._stream_phase_result(phase_name, result)
             
+            logger.info(f"✅ CrewAI execution completed for {phase_name}")
             return result
             
         except Exception as e:
-            logger.error(f"Streaming execution failed for {phase_name}: {e}")
+            logger.error(f"Error in crew execution for {phase_name}: {e}")
             # Fallback to basic execution
-            return crew.kickoff()
+            logger.warning(f"Falling back to basic execution for {phase_name}")
+            return self._execute_with_periodic_fallback(crew, phase_name)
+    
+    def _execute_with_periodic_fallback(self, crew, phase_name: str) -> Any:
+        """Fallback execution with periodic updates"""
+        import threading
+        
+        # Start periodic updates in a background thread
+        execution_complete = threading.Event()
+        update_thread = threading.Thread(
+            target=self._send_periodic_updates_during_execution,
+            args=(phase_name, execution_complete)
+        )
+        update_thread.daemon = True
+        update_thread.start()
+        
+        # Execute the crew in the main thread
+        try:
+            result = crew.kickoff()
+        finally:
+            # Signal completion to stop updates
+            execution_complete.set()
+            update_thread.join(timeout=1)  # Wait briefly for update thread to finish
+        
+        return result
     
     def _send_periodic_updates_during_execution(self, phase_name: str, execution_complete):
         """Send realistic updates while crew is executing"""

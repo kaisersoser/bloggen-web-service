@@ -1,0 +1,958 @@
+{
+  "test_metadata": {
+    "test_type": "comprehensive_blog_generation",
+    "timestamp": 1758230440.186913,
+    "duration": 175.59050607681274,
+    "total_notifications": 78
+  },
+  "summary": {
+    "categories": {
+      "agent_events": 50,
+      "tool_events": 11,
+      "image_events": 4,
+      "status_events": 0,
+      "other_events": 0
+    },
+    "sources": {
+      "crewai_events": 78,
+      "enhanced_events": 0,
+      "other_events": 0
+    },
+    "event_types": {
+      "agent_thinking": 50,
+      "tool_usage": 6,
+      "tool_input": 5,
+      "observation": 5,
+      "final_answer": 8,
+      "image_source_fallback": 3,
+      "image_auto_enhancement": 1
+    }
+  },
+  "all_notifications": [
+    {
+      "timestamp": 8.252225637435913,
+      "relative_time": "8.3s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "PDF",
+          "thought": "Technology Trends Outlook 2025 - McKinsey', 'link': 'https://www.mckinsey.com/~/media/mckinsey/business%20functions/mckinsey%20digital/our%20insights/the%20top%20trends%20in%20tech%202025/mckinsey-technology-trends-outlook-2025.pdf', 'snippet': \"This year's McKinsey Technology Trends Outlook provides in-depth perspectives on 13\u2014a \u201cbaker's dozen\u201d\u2014frontier technology trends with the.\", 'position': 2}, {'title': 'McKinsey Breaks Down 13 Tech Trends For The Year Ahead - Forbes', 'link': 'https://www.forbes.com/sites/johnwerner/2025/09/11/mckinsey-breaks-down-13-tech-trends-for-the-year-ahead/', 'snippet': \"McKinsey's 2025 Tech Trends report identifies 13 enterprise AI focus areas, highlighting agentic AI, semiconductors, quantum, bioengineering ...\", 'position': 3}, {'title': 'Which tech trends are rising to the top of the business agenda?', 'link': 'https://www.mckinsey.com/capabilities/mckinsey-digital/our-insights/which-tech-trends-are-rising-to-the-top-of-the-business-agenda', 'snippet': \"McKinsey's annual outlook on technology trends points to 13 \u201cfrontier\u201d trends that can help companies get a handle on these and other challenges ...\", 'position': 4}, {'title': 'McKinsey Technology Trends Outlook 2025 | Holger Harreis - LinkedIn', 'link': 'https://www.linkedin.com/posts/holgerharreis_mckinsey-technology-trends-outlook-2025-activity-7372146976307539968-fd5W', 'snippet': \"The top 10 tech trends shaping our future, and what leaders need to know We're living through a moment of unprecedented technological ...\", 'position': 5}, {'title': 'The future of business: 13 tech trends that matter - McKinsey', 'link': 'https://www.mckinsey.com/featured-insights/mckinsey-live/webinars/the-future-of-business-13-tech-trends-that-matter', 'snippet': 'For more on these topics, see the report Technology Trends Outlook 2025 as well as the reports The Year of Quantum: From concept to reality in 2025, and ...', 'position': 6}, {'title': 'Jacob Abboud - McKinsey Technology Trends Outlook 2025 - LinkedIn', 'link': 'https://www.linkedin.com/posts/jacobabboud_mckinsey-technology-trends-outlook-2025-activity-7369857938343235585-i5fK', 'snippet': 'The McKinsey Technology Trends Outlook 2025 highlights AI as a foundational force with agentic AI as one of the fastest-growing trends, ...', 'position': 7}, {'title': 'Monthly Highlights, August 2025 - McKinsey', 'link': 'https://www.mckinsey.com/~/media/mckinsey/email/monthly/2025/2025-08-02a.html', 'snippet': 'Our annual tech trends report highlights the latest technology breakthroughs, talent trends, use cases, and their potential impact on companies across sectors.', 'position': 8}, {'title': \"Report Spotlight: McKinsey's Technology Trends Outlook 2025\", 'link': 'https://innovation.setsquared.co.uk/news/2761253', 'snippet': \"McKinsey's Technology Trends Outlook 2025 highlights 13 breakthrough tech domains that are reshaping business, society, ...\", 'position': 9}, {'title': 'Tech Trends 2025 What Matters Most, McKinsey Outlook - YouTube', 'link': 'https://www.youtube.com/watch?v=UJPJfwiLRzY', 'snippet': 'https://www.mckinsey.com/capabilities/mckinsey-digital/our-insights/the-top-trends-in-tech.', 'position': 10}], 'relatedSearches': [{'query': 'Mckinsey technology trends outlook 2025 pdf'}, {'query': 'Deloitte Tech Trends 2025'}, {'query': '2025 Tech Trends report'}, {'query': 'Tech sector outlook 2025'}, {'query': 'Digital trends 2025'}, {'query': 'McKinsey AI report 2025'}, {'query': 'IT infrastructure trends 2025'}, {'query': 'Best technology to learn in 2025'}], 'credits': 1}"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 8.25232458114624,
+      "relative_time": "8.3s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "str",
+          "thought": "'}, 'timeout': {'description': 'Request timeout in seconds per URL', 'type': 'int'}}"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 8.252460956573486,
+      "relative_time": "8.3s",
+      "event": {
+        "type": "tool_usage",
+        "data": {
+          "tool_name": "the action to take, only one name of [url_validator, bulk_url_validator, safe_serper_search, safe_web_scrape], just the name, exactly as it's written.",
+          "status": "started"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 8.252520561218262,
+      "relative_time": "8.3s",
+      "event": {
+        "type": "tool_input",
+        "data": {
+          "input": "the input to the action, just a simple JSON object, enclosed in curly braces, using \" to wrap keys and values."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 8.252560138702393,
+      "relative_time": "8.3s",
+      "event": {
+        "type": "observation",
+        "data": {
+          "result": "the result of the action"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 8.252606868743896,
+      "relative_time": "8.3s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "the final answer to the original input question"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 22.872135639190674,
+      "relative_time": "22.9s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "str",
+          "thought": "'}, 'timeout': {'description': 'Request timeout in seconds per URL', 'type': 'int'}}"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 22.872284650802612,
+      "relative_time": "22.9s",
+      "event": {
+        "type": "tool_usage",
+        "data": {
+          "tool_name": "the action to take, only one name of [url_validator, bulk_url_validator, safe_serper_search, safe_web_scrape], just the name, exactly as it's written.",
+          "status": "started"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 22.872342348098755,
+      "relative_time": "22.9s",
+      "event": {
+        "type": "tool_input",
+        "data": {
+          "input": "the input to the action, just a simple JSON object, enclosed in curly braces, using \" to wrap keys and values."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 22.872380018234253,
+      "relative_time": "22.9s",
+      "event": {
+        "type": "observation",
+        "data": {
+          "result": "the result of the action"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 22.87242555618286,
+      "relative_time": "22.9s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "the final answer to the original input question"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 25.948787689208984,
+      "relative_time": "25.9s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "2025",
+          "thought": "- DigitalDefynd', 'link': 'https://digitaldefynd.com/IQ/artificial-intelligence-case-studies/', 'snippet': 'Detailed AI case studies that illustrate how organizations across the world are deploying intelligent technologies to solve unique challenges.', 'position': 1}, {'title': '100+ AI Use Cases with Real Life Examples - AIMultiple', 'link': 'https://research.aimultiple.com/ai-usecases/', 'snippet': 'I analyzed 100+ AI use cases, their real-life examples and categorized them by business function and industry.', 'position': 2}, {'title': 'AI Adoption That Works: 5 Enterprise Case Studies - NineTwoThree', 'link': 'https://www.ninetwothree.co/blog/ai-adoption-case-studies', 'snippet': 'Discover 5 real-world AI adoption case studies showing how Walmart, BMW, JPMorgan & more turn AI pilots into measurable business results.', 'position': 3}, {'title': 'Top 15 AI Business Use Cases in 2025 + Examples - Product School', 'link': 'https://productschool.com/blog/artificial-intelligence/ai-business-use-cases', 'snippet': 'From personalized customer experiences to workforce optimization and advanced financial reporting, AI is transforming industries across the board.', 'position': 4}, {'title': 'AI Case Studies | EY - Global', 'link': 'https://www.ey.com/en_gl/services/ai/case-studies', 'snippet': 'Explore our AI case studies to learn how we are helping EY clients build confidence, create value and augment people potential with AI. Learn more.', 'position': 5}, {'title': '12 Powerful AI Marketing Case Studies to Inspire You in 2025', 'link': 'https://www.pragmatic.digital/blog/ai-marketing-case-study-successful-campaigns', 'snippet': 'This article breaks down 12 real-world AI marketing case studies, with clear outcomes and strategic takeaways you can apply now.', 'position': 6}, {'title': 'AI Case Studies & Client Stories | Bain & Company', 'link': 'https://www.bain.com/client-results/ai/', 'snippet': 'From AI pilots to AI at scale, Bain is helping companies win with AI. See how our clients are turning the promise of AI into results.', 'position': 7}, {'title': \"Real-world gen AI use cases from the world's leading organizations\", 'link': 'https://cloud.google.com/transform/101-real-world-generative-ai-use-cases-from-industry-leaders', 'snippet': \"601 real-world gen AI use cases from the world's leading organizations \u00b7 Customer Agents Accenture \u00b7 Employee Agents BCG \u00b7 Creative Agents Kraft ...\", 'position': 8}, {'title': 'AI Case Studies - ASHP', 'link': 'https://www.ashp.org/Pharmacy-Practice/Resource-Centers/Digital-Health-and-Artificial-Intelligence/AI-Case-Studies', 'snippet': 'This member-only library features real-world case studies submitted by peers across the country, offering practical insights into implementation strategies.', 'position': 9}], 'peopleAlsoAsk': [{'question': 'What will be predicted in 2025 for AI?', 'snippet': 'MIDYEAR UPDATE: 2025 AI PREDICTIONS\\nAmbitious AI strategies are turning business models into measurable competitive edges.\\nAI agents boost capacity and highlight the need for well-orchestrated multi-agent systems.\\nModernize your data and cloud foundations, embed responsible AI governance and integrate sustainability.', 'title': 'Midyear update 2025 AI predictions: PwC', 'link': 'https://www.pwc.com/us/en/tech-effect/ai-analytics/ai-predictions-update.html'}, {'question': 'What is an example of AI in a case study?', 'snippet': 'In 2017, a paralysed human was able to control a cursor mentally to type out words and sentences on a computer and in 2018, that same person was able to use a tablet functionally to browse the web, send emails and play games. Each of these tales constitutes a remarkable case study on AI in its own right.', 'title': 'Artificial Intelligence case study - Immerse Education', 'link': 'https://www.immerse.education/beyond-syllabus/artificial-intelligence/artificial-intelligence-case-study/'}, {'question': 'How are people really using AI in 2025?', 'snippet': 'This was the fastest-growing category, nearly doubling from 17% in 2024 to 30% in 2025. People use AI to organize their lives, manage their time, get help preparing for job interviews, plan workouts, navigate parenting challenges and even talk through emotional situations.', 'title': \"The Top 100 Ways People Are Using AI in 2025 (and How They've ...\", 'link': 'https://www.qualtrics.com/blog/the-top-100-ways-people-are-using-ai-2025/'}, {'question': 'What is the top trend in AI 2025?', 'snippet': 'Data Analytics.\\nSecurity & Identity. Threat Intelligence.\\nInfrastructure.\\nInfrastructure Modernization.\\nProductivity & Collaboration.\\nSAP on Google Cloud.\\nStorage & Data Transfer.\\nSustainability.', 'title': '5 AI Trends Shaping the Future of Public Sector in 2025 - Google Cloud', 'link': 'https://cloud.google.com/blog/topics/public-sector/5-ai-trends-shaping-the-future-of-the-public-sector-in-2025'}], 'relatedSearches': [{'query': 'Ai case studies 2025 examples in real life'}, {'query': 'Ai case studies 2025 examples pdf'}, {'query': 'Generative AI use cases examples'}, {'query': 'Artificial intelligence case study PDF'}, {'query': 'AI case study examples'}, {'query': 'Artificial intelligence case study topics'}, {'query': 'GenAI use cases examples'}, {'query': 'AI use cases McKinsey'}], 'credits': 1}\u001b[00m"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 27.411216974258423,
+      "relative_time": "27.4s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "str",
+          "thought": "'}, 'timeout': {'description': 'Request timeout in seconds per URL', 'type': 'int'}}"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 27.411378383636475,
+      "relative_time": "27.4s",
+      "event": {
+        "type": "tool_usage",
+        "data": {
+          "tool_name": "the action to take, only one name of [url_validator, bulk_url_validator, safe_serper_search, safe_web_scrape], just the name, exactly as it's written.",
+          "status": "started"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 27.41143774986267,
+      "relative_time": "27.4s",
+      "event": {
+        "type": "tool_input",
+        "data": {
+          "input": "the input to the action, just a simple JSON object, enclosed in curly braces, using \" to wrap keys and values."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 27.41147470474243,
+      "relative_time": "27.4s",
+      "event": {
+        "type": "observation",
+        "data": {
+          "result": "the result of the action"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 27.41152262687683,
+      "relative_time": "27.4s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "the final answer to the original input question"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 29.04953670501709,
+      "relative_time": "29.0s",
+      "event": {
+        "type": "tool_usage",
+        "data": {
+          "tool_name": "The system helps schedule maintenance before breakdowns occur, avoiding unplanned downtime and potential environmental risks.What These Stories Tell UsLooking across these implementations, the successful ones share some key characteristics that separate real results from pilot program theater:They Solve Specific, Expensive Problems\u00a0None of these companies deployed AI because it was trendy. Walmart needed better logistics. BMW needed higher quality. JPMorgan needed faster contract review. Each solution targets a clear business challenge with measurable costs.They Start With Great Data\u00a0Every successful case involved companies that already had solid data infrastructure. AI amplifies what you have\u2014if your data is messy, your AI will be messy too.They Augment Human Expertise, Don't Replace It\u00a0Notice that none of these systems run fully autonomous. BMW's quality system works with human inspectors. JPMorgan's COIN freed up lawyers for more complex work. The AI handles the routine stuff so humans can focus on judgment calls.They Measure Everything\u00a0Each example comes with specific numbers: dollars saved, hours eliminated, defects caught, predictions made. Without clear metrics, you can't tell success from expensive experimentation.They Think Beyond the Pilot\u00a0The most successful implementations have a path from proof of concept to full deployment. Walmart turned theirs into a product. Shell scaled to 10,000 assets. CarMax integrated theirs into the customer experience. Pilot programs that can't scale aren't really solutions.Final ThoughtWhen done well, enterprise AI adoption delivers more than efficiency. It creates confidence. Teams can act faster, make smarter decisions, and serve customers better, because they\u2019re no longer guessing.Whether you\u2019re just starting out or ready to scale, the message is clear: AI works when you make it a business strategy, not just a tech initiative.Ready to talk about building something real? Start with the AI Playbook or reach out to see how we can help.It\u2019s 2025, and AI isn\u2019t just part of the innovation agenda \u2013 it\u2019s showing up in boardroom discussions, budget allocations, and real operational workflows. But while more companies are experimenting with AI, far fewer are turning those experiments into long-term business value.What does successful AI adoption look like in practice?This article explores that question by looking at real enterprise case studies across industries where AI has moved past the pilot phase and is delivering measurable results. Along the way, we\u2019ll examine the current state of AI in business, the most common AI adoption challenges, and the value of following a structured AI adoption framework to avoid common pitfalls.Whether you\u2019re building your first AI use case or scaling what\u2019s already working, these examples offer practical insight into what it really takes.AI in 2025: Mature Ambition Meets Operational RealityAccording to the McKinsey Global Survey on AI, 72% of enterprises have adopted at least one AI capability. That\u2019s a major jump from 20% in 2017, showing that AI has become a near-universal priority.But ambition doesn\u2019t guarantee results. Only 23% of companies report significant cost savings from their AI initiatives. And fewer still can point to AI as a key driver of revenue or competitive advantage.Additional AI adoption statistics 2025 underline this gap:84% of C-suite leaders view AI as critical for staying competitive (PwC)55% of enterprises have increased AI investment even as other tech budgets were cut (Gartner)\u200dBut that investment won\u2019t pay off without solving the biggest AI adoption challenges, including:Inaccessible or low-quality dataLack of technical expertiseMisalignment between business needs and technical goalsEthical, compliance, or security concernsResistance from employees worried about automationThat\u2019s why many companies are turning to structured strategies and playbooks. Using a proven ai adoption framework allows organizations to de-risk early pilots, define measurable outcomes, and set realistic expectations for scalability. If you're looking for a place to start, the AI Playbook is a practical guide that outlines each phase of the adoption journey \u2014 from early use case discovery to successful deployment and integration.Now, let\u2019s look at what success really looks like.5 Enterprise AI Adoption Case StudiesEnterprise adoption of artificial intelligence is delivering measurable results across sectors. The following case studies illustrate how leading companies have successfully deployed AI solutions and the impact those initiatives have had.Walmart \u2013 Smarter Supply Chains with AIWalmart, the world\u2019s largest retailer, has used AI and advanced analytics to enhance its supply chain, specifically in truck routing and load optimization. In 2023, its in-house AI system earned the INFORMS Franz Edelman Award for operational excellence.Cost Savings: Walmart saved approximately $75 million in a single fiscal year by reducing fuel use, improving truck utilization, and streamlining logistics operations.Environmental Impact: The AI-driven optimizations cut nearly 72 million pounds of CO\u2082 emissions, combining business efficiency with sustainability.Recognition: The success story was spotlighted by INFORMS as a prime example of AI-driven transformation in retail logistics.BMW \u2013 Quality Control Powered by AIBMW integrated AI-powered computer vision into its assembly lines, enabling real-time inspections of vehicle components and final products.Fewer Defects: Factories reported up to a 60% reduction in vehicle defects, thanks to early detection of scratches, misalignments, or other anomalies.Faster Rollouts: By using no-code AI tools and synthetic data, BMW cut the time needed to implement new quality checks by around two-thirds.Proactive Processes: BMW\u2019s approach helped shift quality control from reactive to predictive, contributing to improved production consistency.JPMorgan Chase \u2013 Automating Legal Work with AIJPMorgan developed an AI system called COIN (Contract Intelligence) to automate document review processes, particularly for complex loan agreements.Massive Time Savings: COIN now performs the equivalent of 360,000 staff hours annually \u2013 over 40 years of manual work.Faster & More Accurate: The system processes documents in seconds, reducing human errors while increasing speed.Workforce Enablement: By removing repetitive tasks, employees can now focus on higher-value responsibilities like client strategy and problem-solving.CarMax \u2013 Scaling Content with Generative AICarMax partnered with OpenAI through Microsoft\u2019s Azure service to enhance customer experiences using GPT-3.Volume of Content: AI summarized over 100,000 customer reviews into approximately 5,000 digestible highlights, aiding purchase decisions.Rapid Production: What would\u2019ve taken 11 years manually was completed in just a few months.Customer Engagement: The summaries improved site SEO and allowed staff to shift focus to in-depth content creation.Shell \u2013 Predictive Maintenance Across Global AssetsShell uses AI to predict and prevent equipment failures, increasing uptime and safety across its oil and gas operations.Scale: As of 2022, over 10,000 assets including pumps and compressors were monitored by Shell\u2019s AI platform.Massive Data Use: Each week, the system processes 20 billion sensor readings, running 11,000 models to produce 15 million predictions daily.Preventative Action: The system helps schedule maintenance before breakdowns occur, avoiding unplanned downtime and potential environmental risks.What These Stories Tell UsLooking across these implementations, the successful ones share some key characteristics that separate real results from pilot program theater:They Solve Specific, Expensive Problems\u00a0None of these companies deployed AI because it was trendy. Walmart needed better logistics. BMW needed higher quality. JPMorgan needed faster contract review. Each solution targets a clear business challenge with measurable costs.They Start With Great Data\u00a0Every successful case involved companies that already had solid data infrastructure. AI amplifies what you have\u2014if your data is messy, your AI will be messy too.They Augment Human Expertise, Don't Replace It\u00a0Notice that none of these systems run fully autonomous. BMW's quality system works with human inspectors. JPMorgan's COIN freed up lawyers for more complex work. The AI handles the routine stuff so humans can focus on judgment calls.They Measure Everything\u00a0Each example comes with specific numbers: dollars saved, hours eliminated, defects caught, predictions made. Without clear metrics, you can't tell success from expensive experimentation.They Think Beyond the Pilot\u00a0The most successful implementations have a path from proof of concept to full deployment. Walmart turned theirs into a product. Shell scaled to 10,000 assets. CarMax integrated theirs into the customer experience. Pilot programs that can't scale aren't really solutions.Final ThoughtWhen done well, enterprise AI adoption delivers more than efficiency. It creates confidence. Teams can act faster, make smarter decisions, and serve customers better, because they\u2019re no longer guessing.Whether you\u2019re just starting out or ready to scale, the message is clear: AI works when you make it a business strategy, not just a tech initiative.Ready to talk about building something real? Start with the AI Playbook or reach out to see how we can help.Alina DolbenskaExplore moreOur VenturesChatbotsPWAConsultingCMSWeb AppAndroidiOSHubspot IntegrationUI / UX DesignCustomer AcquisitionGo-To-MarketCustom Software DevelopmentEdge IoTReact NativeMobile AppHybrid AppLLMGenerative AIRetained TeamMachine LearningAwards and MediaProduct StrategyFounder InsightsInternet of ThingsBusiness ModelsMost Popular4 AI Implementation Myths Debunked by 923 AI Studio September 3, 2025ChatGPT Agent Mode: Use Cases, Limits, and Business ValueAugust 6, 2025Top AI Thought Leaders to Follow Beyond Sam AltmanJuly 4, 2025More from\u00a0Generative AISeptember 5, 2025Claude for Chrome: Productivity Boost or Security Risk?September 3, 20254 AI Implementation Myths Debunked by 923 AI Studio table of contentText LinkSubscribe To Our Newsletter",
+          "status": "started"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 31.044189453125,
+      "relative_time": "31.0s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "str",
+          "thought": "'}, 'timeout': {'description': 'Request timeout in seconds per URL', 'type': 'int'}}"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 31.044594526290894,
+      "relative_time": "31.0s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "str",
+          "thought": "'}, 'timeout': {'description': 'Request timeout in seconds per URL', 'type': 'int'}}"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 31.044917345046997,
+      "relative_time": "31.0s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "str",
+          "thought": "'}, 'timeout': {'description': 'Request timeout in seconds per URL', 'type': 'int'}}"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 31.04508352279663,
+      "relative_time": "31.0s",
+      "event": {
+        "type": "tool_usage",
+        "data": {
+          "tool_name": "the action to take, should be one of [url_validator, bulk_url_validator, safe_serper_search, safe_web_scrape]",
+          "status": "started"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 31.045137882232666,
+      "relative_time": "31.0s",
+      "event": {
+        "type": "tool_input",
+        "data": {
+          "input": "the input to the action, dictionary enclosed in curly braces"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 31.045172691345215,
+      "relative_time": "31.0s",
+      "event": {
+        "type": "observation",
+        "data": {
+          "result": "the result of the action"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 31.045228004455566,
+      "relative_time": "31.0s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "Your final answer must be the great and the most complete as possible, it must be outcome described"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68768835067749,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "\u001b[00m \u001b[92m"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.6878604888916,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.688048362731934,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68815541267395,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.6882586479187,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.688390254974365,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.688530683517456,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Statista",
+          "thought": "(https://www.statista.com/outlook/tmo/artificial-intelligence/worldwide?srsltid=AfmBOoqiurGQOkdeLdJVVK_IhDLYLH-umIC8Fej7j3QNocga7FXfOAS6) Another estimate places the 2025 global AI market size at USD 638.23 billion, projected to reach USD 3680.47 billion by 2034. [Precedence Research](https://www.precedenceresearch.com/artificial-intelligence-market)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68861389160156,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "NineTwoThree",
+          "thought": "(https://www.ninetwothree.co/blog/ai-adoption-case-studies)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68868112564087,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "NineTwoThree",
+          "thought": "(https://www.ninetwothree.co/blog/ai-adoption-case-studies)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.688743591308594,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "NineTwoThree",
+          "thought": "(https://www.ninetwothree.co/blog/ai-adoption-case-studies)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.6888062953949,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "NineTwoThree",
+          "thought": "(https://www.ninetwothree.co/blog/ai-adoption-case-studies)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.688873052597046,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "NineTwoThree",
+          "thought": "(https://www.ninetwothree.co/blog/ai-adoption-case-studies)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68893384933472,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "NineTwoThree",
+          "thought": "(https://www.ninetwothree.co/blog/ai-adoption-case-studies)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68901348114014,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.689074754714966,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.689148902893066,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68921661376953,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.68927764892578,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 50.689337968826294,
+      "relative_time": "50.7s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Microsoft Source",
+          "thought": "(https://news.microsoft.com/source/features/ai/6-ai-trends-youll-see-more-of-in-2025/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 53.92555284500122,
+      "relative_time": "53.9s",
+      "event": {
+        "type": "image_source_fallback",
+        "data": {
+          "message": "Switched from Unsplash to AI generation for better image relevance",
+          "previous_source": "unsplash",
+          "new_source": "ai_generation",
+          "reason": "relevance_check_failed"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 85.80074048042297,
+      "relative_time": "85.8s",
+      "event": {
+        "type": "image_source_fallback",
+        "data": {
+          "message": "Switched from Unsplash to AI generation for better image relevance",
+          "previous_source": "unsplash",
+          "new_source": "ai_generation",
+          "reason": "relevance_check_failed"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 124.8104567527771,
+      "relative_time": "124.8s",
+      "event": {
+        "type": "tool_usage",
+        "data": {
+          "tool_name": "the action to take, only one name of [unsplash_image_search, openai_image_generate], just the name, exactly as it's written.",
+          "status": "started"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 124.81087708473206,
+      "relative_time": "124.8s",
+      "event": {
+        "type": "tool_input",
+        "data": {
+          "input": "the input to the action, just a simple JSON object, enclosed in curly braces, using \" to wrap keys and values."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 124.81111001968384,
+      "relative_time": "124.8s",
+      "event": {
+        "type": "observation",
+        "data": {
+          "result": "the result of the action"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 124.81138801574707,
+      "relative_time": "124.8s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "the final answer to the original input question"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 134.88711524009705,
+      "relative_time": "134.9s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "\u001b[00m \u001b[92m"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 134.90888595581055,
+      "relative_time": "134.9s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Content Validation",
+          "thought": "\u274c Content validation failed"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5863265991211,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "final_answer",
+        "data": {
+          "answer": "\u001b[00m \u001b[92m"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5865035057068,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "1",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5865490436554,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "2",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5865936279297,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "2",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58665585517883,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "3",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58670568466187,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "4",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58675479888916,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "5",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58683967590332,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "6",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58690476417542,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "7",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5869505405426,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "8",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5870087146759,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "9",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58706831932068,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "10",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58712601661682,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "11",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.587171792984,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "12",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5872175693512,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "13",
+          "thought": "."
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5873622894287,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Simplilearn",
+          "thought": "(https://www.simplilearn.com/difference-between-ai-ml-and-deep-learning-article)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58741307258606,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Simplilearn",
+          "thought": "(https://www.simplilearn.com/ai-in-healthcare-article)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58746123313904,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Simplilearn",
+          "thought": "(https://www.simplilearn.com/ai-in-finance-article)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58750915527344,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Simplilearn",
+          "thought": "(https://www.simplilearn.com/ai-in-retail-article)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58755826950073,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Built In",
+          "thought": "(https://builtin.com/artificial-intelligence/bias-in-artificial-intelligence)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5876181125641,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "UNESCO",
+          "thought": "(https://unesdoc.unesco.org/ark:/48223/pf0000376709)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.5876669883728,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "NVIDIA",
+          "thought": "(https://www.nvidia.com/en-us/glossary/data-science/large-language-models-llms/)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58771681785583,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "Nature",
+          "thought": "(https://www.nature.com/articles/s41586-023-06043-8)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.58777832984924,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "agent_thinking",
+        "data": {
+          "agent_name": "DataCamp",
+          "thought": "(https://www.datacamp.com/tutorial/python-ai-projects)"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.6051104068756,
+      "relative_time": "150.6s",
+      "event": {
+        "type": "image_auto_enhancement",
+        "data": {
+          "message": "Adding 1 additional images to enhance blog content",
+          "images_added": 1,
+          "reason": "insufficient_images"
+        },
+        "source": "crewai_stdout"
+      }
+    },
+    {
+      "timestamp": 150.97452878952026,
+      "relative_time": "151.0s",
+      "event": {
+        "type": "image_source_fallback",
+        "data": {
+          "message": "Switched from Unsplash to AI generation for better image relevance",
+          "previous_source": "unsplash",
+          "new_source": "ai_generation",
+          "reason": "relevance_check_failed"
+        },
+        "source": "crewai_stdout"
+      }
+    }
+  ]
+}

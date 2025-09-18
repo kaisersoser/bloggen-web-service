@@ -48,45 +48,57 @@ class ToolsManager:
         except Exception as e:
             logger.error(f"Error loading URL validation tools: {e}")
         
-        # Try to load external research tools from crewai_tools
+        # Use safe research tools instead of standard ones to prevent binary content issues
         try:
-            from crewai_tools import SerperDevTool, ScrapeWebsiteTool
-
-            audit_tracker = self.audit_tracker
-
-            if audit_tracker and hasattr(audit_tracker, 'track_api_call'):
-                # Define an instrumented subclass so we don't mutate pydantic attributes
-                class InstrumentedSerperDevTool(SerperDevTool):  # type: ignore
-                    def _run(self, *args, **kwargs):  # override underlying execution hook
-                        # Support positional first arg as search_query
-                        if args and 'search_query' not in kwargs:
-                            kwargs['search_query'] = args[0]
-                        result = super()._run(**kwargs)
-                        try:
-                            audit_tracker.track_api_call(
-                                model='serper_api',
-                                input_tokens=0,
-                                output_tokens=0,
-                                cost=0.001,
-                                phase='research',
-                                agent_role='serper_tool'
-                            )
-                        except Exception:
-                            logger.debug("Serper cost tracking failed", exc_info=True)
-                        return result
-
-                serper_tool = InstrumentedSerperDevTool()
-                logger.info("🧪 Using instrumented SerperDevTool subclass for cost tracking")
-            else:
-                serper_tool = SerperDevTool()
-                logger.info("ℹ️ Using standard SerperDevTool (no audit tracker detected)")
-
-            tools.extend([serper_tool, ScrapeWebsiteTool()])
-            logger.debug("✅ External research tools loaded")
+            from bloggen.tools import create_safe_research_tools
+            
+            safe_tools = create_safe_research_tools(audit_tracker=self.audit_tracker)
+            tools.extend(safe_tools)
+            logger.info("✅ Safe research tools loaded (content filtering + 10s timeout)")
+            
         except ImportError as e:
-            logger.warning(f"External research tools not available: {e}")
+            logger.warning(f"Safe research tools not available: {e}")
+            # Fallback to standard tools with warning
+            try:
+                from crewai_tools import SerperDevTool, ScrapeWebsiteTool
+
+                logger.warning("⚠️ Using standard research tools - binary content may cause issues")
+                
+                audit_tracker = self.audit_tracker
+
+                if audit_tracker and hasattr(audit_tracker, 'track_api_call'):
+                    # Define an instrumented subclass so we don't mutate pydantic attributes
+                    class InstrumentedSerperDevTool(SerperDevTool):  # type: ignore
+                        def _run(self, *args, **kwargs):  # override underlying execution hook
+                            # Support positional first arg as search_query
+                            if args and 'search_query' not in kwargs:
+                                kwargs['search_query'] = args[0]
+                            result = super()._run(**kwargs)
+                            try:
+                                audit_tracker.track_api_call(
+                                    model='serper_api',
+                                    input_tokens=0,
+                                    output_tokens=0,
+                                    cost=0.001,
+                                    phase='research',
+                                    agent_role='serper_tool'
+                                )
+                            except Exception:
+                                logger.debug("Serper cost tracking failed", exc_info=True)
+                            return result
+
+                    serper_tool = InstrumentedSerperDevTool()
+                    logger.info("🧪 Using instrumented SerperDevTool subclass for cost tracking")
+                else:
+                    serper_tool = SerperDevTool()
+                    logger.info("ℹ️ Using standard SerperDevTool (no audit tracker detected)")
+
+                tools.extend([serper_tool, ScrapeWebsiteTool()])
+                logger.debug("✅ Standard research tools loaded as fallback")
+            except ImportError as e2:
+                logger.warning(f"Standard research tools also not available: {e2}")
         except Exception as e:
-            logger.error(f"Error loading external research tools: {e}")
+            logger.error(f"Error loading safe research tools: {e}")
         
         # Fallback: If no external tools available, return empty list
         # The system will still work, just without web research capabilities

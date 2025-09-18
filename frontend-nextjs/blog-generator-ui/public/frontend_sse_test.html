@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Frontend SSE Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e9; color: #2e7d32; }
+        .warning { background: #fff3e0; color: #ef6c00; }
+        .notification { background: #e3f2fd; color: #1565c0; margin: 5px 0; padding: 8px; border-radius: 3px; }
+        .image-event { background: #f3e5f5; color: #7b1fa2; font-weight: bold; }
+        button { padding: 10px 20px; margin: 5px; }
+        #stats { background: #e8eaf6; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Frontend SSE Connection Test</h1>
+    <p>This test directly checks if the frontend can connect to the SSE endpoint and receive notifications.</p>
+    
+    <div id="stats">
+        <div>Connection Status: <span id="status">Not connected</span></div>
+        <div>Total Notifications: <span id="count">0</span></div>
+        <div>Image Notifications: <span id="imageCount">0</span></div>
+        <div>Last Event: <span id="lastEvent">None</span></div>
+    </div>
+    
+    <button onclick="testSSEConnection()">Test SSE Connection</button>
+    <button onclick="clearLogs()">Clear Logs</button>
+    
+    <div id="logs"></div>
+
+    <script>
+        let eventSource = null;
+        let notificationCount = 0;
+        let imageNotificationCount = 0;
+        
+        function log(message, type = 'log') {
+            const logs = document.getElementById('logs');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(div);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        function updateStats() {
+            document.getElementById('count').textContent = notificationCount;
+            document.getElementById('imageCount').textContent = imageNotificationCount;
+        }
+        
+        function testSSEConnection() {
+            // First, try to get a valid task ID from active tasks
+            log('🔍 Looking for active blog generation tasks...', 'log');
+            
+            fetch('/api/tasks/active', {
+                method: 'GET',
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(data => {
+                log('✅ Active tasks response received', 'success');
+                console.log('Active tasks:', data);
+                
+                if (data.tasks && data.tasks.length > 0) {
+                    const taskId = data.tasks[0].id;
+                    log(`📋 Found active task: ${taskId}`, 'success');
+                    connectToSSE(taskId);
+                } else {
+                    log('❌ No active tasks found', 'error');
+                    log('💡 Suggestion: Start a blog generation in another tab first', 'warning');
+                    
+                    // Try with a dummy task ID to test connection
+                    log('🧪 Testing with dummy task ID for connection testing...', 'warning');
+                    connectToSSE('test-task-id-123');
+                }
+            })
+            .catch(error => {
+                log(`❌ Error fetching active tasks: ${error}`, 'error');
+                log('🧪 Testing with dummy task ID anyway...', 'warning');
+                connectToSSE('test-task-id-123');
+            });
+        }
+        
+        function connectToSSE(taskId) {
+            if (eventSource) {
+                eventSource.close();
+                log('🔌 Closed existing SSE connection', 'log');
+            }
+            
+            // Reset counters
+            notificationCount = 0;
+            imageNotificationCount = 0;
+            updateStats();
+            
+            log(`🔗 Connecting to SSE endpoint for task: ${taskId}`, 'log');
+            
+            // First try to get JWT token for SSE
+            fetch('/api/auth/jwt-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include',
+                body: JSON.stringify({})
+            })
+            .then(response => response.json())
+            .then(tokenData => {
+                if (tokenData.token) {
+                    log('✅ JWT token obtained for SSE', 'success');
+                    const sseUrl = `https://localhost:5000/stream/${taskId}?token=${tokenData.token}`;
+                    log(`📡 SSE URL: ${sseUrl.substring(0, 80)}...`, 'log');
+                    
+                    // Create EventSource connection
+                    eventSource = new EventSource(sseUrl);
+                    
+                    eventSource.onopen = function(event) {
+                        log('✅ SSE connection opened successfully!', 'success');
+                        document.getElementById('status').textContent = 'Connected';
+                        document.getElementById('status').style.color = 'green';
+                    };
+                    
+                    eventSource.onmessage = function(event) {
+                        notificationCount++;
+                        document.getElementById('lastEvent').textContent = new Date().toLocaleTimeString();
+                        
+                        try {
+                            const data = JSON.parse(event.data);
+                            const eventType = data.type || data.message_type || 'unknown';
+                            
+                            // Check for image notifications
+                            const isImageEvent = eventType.toLowerCase().includes('image') || 
+                                                JSON.stringify(data).toLowerCase().includes('image') ||
+                                                JSON.stringify(data).toLowerCase().includes('unsplash') ||
+                                                JSON.stringify(data).toLowerCase().includes('openai');
+                            
+                            if (isImageEvent) {
+                                imageNotificationCount++;
+                                log(`🖼️ IMAGE NOTIFICATION: ${eventType}`, 'notification image-event');
+                                log(`   Data: ${JSON.stringify(data, null, 2).substring(0, 200)}...`, 'notification image-event');
+                            } else {
+                                log(`📢 ${eventType}: ${data.message || JSON.stringify(data).substring(0, 100)}...`, 'notification');
+                            }
+                            
+                            updateStats();
+                            
+                        } catch (parseError) {
+                            log(`📢 Raw SSE data: ${event.data}`, 'notification');
+                            updateStats();
+                        }
+                    };
+                    
+                    eventSource.onerror = function(event) {
+                        log('❌ SSE connection error occurred', 'error');
+                        document.getElementById('status').textContent = 'Error';
+                        document.getElementById('status').style.color = 'red';
+                        console.error('SSE Error:', event);
+                    };
+                    
+                    eventSource.onclose = function(event) {
+                        log('🔌 SSE connection closed', 'warning');
+                        document.getElementById('status').textContent = 'Closed';
+                        document.getElementById('status').style.color = 'orange';
+                    };
+                    
+                } else {
+                    log('❌ Failed to get JWT token for SSE', 'error');
+                }
+            })
+            .catch(error => {
+                log(`❌ Error getting JWT token: ${error}`, 'error');
+            });
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+        
+        // Auto-start test when page loads
+        window.onload = function() {
+            log('🚀 Frontend SSE Test loaded. Click "Test SSE Connection" to start.', 'log');
+        };
+    </script>
+</body>
+</html>
