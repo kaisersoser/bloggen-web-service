@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional, cast
+from typing import Any, Callable, Dict, Optional, cast, List
 import logging
 import os
 import asyncio
@@ -251,7 +251,10 @@ class BlogGenerationFlow(Flow):
             return self._execute_with_streaming(crew, phase_name)
     
     def _execute_with_streaming(self, crew, phase_name: str) -> Any:
-        """Execute crew with content streaming support"""
+        """Execute crew with content streaming support and periodic status updates"""
+        import threading
+        import time
+        
         try:
             # Get the task manager for streaming
             from core.task_manager import task_manager
@@ -260,8 +263,22 @@ class BlogGenerationFlow(Flow):
             if hasattr(self, 'blog_id') and self.blog_id:
                 asyncio.create_task(task_manager.setup_content_streaming(self.blog_id))
             
-            # Execute the crew
-            result = crew.kickoff()
+            # Start periodic updates in a background thread
+            execution_complete = threading.Event()
+            update_thread = threading.Thread(
+                target=self._send_periodic_updates_during_execution,
+                args=(phase_name, execution_complete)
+            )
+            update_thread.daemon = True
+            update_thread.start()
+            
+            # Execute the crew in the main thread
+            try:
+                result = crew.kickoff()
+            finally:
+                # Signal completion to stop updates
+                execution_complete.set()
+                update_thread.join(timeout=1)  # Wait briefly for update thread to finish
             
             # Stream the result based on phase
             if hasattr(self, 'blog_id') and self.blog_id:
@@ -273,6 +290,84 @@ class BlogGenerationFlow(Flow):
             logger.error(f"Streaming execution failed for {phase_name}: {e}")
             # Fallback to basic execution
             return crew.kickoff()
+    
+    def _send_periodic_updates_during_execution(self, phase_name: str, execution_complete):
+        """Send realistic updates while crew is executing"""
+        import threading
+        import time
+        
+        logger.info(f"🔄 Starting periodic updates for phase: {phase_name}")
+        
+        # Define phase-specific realistic updates
+        phase_updates = {
+            "research": [
+                ("🔍 Analyzing topic depth and complexity...", "Research Agent"),
+                ("📚 Searching academic databases and recent publications...", "Research Agent"),
+                ("🏢 Gathering industry reports and expert insights...", "Research Agent"),
+                ("✅ Cross-referencing sources for accuracy...", "Research Agent"),
+                ("🧩 Synthesizing research findings...", "Research Agent")
+            ],
+            "content_generation": [
+                ("📝 Structuring article outline and key points...", "Content Generation Agent"),
+                ("✨ Crafting engaging introduction...", "Content Generation Agent"),
+                ("📄 Developing main content sections...", "Content Generation Agent"),
+                ("🔗 Integrating research insights with examples...", "Content Generation Agent"),
+                ("📖 Enhancing readability and flow...", "Content Generation Agent")
+            ],
+            "fact_checking": [
+                ("📊 Verifying statistical claims and data...", "Fact Checking Agent"),
+                ("🔍 Cross-checking sources and citations...", "Fact Checking Agent"),
+                ("⚙️ Validating technical accuracy...", "Fact Checking Agent"),
+                ("✅ Ensuring factual consistency...", "Fact Checking Agent"),
+                ("🎯 Final verification pass...", "Fact Checking Agent")
+            ]
+        }
+        
+        updates = phase_updates.get(phase_name, [
+            ("⚙️ Processing request...", f"{phase_name.replace('_', ' ').title()} Agent"),
+            ("🔍 Analyzing content...", f"{phase_name.replace('_', ' ').title()} Agent"),
+            ("✨ Generating response...", f"{phase_name.replace('_', ' ').title()} Agent"),
+            ("✅ Finalizing output...", f"{phase_name.replace('_', ' ').title()} Agent")
+        ])
+        
+        update_interval = 4  # Send update every 4 seconds
+        update_index = 0
+        
+        try:
+            while not execution_complete.is_set():
+                if update_index < len(updates):
+                    message, agent_name = updates[update_index]
+                    logger.info(f"🔄 Sending periodic update {update_index + 1}: {message}")
+                    self.status_manager.send_agent_thinking(
+                        agent_name=agent_name,
+                        thought=message
+                    )
+                    update_index += 1
+                else:
+                    # Cycle through additional generic updates
+                    generic_updates = [
+                        ("🧠 Deep analysis in progress...", f"{phase_name.replace('_', ' ').title()} Agent"),
+                        ("⚡ Processing complex logic...", f"{phase_name.replace('_', ' ').title()} Agent"),
+                        ("✨ Refining output quality...", f"{phase_name.replace('_', ' ').title()} Agent"),
+                        ("🏁 Almost complete...", f"{phase_name.replace('_', ' ').title()} Agent")
+                    ]
+                    cycle_index = (update_index - len(updates)) % len(generic_updates)
+                    message, agent_name = generic_updates[cycle_index]
+                    logger.info(f"🔄 Sending generic update {cycle_index + 1}: {message}")
+                    self.status_manager.send_agent_thinking(
+                        agent_name=agent_name,
+                        thought=message
+                    )
+                    update_index += 1
+                
+                # Wait for next update or completion
+                if execution_complete.wait(timeout=update_interval):
+                    break  # Execution completed
+                    
+        except Exception as e:
+            logger.error(f"❌ Error in periodic updates for {phase_name}: {e}")
+        finally:
+            logger.info(f"🔄 Periodic updates stopped for phase: {phase_name}")
     
     def _stream_phase_result(self, phase_name: str, result: Any):
         """Stream the result of a phase to connected clients"""

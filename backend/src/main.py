@@ -73,6 +73,31 @@ from core.redis_manager import redis_manager
 from core.content_streaming_manager import content_streaming_manager
 from config.protocol_config import get_protocol_config, is_https_mode
 
+# Error management and cleanup
+from core.error_responses import (
+    ErrorResponse,
+    ERROR_CATALOG,
+    create_error_response,
+    create_auth_error,
+    create_validation_error,
+    create_rate_limit_error,
+    create_openai_error,
+    create_database_error,
+    create_system_error,
+    error_response_to_http_exception,
+    handle_openai_error,
+    handle_database_error,
+    handle_validation_error
+)
+from core.resource_cleanup import (
+    cleanup_manager,
+    register_redis_subscription,
+    register_crewai_flow,
+    register_database_transaction,
+    register_temp_file,
+    CleanupReason
+)
+
 # Blog generation
 from bloggen.flows import BlogGenerationFlow
 from bloggen.topic_utils import generate_concise_topic
@@ -284,7 +309,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         # Get the secret key (same as used by NextAuth.js)
         secret = os.getenv("NEXTAUTH_SECRET")
         if not secret:
-            raise ValueError("NEXTAUTH_SECRET environment variable is required")
+            raise error_response_to_http_exception(
+                create_system_error("auth_config", "NEXTAUTH_SECRET environment variable is required")
+            )
         
         # Decode and validate the JWT token
         payload = jwt.decode(credentials.credentials, secret, algorithms=["HS256"])
@@ -295,17 +322,28 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         role = payload.get("role", "FREE")
         
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
+            raise error_response_to_http_exception(
+                create_auth_error("AUTH_INVALID", "Missing user ID in token")
+            )
         
         return User(id=user_id, email=email, role=role)
         
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
+        raise error_response_to_http_exception(
+            create_auth_error("AUTH_EXPIRED", "JWT token has expired")
+        )
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise error_response_to_http_exception(
+            create_auth_error("AUTH_INVALID", "JWT token is invalid or malformed")
+        )
+    except HTTPException:
+        # Re-raise HTTPExceptions (from structured errors above)
+        raise
     except Exception as e:
         logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail="Authentication failed")
+        raise error_response_to_http_exception(
+            create_auth_error("AUTH_REQUIRED", f"Authentication failed: {str(e)}")
+        )
 
 async def get_current_user_from_query_token(token: str) -> User:
     """
@@ -319,7 +357,9 @@ async def get_current_user_from_query_token(token: str) -> User:
         # Get the secret key (same as used by NextAuth.js)
         secret = os.getenv("NEXTAUTH_SECRET")
         if not secret:
-            raise ValueError("NEXTAUTH_SECRET environment variable is required")
+            raise error_response_to_http_exception(
+                create_system_error("auth_config", "NEXTAUTH_SECRET environment variable is required")
+            )
         
         # Decode and validate the JWT token
         payload = jwt.decode(token, secret, algorithms=["HS256"])
@@ -330,17 +370,28 @@ async def get_current_user_from_query_token(token: str) -> User:
         role = payload.get("role", "FREE")
         
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
+            raise error_response_to_http_exception(
+                create_auth_error("AUTH_INVALID", "Missing user ID in token")
+            )
         
         return User(id=user_id, email=email, role=role)
         
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
+        raise error_response_to_http_exception(
+            create_auth_error("AUTH_EXPIRED", "JWT token has expired")
+        )
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise error_response_to_http_exception(
+            create_auth_error("AUTH_INVALID", "JWT token is invalid or malformed")
+        )
+    except HTTPException:
+        # Re-raise HTTPExceptions (from structured errors above)
+        raise
     except Exception as e:
-        logger.error(f"Authentication error: {e}")
-        raise HTTPException(status_code=401, detail="Authentication failed")
+        logger.error(f"Query token authentication error: {e}")
+        raise error_response_to_http_exception(
+            create_auth_error("AUTH_REQUIRED", f"Authentication failed: {str(e)}")
+        )
 
 # =============================================================================
 # Startup and Shutdown Events - REMOVED (using lifespan instead)
@@ -365,12 +416,14 @@ async def generate_blog(
     user: User = Depends(get_current_user)
 ) -> BlogGenerationResponse:
     """
-    Start async blog generation with perfect request isolation.
+    Start async blog generation with perfect request isolation and comprehensive error handling.
     
     This endpoint:
     1. Creates isolated context for this request
-    2. Starts background blog generation task
-    3. Returns task ID for tracking
+    2. Validates input parameters with structured error responses
+    3. Registers resources for cleanup management
+    4. Starts background blog generation task
+    5. Returns task ID for tracking
     
     The context variables ensure that all OpenAI API calls made during
     blog generation are correctly attributed to this user and session.
@@ -378,60 +431,115 @@ async def generate_blog(
     # Generate unique identifiers
     task_id = request.task_id or str(uuid.uuid4())
     request_id = str(uuid.uuid4())
+    correlation_id = str(uuid.uuid4())[:8]
     
-    # Set request context for this async task tree
-    normalized_topic = (request.topic or "").strip() or None
-    set_request_context(
-        request_id=request_id,
-        task_id=task_id,
-        user_id=user.id,
-        user_email=user.email,
-        user_role=user.role,
-        blog_id=task_id,  # Use task_id as blog_id
-        topic=normalized_topic or "<auto>"
-    )
-    
-    # Create task record in database instead of memory
-    await task_manager.create_task(task_id, user.id, normalized_topic or '<auto-generating>', (request.instructions or '').strip() or None)
-    
-    # Send immediate initialization status for SSE streams
-    if task_manager._redis_manager:
-        # Send task creation notification
-        task_created_message = create_task_created_message(
-            task_id=task_id,
-            message=f"Blog generation task created for topic: {normalized_topic or 'auto-generating'}"
-        )
-        await task_manager._redis_manager.publish_immediate_message(task_id, task_created_message.to_dict())
+    try:
+        # Register task for cleanup management
+        cleanup_context = await cleanup_manager.register_task(task_id)
         
-        # Send immediate initialization status update with 10% progress
-        init_status_message = {
-            'message_type': 'status',
-            'task_id': task_id,
-            'status': 'in_progress',
-            'message': 'Initializing blog generation...',
-            'progress': 10,  # 10% as per user's request
-            'current_step': 'Step 1/5: Initialization',
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        await task_manager._redis_manager.publish_immediate_message(task_id, init_status_message)
-        logger.info(f"🚀 Sent immediate init status with 10% progress for task {task_id}")
-
-    # Start background blog generation
-    background_tasks.add_task(
-        async_blog_generation,
-        task_id=task_id,
-        topic=normalized_topic,  # may be None for auto-generation
-        user_id=user.id,
-        instructions=(request.instructions or '').strip() or None
-    )
-    
-    logger.info(f"🚀 Blog generation started: {task_id} for user {user.id}")
-    
-    return BlogGenerationResponse(
-        task_id=task_id,
-        status="queued",
-        message="Blog generation started. Connect to SSE stream for real-time updates."
-    )
+        # Validate input parameters
+        normalized_topic = (request.topic or "").strip() or None
+        normalized_instructions = (request.instructions or "").strip() or None
+        
+        # Topic length validation (if provided)
+        if normalized_topic and len(normalized_topic) > 200:
+            raise error_response_to_http_exception(
+                create_validation_error(
+                    "topic", 
+                    f"Topic too long ({len(normalized_topic)}/200 characters)",
+                    correlation_id
+                )
+            )
+        
+        # Instructions validation
+        if normalized_instructions and len(normalized_instructions) > 2000:
+            raise error_response_to_http_exception(
+                create_validation_error(
+                    "instructions",
+                    f"Instructions too long ({len(normalized_instructions)}/2000 characters)",
+                    correlation_id
+                )
+            )
+        
+        # Set request context for this async task tree
+        set_request_context(
+            request_id=request_id,
+            task_id=task_id,
+            user_id=user.id,
+            user_email=user.email,
+            user_role=user.role,
+            blog_id=task_id,  # Use task_id as blog_id
+            topic=normalized_topic or "<auto>"
+        )
+        
+        # Create task record in database instead of memory
+        try:
+            await task_manager.create_task(
+                task_id, 
+                user.id, 
+                normalized_topic or '<auto-generating>', 
+                normalized_instructions
+            )
+        except Exception as e:
+            logger.error(f"Failed to create task in database: {e}")
+            raise handle_database_error(e, "create_task", correlation_id)
+        
+        # Send immediate initialization status for SSE streams
+        if task_manager._redis_manager:
+            try:
+                # Send task creation notification
+                task_created_message = create_task_created_message(
+                    task_id=task_id,
+                    message=f"Blog generation task created for topic: {normalized_topic or 'auto-generating'}"
+                )
+                await task_manager._redis_manager.publish_immediate_message(task_id, task_created_message.to_dict())
+                
+                # Send immediate initialization status update with 10% progress
+                init_status_message = {
+                    'message_type': 'status',
+                    'task_id': task_id,
+                    'status': 'in_progress',
+                    'message': 'Initializing blog generation...',
+                    'progress': 10,  # 10% as per user's request
+                    'current_step': 'Step 1/5: Initialization',
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'correlation_id': correlation_id
+                }
+                await task_manager._redis_manager.publish_immediate_message(task_id, init_status_message)
+                logger.info(f"🚀 Sent immediate init status with 10% progress for task {task_id}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to send initial SSE messages: {e}")
+                # Don't fail the request for SSE issues - continue without real-time updates
+        
+        # Start background blog generation
+        background_tasks.add_task(
+            async_blog_generation,
+            task_id=task_id,
+            topic=normalized_topic,  # may be None for auto-generation
+            user_id=user.id,
+            instructions=normalized_instructions
+        )
+        
+        logger.info(f"🚀 Blog generation started: {task_id} for user {user.id} (correlation: {correlation_id})")
+        
+        return BlogGenerationResponse(
+            task_id=task_id,
+            status="queued",
+            message="Blog generation started. Connect to SSE stream for real-time updates."
+        )
+        
+    except HTTPException:
+        # Clean up resources if initialization failed
+        await cleanup_manager.cleanup_task(task_id, CleanupReason.ERROR)
+        raise
+    except Exception as e:
+        # Clean up resources for unexpected errors
+        await cleanup_manager.cleanup_task(task_id, CleanupReason.ERROR)
+        logger.error(f"Unexpected error in generate_blog: {e}")
+        raise error_response_to_http_exception(
+            create_system_error("blog_generation_init", str(e), correlation_id)
+        )
 
 @app.get("/tasks/active")
 async def get_active_tasks(user: User = Depends(get_current_user)) -> Dict[str, Any]:
@@ -466,32 +574,56 @@ async def get_task_status(
     task_id: str,
     user: User = Depends(get_current_user)
 ) -> TaskStatus:
-    """Get the status of a specific task."""
-    task = await task_manager.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    """Get the status of a specific task with structured error handling."""
+    correlation_id = str(uuid.uuid4())[:8]
     
-    # Check if user owns this task (or is admin)
-    if task['user_id'] != user.id and user.role != 'ADMIN':
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    # Convert database task to TaskStatus format
-    task_status = {
-        'id': task['id'],
-        'topic': task['topic'],
-        'status': task['status'].lower() if task['status'] else 'queued',
-        'created_at': task['created_at'].isoformat() if task['created_at'] else '',
-        'current_step': task['current_step'],
-        'result': task['content'],
-        'error': task['error'],
-        'user_id': task['user_id'],
-        'user_email': user.email,
-        'user_role': user.role,
-        'request_id': task_id,  # Use task_id as request_id
-        'instructions': task['instructions']
-    }
-    
-    return TaskStatus(**task_status)
+    try:
+        task = await task_manager.get_task(task_id)
+        if not task:
+            raise error_response_to_http_exception(
+                create_error_response(
+                    "TASK_NOT_FOUND",
+                    user_message="The requested task could not be found.",
+                    technical_details=f"Task ID {task_id} not found in database",
+                    correlation_id=correlation_id
+                )
+            )
+        
+        # Check if user owns this task (or is admin)
+        if task['user_id'] != user.id and user.role != 'ADMIN':
+            raise error_response_to_http_exception(
+                create_error_response(
+                    "INSUFFICIENT_PERMISSIONS",
+                    user_message="You don't have permission to access this task.",
+                    technical_details=f"User {user.id} attempted to access task {task_id} owned by {task['user_id']}",
+                    correlation_id=correlation_id
+                )
+            )
+        
+        # Convert database task to TaskStatus format
+        task_status = {
+            'id': task['id'],
+            'topic': task['topic'],
+            'status': task['status'].lower() if task['status'] else 'queued',
+            'created_at': task['created_at'].isoformat() if task['created_at'] else '',
+            'current_step': task['current_step'],
+            'result': task['content'],
+            'error': task['error'],
+            'user_id': task['user_id'],
+            'user_email': user.email,
+            'user_role': user.role,
+            'request_id': task_id,  # Use task_id as request_id
+            'instructions': task['instructions']
+        }
+        
+        return TaskStatus(**task_status)
+        
+    except HTTPException:
+        # Re-raise structured errors
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving task {task_id}: {e}")
+        raise handle_database_error(e, "get_task", correlation_id)
 
 @app.get("/stream/{task_id}")
 async def stream_task(task_id: str, token: str):
@@ -970,13 +1102,21 @@ async def generate_title(
 
 async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str, instructions: Optional[str] = None):
     """
-    Async blog generation with context preservation.
+    Async blog generation with context preservation and comprehensive error handling.
     
     This function runs as a FastAPI background task and maintains
     the request context throughout the blog generation process.
     """
+    correlation_id = str(uuid.uuid4())[:8]
+    cleanup_context = None
+    
     try:
-        logger.info(f"🔄 Starting async blog generation for task {task_id}")
+        logger.info(f"🔄 Starting async blog generation for task {task_id} (correlation: {correlation_id})")
+        
+        # Register cleanup context for this task
+        cleanup_context = await cleanup_manager.register_task(task_id)
+        cleanup_context.add_metadata("correlation_id", correlation_id)
+        cleanup_context.add_metadata("user_id", user_id)
         
         # ===== CRITICAL FIX: Restore context in background task =====
         # Background tasks lose context, so we need to restore it
@@ -992,39 +1132,55 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         )
         
         # Update task status to in_progress
-        await task_manager.update_task(task_id, 
-            status='in_progress', 
-            current_step='Initializing blog generation workflow...'
-        )
+        try:
+            await task_manager.update_task(task_id, 
+                status='in_progress', 
+                current_step='Initializing blog generation workflow...'
+            )
+        except Exception as e:
+            logger.error(f"Failed to update task status: {e}")
+            # Don't fail entirely - continue with generation
         
         # Send immediate initialization message for SSE streams
         if task_manager._redis_manager:
-            init_message = create_initializing_message(
-                task_id=task_id,
-                phase="Blog Generation",
-                message="Initializing AI blog generation workflow...",
-                progress=0.0
-            )
-            await task_manager._redis_manager.publish_immediate_message(task_id, init_message.to_dict())
+            try:
+                init_message = create_initializing_message(
+                    task_id=task_id,
+                    phase="Blog Generation",
+                    message="Initializing AI blog generation workflow...",
+                    progress=0.0
+                )
+                await task_manager._redis_manager.publish_immediate_message(task_id, init_message.to_dict())
+            except Exception as e:
+                logger.warning(f"Failed to send SSE initialization message: {e}")
         
         # Create audit tracker for this session - USING ENHANCED VERSION
         # Note: In production, user_id should come from JWT token validation
         # For now, we'll use a fallback to ensure audit logging works
         valid_user_id = user_id if user_id and len(user_id) > 10 else "cmdaiv5530000z9nxqmyg445v"
         
-        audit_tracker = EnhancedDatabaseAuditTracker(
-            session_type="blog_generation",
-            user_id=valid_user_id,
-            blog_id=task_id
-        )
+        try:
+            audit_tracker = EnhancedDatabaseAuditTracker(
+                session_type="blog_generation",
+                user_id=valid_user_id,
+                blog_id=task_id
+            )
+            
+            # Register audit tracker for cleanup
+            await register_database_transaction(task_id, audit_tracker)
+            
+            # ===== CRITICAL FIX: Set audit context AFTER restoring request context =====
+            set_audit_context(audit_tracker, f"session_{int(datetime.utcnow().timestamp())}")
+            
+            # Start the audit session
+            await audit_tracker.start_session()
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize audit tracker: {e}")
+            # Continue without audit tracking if it fails
+            audit_tracker = None
         
-        # ===== CRITICAL FIX: Set audit context AFTER restoring request context =====
-        set_audit_context(audit_tracker, f"session_{int(datetime.utcnow().timestamp())}")
-        
-        # Start the audit session
-        await audit_tracker.start_session()
-        
-        logger.info(f"✅ Context restored and audit tracker initialized for task {task_id}")
+        logger.info(f"✅ Context restored and resources registered for task {task_id}")
         
         # Define enhanced status update callback for Phase 1 Foundation
         def update_task_status(status_data: Dict[str, Any]):
@@ -1251,15 +1407,13 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         logger.info(f"✅ Blog generation completed for task {task_id}")
         
     except Exception as e:
-        # Enhanced error logging for SSE timeout investigation
         import traceback
-        
         logger.error(f"❌ Blog generation failed for task {task_id}: {e}")
         logger.error(f"❌ Exception type: {type(e).__name__}")  
         logger.error(f"❌ Exception module: {type(e).__module__}")
         logger.error(f"❌ Exception args: {getattr(e, 'args', 'N/A')}")
         logger.error(f"❌ Full traceback:\n{traceback.format_exc()}")
-        
+
         # Send immediate error notification via SSE before updating database
         if task_manager._redis_manager:
             try:
@@ -1276,7 +1430,7 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                 logger.info(f"📡 Sent error notification via SSE for task {task_id}")
             except Exception as sse_error:
                 logger.error(f"Failed to send SSE error notification: {sse_error}")
-        
+
         # Try to end audit session on error
         try:
             audit_tracker_var = current_audit_tracker.get(None)
@@ -1285,10 +1439,16 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         except Exception as audit_error:
             logger.error(f"Failed to end audit session: {audit_error}")
             pass  # Don't fail the error handling
-        
+
         # Update task with enhanced error details for SSE visibility
         error_details = f"{type(e).__name__}: {str(e)}"
         await task_manager.fail_task(task_id, error_details)
+
+        # Cleanup all resources for this task
+        if cleanup_context:
+            await cleanup_context.cleanup(CleanupReason.ERROR)
+        else:
+            await cleanup_manager.cleanup_task(task_id, CleanupReason.ERROR)
 
 async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
     """Run the blog generation flow asynchronously using a thread pool.
