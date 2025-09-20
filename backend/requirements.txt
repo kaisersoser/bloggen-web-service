@@ -13,6 +13,9 @@ crewai
 crewai-tools
 openai
 
+# Redis for pub/sub messaging
+redis[hiredis]
+
 # Core Dependencies
 python-dotenv
 pydantic

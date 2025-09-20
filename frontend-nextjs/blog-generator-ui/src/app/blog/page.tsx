@@ -7,6 +7,7 @@ import { BlogViewModal } from "@/components/blog/BlogViewModal";
 import { DeleteConfirmationDialog } from "@/components/blog/DeleteConfirmationDialog";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { AdminDiagnosticMonitor } from "@/components/diagnostics/AdminDiagnosticMonitor";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
 import { signIn } from "next-auth/react";
@@ -81,7 +82,9 @@ export default function BlogGenerator() {
             </div>
             <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Blog Generator</h1>
           </div>
-          <UserProfileDropdown themeMode={theme} onThemeChange={setTheme} />
+          <div className="flex items-center gap-4">
+            <UserProfileDropdown themeMode={theme} onThemeChange={setTheme} />
+          </div>
         </div>
       </div>
 
@@ -121,6 +124,14 @@ export default function BlogGenerator() {
             </div>
           </div>
         )}
+
+        {/* Admin Diagnostic Monitor */}
+        <div className="max-w-4xl mx-auto">
+          <AdminDiagnosticMonitor 
+            currentJobId={currentJobId}
+            isGenerating={isGenerating}
+          />
+        </div>
 
         {/* Error Display */}
         {generationError && (

@@ -104,22 +104,29 @@ export function useBlogGenerator() {
     if (!topic.trim()) { setGenerationError('Please enter a topic'); return; }
     if (!canGenerate) { setGenerationError('Monthly generation limit reached. Upgrade to Premium for more.'); return; }
     if (activeConnectionId) { closeConnection(); setActiveConnectionId(null); }
+    
     try {
       setGenerationError(null);
       setIsGenerating(true);
       setCreatingNew(false); // Once generation starts, exit new mode
       completedTasksRef.current.clear();
       firstUpdateReceivedRef.current = null; // Reset the flag for new generation
-      const data = await blogService.generateBlog(topic.trim(), instructions.trim());
-      createJob(data.task_id, topic.trim(), instructions.trim());
-      setCurrentJobId(data.task_id);
-      setActiveConnectionId(data.task_id);
-      // REMOVED: Immediate blog refresh that was causing duplicate cards
-      // The blog will appear in the sidebar through createJob() and get updated via SSE
-      console.log('🔗 Attempting to connect to SSE stream for task:', data.task_id);
+      
+      // SOLUTION 1: Pre-generate task ID and establish SSE connection BEFORE starting generation
+      console.log('🆔 Pre-generating task ID for immediate SSE connection...');
+      const taskId = await blogService.generateTaskId();
+      console.log('🆔 Generated task ID:', taskId);
+      
+      // Create job and set current state immediately
+      createJob(taskId, topic.trim(), instructions.trim());
+      setCurrentJobId(taskId);
+      setActiveConnectionId(taskId);
+      
+      // CRITICAL: Establish SSE connection BEFORE triggering blog generation
+      console.log('🔗 Establishing SSE connection before starting generation for task:', taskId);
       try {
         await connectToTaskStream(
-          data.task_id,
+          taskId,
           (taskId: string, updates: Partial<JobState>) => {
             console.log('🔄 useBlogGenerator: SSE Update received:', taskId, updates);
             updateJob(taskId, updates);
@@ -134,7 +141,18 @@ export function useBlogGenerator() {
           handleTaskError,
           (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
         );
-        console.log('✅ SSE connection established successfully for task:', data.task_id);
+        console.log('✅ SSE connection established successfully BEFORE generation for task:', taskId);
+        
+        // NOW start the actual blog generation with the pre-generated task ID
+        console.log('🚀 Starting blog generation with pre-established SSE connection...');
+        const data = await blogService.generateBlog(topic.trim(), instructions.trim(), taskId);
+        console.log('✅ Blog generation started with task ID:', data.task_id);
+        
+        // Verify the task IDs match
+        if (data.task_id !== taskId) {
+          console.warn('⚠️ Task ID mismatch! Expected:', taskId, 'Got:', data.task_id);
+        }
+        
         // Don't set isGenerating(false) here - let the first SSE update handle it
       } catch (sseErr) {
         console.error('Failed to start SSE stream:', sseErr);

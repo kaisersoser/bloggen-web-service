@@ -70,6 +70,7 @@ from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # unified 
 from core.logging_utils import setup_api_logger
 
 from core.redis_manager import redis_manager
+from core.message_buffer import RedisMessageBuffer
 from core.content_streaming_manager import content_streaming_manager
 from config.protocol_config import get_protocol_config, is_https_mode
 
@@ -159,6 +160,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Redis connection failed (continuing without Redis): {e}")
 
+    # Initialize Redis message buffer for early message capture
+    global message_buffer
+    message_buffer = RedisMessageBuffer(redis_manager, buffer_ttl_minutes=30)
+    logger.info("✅ Redis message buffer initialized")
+
     # Connect managers to TaskManager for real-time updates
     task_manager.set_redis_manager(redis_manager)
     task_manager.set_content_streaming_manager(content_streaming_manager)
@@ -238,6 +244,9 @@ app.add_middleware(
 
 # Import task manager for database-backed state
 from core.task_manager import task_manager
+
+# Global message buffer for early message capture
+message_buffer: Optional[RedisMessageBuffer] = None
 
 # Logger
 logger = setup_api_logger("main")
@@ -409,6 +418,28 @@ async def health_check():
     import time
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "epoch": int(time.time())}
 
+@app.post("/generate-task-id")
+async def generate_task_id(
+    user: User = Depends(get_current_user)
+) -> dict:
+    """
+    Generate a unique task ID for pre-establishing SSE connections.
+    
+    This endpoint allows the frontend to get a task ID before starting
+    blog generation, enabling early SSE connection establishment to
+    capture all notification messages including early ones.
+    """
+    task_id = str(uuid.uuid4())
+    
+    # SOLUTION 2: Start message buffering immediately for this task
+    if message_buffer:
+        await message_buffer.start_buffering(task_id)
+        logger.info(f"🆔 Generated pre-task ID {task_id} for user {user.email} with message buffering enabled")
+    else:
+        logger.info(f"🆔 Generated pre-task ID {task_id} for user {user.email} (buffering unavailable)")
+    
+    return {"task_id": task_id}
+
 @app.post("/generate-blog", response_model=BlogGenerationResponse)
 async def generate_blog(
     request: BlogGenerationRequest,
@@ -432,6 +463,13 @@ async def generate_blog(
     task_id = request.task_id or str(uuid.uuid4())
     request_id = str(uuid.uuid4())
     correlation_id = str(uuid.uuid4())[:8]
+    
+    # DEBUG: Log task ID handling
+    logger.info(f"🆔 Task ID handling: request.task_id={request.task_id}, final task_id={task_id}")
+    if request.task_id:
+        logger.info(f"✅ Using provided task ID: {request.task_id}")
+    else:
+        logger.info(f"🆔 Generated new task ID: {task_id}")
     
     try:
         # Register task for cleanup management
@@ -492,6 +530,11 @@ async def generate_blog(
                     task_id=task_id,
                     message=f"Blog generation task created for topic: {normalized_topic or 'auto-generating'}"
                 )
+                
+                # SOLUTION 2: Buffer message if SSE not connected yet
+                if message_buffer and await message_buffer.is_buffering(task_id):
+                    await message_buffer.buffer_message(task_id, f"sse_immediate:{task_id}", task_created_message.to_dict())
+                
                 await task_manager._redis_manager.publish_immediate_message(task_id, task_created_message.to_dict())
                 
                 # Send immediate initialization status update with 10% progress
@@ -505,6 +548,11 @@ async def generate_blog(
                     'timestamp': datetime.utcnow().isoformat(),
                     'correlation_id': correlation_id
                 }
+                
+                # SOLUTION 2: Buffer initialization message if SSE not connected yet
+                if message_buffer and await message_buffer.is_buffering(task_id):
+                    await message_buffer.buffer_message(task_id, f"sse_immediate:{task_id}", init_status_message)
+                
                 await task_manager._redis_manager.publish_immediate_message(task_id, init_status_message)
                 logger.info(f"🚀 Sent immediate init status with 10% progress for task {task_id}")
                 
@@ -631,20 +679,33 @@ async def stream_task(task_id: str, token: str):
     # Authenticate via query token
     user = await get_current_user_from_query_token(token)
     
+    # SOLUTION 1 & 2: Support pre-generated task IDs with message buffering
+    # Check if this is a pre-generated task ID with active message buffering
+    buffer_exists = False
+    if message_buffer:
+        buffer_exists = await message_buffer._check_buffer_exists(task_id)
+    
     # Handle race condition: task might not exist yet if SSE connection is made immediately after creation
     task = await task_manager.get_task(task_id)
     retry_count = 0
     max_retries = 5
     
-    while not task and retry_count < max_retries:
+    # For pre-generated task IDs, allow SSE connection even if task doesn't exist yet
+    while not task and not buffer_exists and retry_count < max_retries:
         logger.info(f"Task {task_id} not found, retrying in 0.5s (attempt {retry_count + 1}/{max_retries})")
         await asyncio.sleep(0.5)
         task = await task_manager.get_task(task_id)
+        # Also check for buffer existence on each retry
+        if message_buffer:
+            buffer_exists = await message_buffer._check_buffer_exists(task_id)
         retry_count += 1
     
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if task['user_id'] != user.id and user.role != 'ADMIN':
+    # Allow connection if either task exists OR buffer exists (pre-generated task ID)
+    if not task and not buffer_exists:
+        raise HTTPException(status_code=404, detail="Task not found and no buffer exists")
+    
+    # For existing tasks, check user permissions
+    if task and task['user_id'] != user.id and user.role != 'ADMIN':
         raise HTTPException(status_code=403, detail="Access denied")
 
     async def event_generator():
@@ -680,6 +741,25 @@ async def stream_task(task_id: str, token: str):
                     await asyncio.wait_for(redis_pubsub.subscribe(task_updates_channel), timeout=5.0)
                     await asyncio.wait_for(redis_pubsub.subscribe(sse_immediate_channel), timeout=5.0)
                     logger.info(f"📡 SSE subscribed to Redis channels: {task_updates_channel}, {sse_immediate_channel}")
+                    
+                    # SOLUTION 2: Flush buffered messages now that SSE connection is established
+                    if message_buffer:
+                        try:
+                            buffered_messages = await message_buffer.flush_buffered_messages(task_id)
+                            if buffered_messages:
+                                logger.info(f"📤 Replaying {len(buffered_messages)} buffered messages for task {task_id}")
+                                for buffered_msg in buffered_messages:
+                                    # Send each buffered message to the SSE stream
+                                    replay_data = buffered_msg.message_data.copy()
+                                    replay_data['replayed'] = True
+                                    replay_data['buffer_timestamp'] = buffered_msg.timestamp
+                                    yield f"data: {json.dumps(replay_data)}\n\n"
+                                    logger.info(f"📤 Replayed {buffered_msg.message_type} message (buffered at {buffered_msg.timestamp})")
+                            else:
+                                logger.info(f"📦 No buffered messages found for task {task_id}")
+                        except Exception as buffer_err:
+                            logger.error(f"❌ Failed to flush buffered messages for task {task_id}: {buffer_err}")
+                    
                 except asyncio.TimeoutError:
                     logger.warning(f"Redis subscription timeout for task {task_id}, falling back to database polling")
                     if redis_pubsub:
@@ -792,18 +872,18 @@ async def stream_task(task_id: str, token: str):
                         try:
                             # Parse Redis message 
                             redis_data = json.loads(message['data'].decode('utf-8'))
-                            logger.info(f"📨 Redis update for {task_id}: {redis_data.get('message_type', redis_data.get('status', 'unknown'))} (elapsed: {elapsed_seconds:.1f}s)")
+                            message_type = redis_data.get('message_type', redis_data.get('type', 'unknown'))
+                            logger.info(f"📨 Redis update for {task_id}: {message_type} (elapsed: {elapsed_seconds:.1f}s)")
                             
-                            # CRITICAL FIX: Use Redis message data directly for completion
-                            # This prevents race condition with database queries
-                            if redis_data.get('message_type') == 'completed':
-                                # CRITICAL DEBUG: Log the raw Redis completion message
+                            # CRITICAL FIX: Handle ALL message types from Redis, not just completion/error
+                            # Forward Redis messages directly to frontend SSE with minimal processing
+                            
+                            if message_type == 'completed':
+                                # Handle completion messages with special processing
                                 logger.info(f"🔍 RAW REDIS COMPLETION MESSAGE:")
                                 logger.info(f"   redis_data keys: {list(redis_data.keys())}")
                                 logger.info(f"   final_content: {redis_data.get('final_content', 'MISSING')[:100] if redis_data.get('final_content') else 'EMPTY'}")
                                 logger.info(f"   content: {redis_data.get('content', 'MISSING')[:100] if redis_data.get('content') else 'EMPTY'}")
-                                logger.info(f"   message: {redis_data.get('message', 'MISSING')}")
-                                logger.info(f"   full message: {str(redis_data)[:500]}...")
                                 
                                 # Use the Redis message content directly - no database query needed
                                 final_content = redis_data.get('final_content', '')
@@ -825,18 +905,17 @@ async def stream_task(task_id: str, token: str):
                                 # Send the completion message immediately
                                 final_update = send_update(completion_task_data)
                                 if final_update:
-                                    # DEBUG: Log the exact SSE message being sent
                                     logger.info(f"🔍 EXACT SSE COMPLETION MESSAGE: {final_update[:500]}...")
                                     yield final_update
                                 logger.info(f"✅ Sent completion with content ({len(final_content)} chars) for {task_id}")
                                 
                                 # Add a small delay to ensure frontend receives the completion message
-                                # before the SSE connection closes
                                 logger.info(f"⏳ Waiting 5 seconds for completion message delivery for {task_id}")
                                 await asyncio.sleep(5)
                                 logger.info(f"✅ Completion message delivery delay completed for {task_id}")
                                 break
-                            elif redis_data.get('message_type') == 'error':
+                                
+                            elif message_type == 'error':
                                 # Handle error completion
                                 error_task_data = {
                                     'status': 'failed',
@@ -851,26 +930,30 @@ async def stream_task(task_id: str, token: str):
                                 if final_update:
                                     yield final_update
                                 
-                                # Add a small delay to ensure frontend receives the error message
-                                # before the SSE connection closes
                                 logger.info(f"⏳ Waiting 5 seconds for error message delivery for {task_id}")
                                 await asyncio.sleep(5)
                                 logger.info(f"✅ Error message delivery delay completed for {task_id}")
                                 break
-                            else:
-                                # Regular status updates - use Redis data for real-time updates
-                                redis_task_data = {
-                                    'status': redis_data.get('status', 'in_progress'),
-                                    'current_step': redis_data.get('message', 'Processing...'),
-                                    'progress': redis_data.get('progress', 0),
-                                    'message': redis_data.get('message', 'Processing...'),
-                                    'task_id': task_id
-                                }
                                 
-                                # Send the Redis data immediately
-                                update = send_update(redis_task_data)
-                                if update:
-                                    yield update
+                            else:
+                                # CRITICAL FIX: Forward ALL other Redis messages directly to frontend
+                                # This includes: taskcreated, initializing, status, agent_thinking, tool_usage, etc.
+                                
+                                # Preserve the original Redis message structure and add SSE formatting
+                                sse_message = dict(redis_data)  # Copy all Redis data
+                                
+                                # Ensure required SSE fields are present
+                                if 'message_type' not in sse_message and 'type' in sse_message:
+                                    sse_message['message_type'] = sse_message['type']
+                                if 'task_id' not in sse_message:
+                                    sse_message['task_id'] = task_id
+                                if 'timestamp' not in sse_message:
+                                    sse_message['timestamp'] = datetime.utcnow().isoformat()
+                                
+                                # Forward the complete Redis message to frontend
+                                sse_output = f"data: {json.dumps(sse_message)}\n\n"
+                                logger.info(f"📤 Forwarding {message_type} message to SSE: {str(sse_message)[:200]}...")
+                                yield sse_output
                             
                         except Exception as e:
                             logger.error(f"❌ Error processing Redis message: {e}")

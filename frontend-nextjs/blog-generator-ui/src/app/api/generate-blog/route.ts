@@ -38,7 +38,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication token not found" }, { status: 401 })
     }
 
-    const { topic, instructions } = await request.json()
+    const { topic, instructions, task_id } = await request.json()
+    
+    console.log('🆔 Generate-blog API received:', { topic: topic?.substring(0, 50), instructions: instructions?.substring(0, 50), task_id })
 
     if (!topic || !topic.trim()) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 })
@@ -114,8 +116,13 @@ export async function POST(request: NextRequest) {
     // Forward request to Python backend with authentication
     // Use manual HTTP request to backend
     const backendUrl = new URL(`${process.env.API_BASE_URL}/generate-blog`)
+    
+    // SOLUTION 1: Use provided task_id if available, otherwise fall back to blog.id
+    const finalTaskId = task_id || blog.id;
+    console.log('🆔 Using task ID for backend:', finalTaskId, '(provided:', task_id, ', blog.id:', blog.id, ')');
+    
     const postData = JSON.stringify({
-      task_id: blog.id,
+      task_id: finalTaskId,
       topic: finalTopic,                    // Concise topic (≤200 chars)
       instructions: finalInstructions,      // Full original description or original instructions
       user_id: session.user.id
@@ -194,7 +201,7 @@ export async function POST(request: NextRequest) {
 
     // Backend request successful
     return NextResponse.json({
-      task_id: blog.id,
+      task_id: finalTaskId,  // Return the actual task ID used
       message: "Blog generation started",
       blog_id: blog.id
     })
