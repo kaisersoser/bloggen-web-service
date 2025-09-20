@@ -53,7 +53,7 @@ class RedisMessageBuffer:
         """Check if a message buffer exists for the given task ID."""
         buffer_key = self._get_buffer_key(task_id)
         try:
-            exists = await self.redis_manager.client.exists(buffer_key)
+            exists = await self.redis_manager.redis_client.exists(buffer_key)
             return bool(exists)
         except Exception as e:
             logger.error(f"❌ Failed to check buffer existence for task {task_id}: {e}")
@@ -79,12 +79,12 @@ class RedisMessageBuffer:
         try:
             # Store with TTL to prevent memory leaks
             ttl_seconds = self.buffer_ttl_minutes * 60
-            await self.redis_manager.client.setex(
+            await self.redis_manager.redis_client.setex(
                 buffer_key, 
                 ttl_seconds, 
                 json.dumps(buffer_data)
             )
-            await self.redis_manager.client.setex(
+            await self.redis_manager.redis_client.setex(
                 meta_key,
                 ttl_seconds,
                 json.dumps({"status": "buffering", "created_at": datetime.utcnow().isoformat()})
@@ -108,7 +108,7 @@ class RedisMessageBuffer:
         
         try:
             # Check if buffering is active for this task
-            buffer_exists = await self.redis_manager.client.exists(buffer_key)
+            buffer_exists = await self.redis_manager.redis_client.exists(buffer_key)
             if not buffer_exists:
                 return False
                 
@@ -126,15 +126,15 @@ class RedisMessageBuffer:
                 self._active_buffers[task_id].append(buffered_msg)
             
             # Update Redis buffer
-            buffer_data_str = await self.redis_manager.client.get(buffer_key)
+            buffer_data_str = await self.redis_manager.redis_client.get(buffer_key)
             if buffer_data_str:
                 buffer_data = json.loads(buffer_data_str)
                 buffer_data['messages'].append(buffered_msg.to_dict())
                 
                 # Update with preserved TTL
-                ttl = await self.redis_manager.client.ttl(buffer_key)
+                ttl = await self.redis_manager.redis_client.ttl(buffer_key)
                 if ttl > 0:
-                    await self.redis_manager.client.setex(
+                    await self.redis_manager.redis_client.setex(
                         buffer_key,
                         ttl,
                         json.dumps(buffer_data)
@@ -159,7 +159,7 @@ class RedisMessageBuffer:
         
         try:
             # Get buffered messages
-            buffer_data_str = await self.redis_manager.client.get(buffer_key)
+            buffer_data_str = await self.redis_manager.redis_client.get(buffer_key)
             messages = []
             
             if buffer_data_str:
@@ -173,7 +173,7 @@ class RedisMessageBuffer:
                 logger.info(f"📤 Flushing {len(messages)} buffered messages for task {task_id}")
                 
             # Clean up Redis keys
-            await self.redis_manager.client.delete(buffer_key, meta_key)
+            await self.redis_manager.redis_client.delete(buffer_key, meta_key)
             
             # Clean up in-memory buffer
             self._active_buffers.pop(task_id, None)
@@ -194,7 +194,7 @@ class RedisMessageBuffer:
         meta_key = self._get_buffer_metadata_key(task_id)
         
         try:
-            await self.redis_manager.client.delete(buffer_key, meta_key)
+            await self.redis_manager.redis_client.delete(buffer_key, meta_key)
             self._active_buffers.pop(task_id, None)
             logger.info(f"🛑 Stopped message buffering for task {task_id}")
             
@@ -205,7 +205,7 @@ class RedisMessageBuffer:
         """Check if buffering is active for a task."""
         buffer_key = self._get_buffer_key(task_id)
         try:
-            return await self.redis_manager.client.exists(buffer_key) > 0
+            return await self.redis_manager.redis_client.exists(buffer_key) > 0
         except Exception:
             return False
     
@@ -215,8 +215,8 @@ class RedisMessageBuffer:
         meta_key = self._get_buffer_metadata_key(task_id)
         
         try:
-            buffer_data_str = await self.redis_manager.client.get(buffer_key)
-            meta_data_str = await self.redis_manager.client.get(meta_key)
+            buffer_data_str = await self.redis_manager.redis_client.get(buffer_key)
+            meta_data_str = await self.redis_manager.redis_client.get(meta_key)
             
             if not buffer_data_str or not meta_data_str:
                 return None
@@ -229,7 +229,7 @@ class RedisMessageBuffer:
                 "message_count": len(buffer_data.get('messages', [])),
                 "created_at": meta_data.get('created_at'),
                 "status": meta_data.get('status'),
-                "ttl_seconds": await self.redis_manager.client.ttl(buffer_key)
+                "ttl_seconds": await self.redis_manager.redis_client.ttl(buffer_key)
             }
             
         except Exception as e:

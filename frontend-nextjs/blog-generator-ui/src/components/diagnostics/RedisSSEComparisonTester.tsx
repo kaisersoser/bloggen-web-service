@@ -24,24 +24,15 @@ interface MessageStats {
 }
 
 export function RedisSSEComparisonTester() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [taskId, setTaskId] = useState<string>('');
   const [isMonitoring, setIsMonitoring] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [sseMessages, setSSEMessages] = useState<SSEMessage[]>([]);
-  const [authToken, setAuthToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'comparison' | 'sse' | 'analysis'>('comparison');
   
   const eventSourceRef = useRef<EventSource | null>(null);
   const messageCounterRef = useRef<number>(0);
-
-  // Expected message types based on comprehensive analysis
-  const expectedMessageTypes = [
-    'agentthinking', 'toolcall', 'researchfinding', 'heroImage', 'contentcreation',
-    'factchecking', 'finalization', 'completion', 'status', 'connected', 
-    'initializing', 'keepalive', 'log', 'error', 'progress', 'stepchange',
-    'agentdecision', 'taskassignment'
-  ];
 
   // Get JWT token
   const getAuthToken = useCallback(async (): Promise<string> => {
@@ -60,7 +51,6 @@ export function RedisSSEComparisonTester() {
         throw new Error('No authentication token received');
       }
       
-      setAuthToken(token);
       return token;
     } catch (error) {
       console.error('❌ Failed to get auth token:', error);
@@ -157,6 +147,14 @@ export function RedisSSEComparisonTester() {
 
   // Calculate stats
   const messageStats: MessageStats = React.useMemo(() => {
+    // Expected message types based on comprehensive analysis
+    const expectedMessageTypes = [
+      'agentthinking', 'toolcall', 'researchfinding', 'heroImage', 'contentcreation',
+      'factchecking', 'finalization', 'completion', 'status', 'connected', 
+      'initializing', 'keepalive', 'log', 'error', 'progress', 'stepchange',
+      'agentdecision', 'taskassignment'
+    ];
+
     const sseTypes: Record<string, number> = {};
     
     sseMessages.forEach(msg => {
@@ -164,7 +162,7 @@ export function RedisSSEComparisonTester() {
     });
     
     const receivedTypes = new Set(Object.keys(sseTypes));
-    const missingTypes = expectedMessageTypes.filter(type => !receivedTypes.has(type));
+    const missingTypes = expectedMessageTypes.filter((type: string) => !receivedTypes.has(type));
     
     return {
       sseMessages: sseMessages.length,
@@ -294,7 +292,7 @@ ${sseMessages.map(msg => `[${msg.timestamp}] ${msg.type}: ${JSON.stringify(msg.d
         <div className="p-4 bg-blue-50 dark:bg-blue-900 border border-blue-200 rounded-md">
           <h3 className="font-medium text-blue-800 dark:text-blue-200 mb-2">🔧 Backend Analysis Instructions</h3>
           <div className="text-blue-700 dark:text-blue-300 text-sm space-y-1">
-            <p><strong>1. Redis Analysis:</strong> Run <code>python comprehensive_notification_analysis.py</code> in backend to see what's published to Redis</p>
+            <p><strong>1. Redis Analysis:</strong> Run <code>python comprehensive_notification_analysis.py</code> in backend to see what&apos;s published to Redis</p>
             <p><strong>2. Live Monitoring:</strong> Run <code>python redis_sse_diagnostic.py {taskId}</code> during blog generation to monitor Redis channels</p>
             <p><strong>3. Compare:</strong> Compare Redis message count vs SSE received count ({messageStats.sseMessages} so far)</p>
           </div>

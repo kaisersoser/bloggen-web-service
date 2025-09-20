@@ -181,9 +181,36 @@ export function useEnhancedSSEConnection() {
           break;
         default:
           console.log('❓ Unknown message type:', data.message_type, data);
+          // Fallback: treat unknown messages as general log entries
+          if (onLogUpdate && data.message) {
+            onLogUpdate(taskId, {
+              timestamp: data.timestamp || new Date().toISOString(),
+              step: data.message_type || 'Unknown',
+              message: data.message,
+              progress: data.progress || 0
+            });
+          }
           break;
       }
       return;
+    }
+
+    // Enhanced fallback for any message with content (with proper type handling)
+    const anyData = data as any;
+    if (data.message || anyData.data) {
+      const messageContent = data.message || (typeof anyData.data === 'string' ? anyData.data : JSON.stringify(anyData.data));
+      const messageType = anyData.type || anyData.event || 'message';
+      
+      console.log('📝 Processing fallback message:', messageType, messageContent);
+      
+      if (onLogUpdate) {
+        onLogUpdate(taskId, {
+          timestamp: data.timestamp || new Date().toISOString(),
+          step: messageType,
+          message: messageContent,
+          progress: data.progress || 0
+        });
+      }
     }
 
     // Legacy format (status + step) - keep for backward compatibility

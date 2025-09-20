@@ -1,6 +1,7 @@
 "use client"
 
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { SSEConnectionTester } from '@/components/diagnostics/SSEConnectionTester';
 import { RedisSSEComparisonTester } from '@/components/diagnostics/RedisSSEComparisonTester';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,12 +32,12 @@ export default function DiagnosticsPage() {
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 Please sign in to access the diagnostic tools.
               </p>
-              <a
+                            <Link
                 href="/api/auth/signin"
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
               >
                 Sign In
-              </a>
+              </Link>
             </div>
           </CardContent>
         </Card>
@@ -74,11 +75,11 @@ export default function DiagnosticsPage() {
           <section>
             <div className="mb-4">
               <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
-                � SSE Message Reception Analysis
+                📊 SSE Message Reception Analysis
               </h2>
               <p className="text-gray-600 dark:text-gray-400">
                 Monitor SSE message reception and analyze against expected message types. 
-                Use the comprehensive backend Python scripts to compare what's published to Redis vs what reaches the frontend.
+                Use the comprehensive backend Python scripts to compare what&apos;s published to Redis vs what reaches the frontend.
               </p>
             </div>
             <RedisSSEComparisonTester />
@@ -113,10 +114,10 @@ export default function DiagnosticsPage() {
                       1. SSE Message Reception Analysis
                     </h3>
                     <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 ml-4">
-                      <li>• Enter a task ID and click "Start Monitoring"</li>
+                      <li>• Enter a task ID and click &quot;Start Monitoring&quot;</li>
                       <li>• Generate a blog on the main page using the same task ID</li>
                       <li>• Monitor SSE message reception and coverage analysis</li>
-                      <li>• Use "Copy Report" to save detailed analysis</li>
+                      <li>• Use &quot;Copy Report&quot; to save detailed analysis</li>
                       <li>• Run backend Python scripts to compare Redis publication vs SSE reception</li>
                     </ul>
                   </div>
@@ -127,7 +128,7 @@ export default function DiagnosticsPage() {
                     </h3>
                     <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 ml-4">
                       <li>• <code>python comprehensive_notification_analysis.py</code> - Analyze what backend publishes to Redis</li>
-                      <li>• <code>python redis_sse_diagnostic.py &lt;task_id&gt;</code> - Monitor Redis channels during live generation</li>
+                      <li>• <code>python redis_sse_diagnostic.py {`<task_id>`}</code> - Monitor Redis channels during live generation</li>
                       <li>• Compare Redis publication count vs frontend SSE reception count</li>
                       <li>• Identify which message types are lost between Redis and SSE delivery</li>
                     </ul>

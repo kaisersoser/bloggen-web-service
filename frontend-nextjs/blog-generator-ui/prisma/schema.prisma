@@ -65,7 +65,7 @@ model VerificationToken {
 }
 
 model Blog {
-  id            String         @id @default(cuid())
+  id            String         @id
   userId        String         @map("user_id")
   topic         String
   instructions  String?

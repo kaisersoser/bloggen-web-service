@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Crown, User, LogOut, Sun, Moon, Monitor, BarChart3 } from "lucide-react"
 import { useUserStats } from "@/hooks/useUserStats"
-import { useRouter } from "next/navigation"
 
 type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -21,7 +20,6 @@ export function UserProfileDropdown({ themeMode = 'light', onThemeChange }: User
   const { stats, loading: statsLoading } = useUserStats()
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
 
   // Close dropdown when clicking outside
   useEffect(() => {

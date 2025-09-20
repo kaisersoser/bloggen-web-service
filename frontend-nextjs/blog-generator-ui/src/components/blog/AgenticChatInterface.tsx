@@ -1,13 +1,13 @@
 "use client"
 
 import React, { useState, useRef, useEffect } from 'react';
+import Image from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Send, Bot, User, Loader2, FileText, Settings, Clock } from "lucide-react";
+import { Send, Bot, User, Loader2, FileText, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface LogEntry {
@@ -148,7 +148,7 @@ export function AgenticChatInterface({
       </div>
 
       {/* Chat Area */}
-      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
+      <div className="flex-1 p-4 overflow-y-auto" ref={scrollAreaRef}>
         <div className="space-y-4">
           {/* Welcome Message */}
           {chatHistory.length === 0 && !isGenerating && (
@@ -285,11 +285,14 @@ export function AgenticChatInterface({
                 </div>
                 <h3 className="font-semibold text-lg mb-2">{generatedBlog.title}</h3>
                 {generatedBlog.heroImageUrl && (
-                  <img 
-                    src={generatedBlog.heroImageUrl} 
-                    alt="Blog hero" 
-                    className="w-full h-48 object-cover rounded-lg mb-3"
-                  />
+                  <div className="relative w-full h-48 mb-3">
+                    <Image 
+                      src={generatedBlog.heroImageUrl} 
+                      alt="Blog hero" 
+                      fill
+                      className="object-cover rounded-lg"
+                    />
+                  </div>
                 )}
                 <div className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3">
                   {generatedBlog.content.substring(0, 200)}...
@@ -303,7 +306,7 @@ export function AgenticChatInterface({
 
           <div ref={chatEndRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Input Area */}
       <div className="border-t bg-white dark:bg-gray-800 p-4">

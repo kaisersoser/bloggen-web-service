@@ -60,7 +60,8 @@ export async function POST(request: NextRequest) {
     const blog = await BlogService.createBlog(
       session.user.id,
       topic.trim(),
-      instructions?.trim()
+      instructions?.trim(),
+      task_id  // Pass task_id as the blog ID
     )
     console.log('Blog created successfully:', blog.id)
 

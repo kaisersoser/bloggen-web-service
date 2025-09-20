@@ -1,13 +1,11 @@
 "use client"
 import { Button } from "@/components/ui/button";
 import { UserProfileDropdown } from "@/components/auth/UserProfileDropdown";
-import { CenterChatInterface } from "@/components/blog/CenterChatInterface";
+import { TabbedPromptInterface } from "@/components/blog/TabbedPromptInterface";
 import { BlogTileGrid } from "@/components/blog/BlogTileGrid";
 import { BlogViewModal } from "@/components/blog/BlogViewModal";
 import { DeleteConfirmationDialog } from "@/components/blog/DeleteConfirmationDialog";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
-import { ProgressBar } from "@/components/ui/ProgressBar";
-import { AdminDiagnosticMonitor } from "@/components/diagnostics/AdminDiagnosticMonitor";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
 import { signIn } from "next-auth/react";
@@ -19,22 +17,23 @@ export default function BlogGenerator() {
     isAuthenticated,
     isLoading,
     stats,
+    jobs,
     previousBlogs,
     blogsLoading,
-    currentJobId,
-    currentJob,
     generationError,
     isGenerating,
-    taskLogs,
     showDeleteDialog,
     blogToDelete,
     isDeleting,
     selectedBlog,
     showBlogModal,
+    taskLogs,
+    currentJobId,
     handleGenerateBlog,
     handleBlogClick,
     handleBulkDeleteBlogs,
     confirmDeleteBlog,
+    clearTaskLogs,
     setBlogToDelete,
     setIsDeleting,
     setSelectedBlog,
@@ -42,6 +41,14 @@ export default function BlogGenerator() {
     setShowDeleteDialog,
     setGenerationError
   } = useBlogGenerator();
+
+  // Debug logging to track duplicate blog cards
+  console.log('📊 Blog page render debug:', {
+    jobsCount: jobs?.length || 0,
+    previousBlogsCount: previousBlogs?.length || 0,
+    jobsData: jobs?.map(j => ({ id: j.id, topic: j.topic, status: j.status })) || [],
+    previousBlogsData: previousBlogs?.map(b => ({ id: b.id, topic: b.topic, status: b.status, hasContent: !!b.content, hasHeroImage: !!b.heroImageUrl })) || []
+  });
 
   // Phase 4 Progressive Content Streaming - Future enhancement placeholder
   // SSE connection is handled by useBlogGenerator hook
@@ -90,46 +97,17 @@ export default function BlogGenerator() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Center Chat Interface */}
+        {/* Tabbed Prompt Interface */}
         <div className="flex justify-center">
-          <CenterChatInterface
-            onSubmit={(prompt) => handleGenerateBlog(prompt, '')}
+          <TabbedPromptInterface
+            onSubmit={(prompt: string) => handleGenerateBlog(prompt, '')}
             isGenerating={isGenerating}
             disabled={false}
             remainingGenerations={stats?.remainingGenerations}
             userRole={stats?.role as 'FREE' | 'PREMIUM' | 'ADMIN'}
-          />
-        </div>
-
-        {/* Generation Progress (when active) */}
-        {currentJobId && currentJob && currentJob.status === 'in_progress' && (
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-              <div className="flex items-center justify-between text-sm mb-3">
-                <span className="text-gray-700 dark:text-gray-300 font-medium">
-                  {currentJob.currentStep || 'Processing your request...'}
-                </span>
-                <span className="text-gray-500 dark:text-gray-400 tabular-nums">
-                  {Math.round(currentJob.progress)}%
-                </span>
-              </div>
-              <ProgressBar value={currentJob.progress} showLabel={false} />
-              {/* Debug info */}
-              <div className="text-xs text-gray-400 mt-1">
-                Debug: progress={currentJob.progress}, rounded={Math.round(currentJob.progress)}
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                AI agents are collaborating to create your blog. This may take a few minutes.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Admin Diagnostic Monitor */}
-        <div className="max-w-4xl mx-auto">
-          <AdminDiagnosticMonitor 
+            taskLogs={taskLogs}
             currentJobId={currentJobId}
-            isGenerating={isGenerating}
+            clearTaskLogs={clearTaskLogs}
           />
         </div>
 

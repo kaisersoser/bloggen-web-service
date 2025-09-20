@@ -26,7 +26,7 @@ interface ConnectionStats {
 }
 
 export function SSEConnectionTester() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [taskId, setTaskId] = useState<string>('');
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);

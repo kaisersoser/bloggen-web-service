@@ -56,8 +56,17 @@ export function useBlogManagement() {
   const fetchPreviousBlogs = useCallback(async () => {
     try {
       setBlogsLoading(true);
+      console.log('🔄 Fetching previous blogs from API...');
       const blogs = await blogService.getUserBlogs();
+      console.log('📊 Fetched blogs from API:', blogs.map(b => ({ 
+        id: b.id, 
+        topic: b.topic, 
+        status: b.status, 
+        hasContent: !!b.content,
+        hasHeroImage: !!b.heroImageUrl 
+      })));
       setPreviousBlogs(blogs);
+      console.log('✅ Updated previousBlogs state');
     } catch (error) {
       console.error('Error fetching previous blogs:', error);
     } finally {
