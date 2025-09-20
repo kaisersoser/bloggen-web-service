@@ -742,9 +742,34 @@ async def stream_task(task_id: str, token: str):
                     await asyncio.wait_for(redis_pubsub.subscribe(sse_immediate_channel), timeout=5.0)
                     logger.info(f"📡 SSE subscribed to Redis channels: {task_updates_channel}, {sse_immediate_channel}")
                     
-                    # SOLUTION 2: Flush buffered messages now that SSE connection is established
+                    # SOLUTION 2: Wait for flow to start before flushing buffer
                     if message_buffer:
                         try:
+                            # Wait for flow to start (with timeout) before flushing buffer
+                            flow_started = False
+                            timeout_seconds = 5.0
+                            check_interval = 0.2
+                            elapsed = 0.0
+                            
+                            logger.info(f"⏳ Waiting for CrewAI flow to start before flushing buffer...")
+                            while not flow_started and elapsed < timeout_seconds:
+                                # Check if flow has started by looking for flow status marker
+                                flow_status_key = f"flow_status:{task_id}"
+                                redis_manager = task_manager._redis_manager
+                                if redis_manager and redis_manager.redis_client:
+                                    flow_status = await redis_manager.redis_client.get(flow_status_key)
+                                    if flow_status == "started":
+                                        flow_started = True
+                                        logger.info(f"✅ Flow started, flushing buffer now...")
+                                        break
+                                
+                                await asyncio.sleep(check_interval)
+                                elapsed += check_interval
+                            
+                            if not flow_started:
+                                logger.info(f"⏰ Timeout waiting for flow start, flushing buffer anyway...")
+                            
+                            # Flush buffer now that flow has started (or timeout reached)
                             buffered_messages = await message_buffer.flush_buffered_messages(task_id)
                             if buffered_messages:
                                 logger.info(f"📤 Replaying {len(buffered_messages)} buffered messages for task {task_id}")
@@ -1411,6 +1436,15 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
 
         # Start hero image generation concurrently
         hero_task = asyncio.create_task(hero_image_task())
+
+        # Set flow status marker to signal that CrewAI flow is starting
+        if task_manager._redis_manager:
+            try:
+                flow_status_key = f"flow_status:{task_id}"
+                await task_manager._redis_manager.redis_client.setex(flow_status_key, 300, "started")  # 5 min TTL
+                logger.info(f"🚀 Set flow status marker for task {task_id}")
+            except Exception as e:
+                logger.warning(f"Failed to set flow status marker: {e}")
 
         # Execute the flow with proper inputs (topic may be None for auto-generation)
         result = await run_blog_flow_async(flow, topic)

@@ -310,7 +310,43 @@ class TaskManager:
                     if field in status_data:
                         immediate_message[field] = status_data[field]
                 
-                # Publish to task-specific channel for SSE
+                # Check if message buffering is active for this task
+                buffer_key = f"message_buffer:{task_id}"
+                try:
+                    buffer_active = sync_redis.exists(buffer_key)
+                    
+                    if buffer_active:
+                        # Message buffering is active - store message in buffer instead of publishing
+                        from core.message_buffer import BufferedMessage
+                        
+                        # Create BufferedMessage
+                        buffered_msg = BufferedMessage(
+                            task_id=task_id,
+                            message_data=immediate_message,
+                            channel=f"task_updates:{task_id}",
+                            timestamp=datetime.utcnow().isoformat(),
+                            message_type=message_type
+                        )
+                        
+                        # Add to buffer in Redis
+                        buffer_key = f"message_buffer:{task_id}"
+                        existing_data_raw = sync_redis.get(buffer_key)
+                        if existing_data_raw:
+                            buffer_data = json.loads(str(existing_data_raw))
+                        else:
+                            buffer_data = {"messages": []}
+                        
+                        buffer_data["messages"].append(buffered_msg.to_dict())
+                        sync_redis.setex(buffer_key, 1800, json.dumps(buffer_data))  # 30 min TTL
+                        
+                        logger.info(f"📦 BUFFERED: {message_type} message for task {task_id} (buffer active)")
+                        return  # Don't publish to Redis, message is buffered
+                    else:
+                        logger.info(f"📡 DIRECT: No buffer active for task {task_id}, publishing directly")
+                except Exception as buffer_err:
+                    logger.warning(f"⚠️ Buffer check failed for task {task_id}, proceeding with direct publish: {buffer_err}")
+                
+                # Publish to task-specific channel for SSE (if not buffered)
                 task_channel = f"task_updates:{task_id}"
                 sync_redis.publish(task_channel, json.dumps(immediate_message))
                 
