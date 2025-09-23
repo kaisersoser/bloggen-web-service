@@ -71,39 +71,195 @@ export const TabbedPromptInterface = ({
     }
   }, [isGenerating, activeTab]);
 
-  // Convert taskLogs to console messages
+  // Track the last processed log index to avoid duplicates
+  const lastProcessedIndex = React.useRef<Record<string, number>>({});
+  const processingQueue = React.useRef<Array<{ jobId: string; log: any; index: number }>>([]);
+  const isProcessingQueue = React.useRef<boolean>(false);
+  const isBlogCompleted = React.useRef<boolean>(false);
+
+  // Detect blog completion based on isGenerating prop and completion messages
   React.useEffect(() => {
+    const wasCompleted = isBlogCompleted.current;
+    const isNowCompleted = !isGenerating && currentJobId; // Blog completed when generation stops
+    
+    // Also check for completion messages in task logs
     if (currentJobId && taskLogs[currentJobId]) {
       const logs = taskLogs[currentJobId];
-      const currentMessageCount = messages.length;
+      const hasCompletionMessage = logs.some(log => 
+        log.message?.toLowerCase().includes('blog generation complete') ||
+        log.message?.toLowerCase().includes('finalization complete') ||
+        log.message?.toLowerCase().includes('content cleaning completed') ||
+        log.step?.toLowerCase().includes('complete')
+      );
       
-      console.log('📊 TaskLogs processing:', {
-        currentJobId,
-        logsCount: logs.length,
-        currentMessageCount
-      });
+      if (hasCompletionMessage && !wasCompleted) {
+        console.log('🎯 Blog completion detected via completion message! Flushing remaining console messages...');
+        isBlogCompleted.current = true;
+        
+        // Flush all remaining messages immediately
+        if (processingQueue.current.length > 0) {
+          console.log(`⚡ Fast-flushing ${processingQueue.current.length} remaining messages`);
+          
+          // Process all remaining messages without delays
+          while (processingQueue.current.length > 0) {
+            const { jobId, log, index } = processingQueue.current.shift()!;
+            console.log(`➕ Fast-adding message ${index + 1}:`, log.message);
+            
+            addMessage(
+              log.step || 'info',
+              log.message,
+              { progress: log.progress, timestamp: log.timestamp },
+              'info'
+            );
+          }
+          
+          isProcessingQueue.current = false;
+        }
+      }
+    }
+    
+    if (!wasCompleted && isNowCompleted) {
+      console.log('🎯 Blog completion detected via isGenerating! Flushing remaining console messages...');
+      isBlogCompleted.current = true;
       
-      // Only process new messages that aren't already in the console
-      if (logs.length > currentMessageCount) {
-        const newLogs = logs.slice(currentMessageCount);
+      // Flush all remaining messages immediately
+      if (processingQueue.current.length > 0) {
+        console.log(`⚡ Fast-flushing ${processingQueue.current.length} remaining messages`);
         
-        console.log('✅ Processing new logs:', {
-          newLogsCount: newLogs.length
-        });
-        
-        // Process all new messages
-        newLogs.forEach((log) => {
-          console.log('➕ Adding message:', log.message);
+        // Process all remaining messages without delays
+        while (processingQueue.current.length > 0) {
+          const { jobId, log, index } = processingQueue.current.shift()!;
+          console.log(`➕ Fast-adding message ${index + 1}:`, log.message);
+          
           addMessage(
             log.step || 'info',
             log.message,
             { progress: log.progress, timestamp: log.timestamp },
             'info'
           );
-        });
+        }
+        
+        isProcessingQueue.current = false;
       }
     }
-  }, [taskLogs, currentJobId, addMessage, messages.length]);
+    
+    // Reset completion flag for new jobs
+    if (isGenerating && wasCompleted) {
+      isBlogCompleted.current = false;
+    }
+  }, [isGenerating, currentJobId, addMessage, taskLogs]);
+
+  // Sequential message processor with typewriter effect
+  const processMessageQueue = React.useCallback(async () => {
+    if (isProcessingQueue.current || processingQueue.current.length === 0) {
+      return;
+    }
+
+    isProcessingQueue.current = true;
+
+    while (processingQueue.current.length > 0) {
+      // Check if blog is completed - if so, stop typewriter effect and let flush handle it
+      if (isBlogCompleted.current) {
+        console.log('🛑 Blog completed during typewriter processing, stopping to allow fast flush');
+        isProcessingQueue.current = false;
+        return;
+      }
+
+      const { jobId, log, index } = processingQueue.current.shift()!;
+      
+      console.log(`➕ Adding message ${index + 1} with typewriter effect:`, log.message);
+      
+      // Add the message
+      addMessage(
+        log.step || 'info',
+        log.message,
+        { progress: log.progress, timestamp: log.timestamp },
+        'info'
+      );
+
+      // Calculate typewriter delay based on message length
+      const messageLength = log.message?.length || 0;
+      const typewriterDelay = Math.max(800, Math.min(3000, (messageLength / 30) * 1000 + 600));
+      
+      console.log(`⏰ Typewriter delay: ${typewriterDelay}ms for message length: ${messageLength}`);
+      
+      // Wait for typewriter effect (only if there are more messages and blog isn't completed)
+      if (processingQueue.current.length > 0 && !isBlogCompleted.current) {
+        await new Promise(resolve => setTimeout(resolve, typewriterDelay));
+      }
+    }
+
+    isProcessingQueue.current = false;
+  }, [addMessage]);
+
+  // Convert taskLogs to console messages with sequential typewriter streaming
+  React.useEffect(() => {
+    if (currentJobId && taskLogs[currentJobId]) {
+      const logs = taskLogs[currentJobId];
+      const lastIndex = lastProcessedIndex.current[currentJobId] || 0;
+      
+      console.log('📊 TaskLogs processing:', {
+        currentJobId,
+        logsCount: logs.length,
+        lastProcessedIndex: lastIndex,
+        queueLength: processingQueue.current.length,
+        blogCompleted: isBlogCompleted.current
+      });
+      
+      // Only process new messages that haven't been processed yet
+      if (logs.length > lastIndex) {
+        const newLogs = logs.slice(lastIndex);
+        
+        console.log('✅ Queueing new logs for typewriter processing:', {
+          newLogsCount: newLogs.length,
+          startingFromIndex: lastIndex
+        });
+        
+        // Add new messages to the processing queue
+        newLogs.forEach((log, index) => {
+          processingQueue.current.push({
+            jobId: currentJobId,
+            log,
+            index: lastIndex + index
+          });
+        });
+        
+        // Update the last processed index
+        lastProcessedIndex.current[currentJobId] = logs.length;
+        
+        // If blog is already completed, flush immediately, otherwise start typewriter processing
+        if (isBlogCompleted.current) {
+          console.log('⚡ Blog already completed, processing new messages immediately');
+          
+          // Process the new messages immediately without delays
+          const newQueuedMessages = processingQueue.current.splice(-newLogs.length);
+          newQueuedMessages.forEach(({ jobId, log, index }) => {
+            console.log(`➕ Immediate-adding message ${index + 1}:`, log.message);
+            addMessage(
+              log.step || 'info',
+              log.message,
+              { progress: log.progress, timestamp: log.timestamp },
+              'info'
+            );
+          });
+        } else {
+          // Start processing the queue with typewriter effect
+          processMessageQueue();
+        }
+      }
+    }
+  }, [taskLogs, currentJobId, processMessageQueue, addMessage]);
+
+  // Clean up processed index when job changes
+  React.useEffect(() => {
+    if (currentJobId && !lastProcessedIndex.current[currentJobId]) {
+      lastProcessedIndex.current[currentJobId] = 0;
+      // Clear queue and completion status for new job
+      processingQueue.current = [];
+      isProcessingQueue.current = false;
+      isBlogCompleted.current = false;
+    }
+  }, [currentJobId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
