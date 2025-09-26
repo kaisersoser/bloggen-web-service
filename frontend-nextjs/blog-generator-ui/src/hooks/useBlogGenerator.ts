@@ -144,6 +144,16 @@ export function useBlogGenerator() {
       console.log('🆔 Pre-generating task ID for blog generation...');
       const taskId = await blogService.generateTaskId();
       console.log('🆔 Generated task ID:', taskId);
+
+      // ✨ IMMEDIATE FEEDBACK: Add first console message when blog generation starts
+      const initialMessage = {
+        timestamp: new Date().toISOString(),
+        step: 'initialization',
+        message: `Blog generation started for topic: "${topic.trim()}"${instructions.trim() ? ` with instructions: "${instructions.trim()}"` : ''}`,
+        progress: 0
+      };
+      setTaskLogs(prev => ({ ...prev, [taskId]: [initialMessage] }));
+      console.log('✅ Immediate feedback message added to console');
       
       // Create job and set current state immediately
       console.log('📝 Creating local job for task:', taskId);
@@ -164,6 +174,19 @@ export function useBlogGenerator() {
       
       // NOW establish SSE connection to the existing backend task
       console.log('🔗 Establishing SSE connection to existing backend task:', taskId);
+
+        
+        // ✨ IMMEDIATE FEEDBACK: Add second console message when SSE connection is ready
+        const connectionMessage = {
+          timestamp: new Date().toISOString(),
+          step: 'connection',
+          message: 'Preparing blog generation plan...',
+          progress: 5
+        };
+        console.log('🕐 Adding "Preparing blog generation plan..." message at:', new Date().toISOString(), 'for task:', taskId);
+        setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), connectionMessage] }));
+        console.log('✅ SSE connection feedback message added to console');
+
       try {
         await connectToTaskStream(
           taskId,

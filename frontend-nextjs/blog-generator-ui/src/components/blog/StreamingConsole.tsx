@@ -141,7 +141,6 @@ export function StreamingConsole({
           ) : (
             <div className="space-y-1 font-mono text-sm">
               {messages.map((msg, index) => {
-                const isLastMessage = index === messages.length - 1;
                 const isRecentMessage = index >= messages.length - 10; // Apply typewriter to last 10 messages
                 const shouldTypewrite = isRecentMessage && isGenerating;
                 

@@ -237,6 +237,17 @@ export function useEnhancedSSEConnection() {
             console.log('✅ Legacy task completed - closing SSE connection');
             sseConnectionRef.current.close();
             sseConnectionRef.current = null;
+            
+            // Add "Connection closed" message to console
+            if (onLogUpdate) {
+              const connectionClosedMessage = {
+                timestamp: new Date().toISOString(),
+                step: 'connection',
+                message: 'Connection closed',
+                progress: 100
+              };
+              onLogUpdate(taskId, connectionClosedMessage);
+            }
           }
         }
       }
@@ -247,6 +258,17 @@ export function useEnhancedSSEConnection() {
           console.log('❌ Legacy task failed - closing SSE connection');
           sseConnectionRef.current.close();
           sseConnectionRef.current = null;
+          
+          // Add "Connection closed" message to console
+          if (onLogUpdate) {
+            const connectionClosedMessage = {
+              timestamp: new Date().toISOString(),
+              step: 'connection',
+              message: 'Connection closed',
+              progress: 100
+            };
+            onLogUpdate(taskId, connectionClosedMessage);
+          }
         }
       }
       return;

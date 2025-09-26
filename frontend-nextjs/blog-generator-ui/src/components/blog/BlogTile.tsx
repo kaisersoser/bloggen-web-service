@@ -153,16 +153,19 @@ export function BlogTile({
                   <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
               )}
-              {/* Use regular img tag for OpenAI DALL-E images to avoid Next.js optimization issues */}
+              {/* Use Next.js Image with unoptimized for OpenAI DALL-E images to avoid optimization issues */}
               {blog.heroImageUrl.includes('oaidalleapiprodscus.blob.core.windows.net') ? (
-                <img
+                <Image
                   src={blog.heroImageUrl}
                   alt={blog.topic || 'Blog post image'}
-                  className={`w-full h-full object-cover transition-opacity duration-300 ${
+                  fill
+                  unoptimized={true}
+                  className={`object-cover transition-opacity duration-300 ${
                     imageLoaded ? 'opacity-100' : 'opacity-0'
                   }`}
                   onLoad={handleImageLoad}
                   onError={handleImageError}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
                 />
               ) : (
                 <Image

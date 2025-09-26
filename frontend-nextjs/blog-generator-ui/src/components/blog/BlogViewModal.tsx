@@ -1,9 +1,9 @@
 "use client"
-import { useState, Children, cloneElement } from 'react';
+import { useState, Children, cloneElement, useRef, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Download, Copy, FileText, FileImage, FileCode, CheckCircle } from 'lucide-react';
+import { Download, Copy, FileText, FileImage, FileCode, CheckCircle, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkUnwrapImages from 'remark-unwrap-images';
@@ -19,6 +19,107 @@ interface BlogViewModalProps {
 export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
   const [copySuccess, setCopySuccess] = useState(false);
   const [downloading, setDownloading] = useState<BlogExportFormat | null>(null);
+  const [modalSize, setModalSize] = useState({ width: 0, height: 0 });
+  const [isResizing, setIsResizing] = useState(false);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<HTMLDivElement>(null);
+
+  // Calculate A4 proportions based on screen size
+  const calculateA4Size = useCallback(() => {
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // A4 ratio is 1:1.414
+    const a4Ratio = 1.414;
+    
+    // Calculate ideal width (85% of viewport width, max 1200px)
+    const idealWidth = Math.min(viewportWidth * 0.85, 1200);
+    const idealHeight = idealWidth * a4Ratio;
+    
+    // Ensure it fits in viewport (90% max height)
+    const maxHeight = viewportHeight * 0.9;
+    
+    if (idealHeight > maxHeight) {
+      const adjustedHeight = maxHeight;
+      const adjustedWidth = adjustedHeight / a4Ratio;
+      return { width: adjustedWidth, height: adjustedHeight };
+    }
+    
+    return { width: idealWidth, height: idealHeight };
+  }, []);
+
+  // Initialize modal size
+  useEffect(() => {
+    if (isOpen && modalSize.width === 0) {
+      const size = calculateA4Size();
+      setModalSize(size);
+    }
+  }, [isOpen, modalSize.width, calculateA4Size]);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (isOpen && !isResizing) {
+        const size = calculateA4Size();
+        setModalSize(size);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isOpen, isResizing, calculateA4Size]);
+
+  // Resize functionality
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !modalRef.current) return;
+      
+      const rect = modalRef.current.getBoundingClientRect();
+      const newWidth = e.clientX - rect.left;
+      const newHeight = e.clientY - rect.top;
+      
+      // Minimum size constraints
+      const minWidth = 400;
+      const minHeight = 300;
+      
+      // Maximum size constraints (90% of viewport)
+      const maxWidth = window.innerWidth * 0.95;
+      const maxHeight = window.innerHeight * 0.95;
+      
+      setModalSize({
+        width: Math.max(minWidth, Math.min(newWidth, maxWidth)),
+        height: Math.max(minHeight, Math.min(newHeight, maxHeight))
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'nw-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  const handleResetSize = () => {
+    const defaultSize = calculateA4Size();
+    setModalSize(defaultSize);
+  };
 
   const handleCopy = async () => {
     if (!blog?.content) return;
@@ -44,12 +145,34 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b">
+      <DialogContent 
+        ref={modalRef}
+        className="overflow-hidden flex flex-col p-0 gap-0"
+        style={{
+          width: modalSize.width || 'auto',
+          height: modalSize.height || 'auto',
+          maxWidth: '95vw',
+          maxHeight: '95vh',
+          minWidth: '400px',
+          minHeight: '300px'
+        }}
+      >
+        <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b p-6">
           <DialogTitle className="text-xl font-semibold truncate pr-4">
             {blog.topic}
           </DialogTitle>
           <div className="flex items-center space-x-2">
+            {/* Reset Size Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleResetSize}
+              className="p-2 opacity-60 hover:opacity-100 transition-opacity"
+              title="Reset to default size (A4 ratio)"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </Button>
+
             {/* Action Buttons */}
             <Button
               variant="outline"
@@ -72,12 +195,12 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
                 <span>Download</span>
               </Button>
               
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+              <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
                 <div className="py-1">
                   <button
                     onClick={() => downloadFile('md')}
                     disabled={downloading === 'md'}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center space-x-2 disabled:opacity-50"
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center space-x-2 disabled:opacity-50"
                   >
                     <FileText className="w-4 h-4" />
                     <span>Markdown (.md)</span>
@@ -86,7 +209,7 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
                   <button
                     onClick={() => downloadFile('html')}
                     disabled={downloading === 'html'}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center space-x-2 disabled:opacity-50"
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center space-x-2 disabled:opacity-50"
                   >
                     <FileCode className="w-4 h-4" />
                     <span>HTML (.html)</span>
@@ -95,7 +218,7 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
                   <button
                     onClick={() => downloadFile('pdf')}
                     disabled={downloading === 'pdf'}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center space-x-2 disabled:opacity-50"
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center space-x-2 disabled:opacity-50"
                   >
                     <FileImage className="w-4 h-4" />
                     <span>PDF (Print)</span>
@@ -104,10 +227,19 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
                   <button
                     onClick={() => downloadFile('docx')}
                     disabled={downloading === 'docx'}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center space-x-2 disabled:opacity-50"
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center space-x-2 disabled:opacity-50"
                   >
                     <FileText className="w-4 h-4" />
-                    <span>Word (.rtf)</span>
+                    <span>Word (.docx)</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => downloadFile('rtf')}
+                    disabled={downloading === 'rtf'}
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center space-x-2 disabled:opacity-50"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>RTF (.rtf)</span>
                   </button>
                 </div>
               </div>
@@ -117,13 +249,12 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
           </div>
         </DialogHeader>
 
-        {/* Blog Content - A4 Paper Style */}
-        <div className="flex-1 overflow-y-auto">
-          <Card className="mx-auto my-6 shadow-lg" style={{ 
-            width: '210mm', 
-            minHeight: '297mm',
+        {/* Blog Content - Responsive Paper Style */}
+        <div className="flex-1 overflow-y-auto px-6">
+          <Card className="mx-auto my-6 shadow-lg bg-white" style={{ 
+            width: '100%',
             maxWidth: '100%',
-            backgroundColor: 'white'
+            minHeight: 'calc(100% - 3rem)'
           }}>
             <div className="p-8" style={{ 
               padding: '2cm',
@@ -297,7 +428,7 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
         </div>
 
         {/* Footer with blog info */}
-        <div className="border-t pt-4 text-sm text-gray-500 flex justify-between items-center">
+        <div className="border-t pt-4 px-6 pb-4 text-sm text-gray-500 flex justify-between items-center">
           <div>
             Created: {new Date(blog.createdAt).toLocaleDateString()}
             {blog.completedAt && (
@@ -310,6 +441,17 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
             Status: <span className="capitalize">{blog.status}</span>
           </div>
         </div>
+
+        {/* Resize Handle */}
+        <div
+          ref={resizeRef}
+          onMouseDown={handleResizeStart}
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nw-resize opacity-50 hover:opacity-100 transition-opacity"
+          style={{
+            background: 'linear-gradient(-45deg, transparent 0%, transparent 30%, #666 30%, #666 40%, transparent 40%, transparent 60%, #666 60%, #666 70%, transparent 70%)',
+          }}
+          title="Drag to resize"
+        />
       </DialogContent>
     </Dialog>
   );

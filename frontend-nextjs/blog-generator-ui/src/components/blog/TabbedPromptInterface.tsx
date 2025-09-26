@@ -69,10 +69,7 @@ export const TabbedPromptInterface = ({
 
   // Draft content streaming functionality
   const {
-    streamingContent,
-    handleContentStreamMessage,
-    resetStreamingContent,
-    getStreamingStats
+    streamingContent
   } = useStreamingContent();
 
   // State for draft content modal
@@ -116,7 +113,7 @@ export const TabbedPromptInterface = ({
           
           // Process all remaining messages without delays
           while (processingQueue.current.length > 0) {
-            const { jobId, log, index } = processingQueue.current.shift()!;
+            const { log, index } = processingQueue.current.shift()!;
             console.log(`➕ Fast-adding message ${index + 1}:`, log.message);
             
             addMessage(
@@ -142,7 +139,7 @@ export const TabbedPromptInterface = ({
         
         // Process all remaining messages without delays
         while (processingQueue.current.length > 0) {
-          const { jobId, log, index } = processingQueue.current.shift()!;
+          const { log, index } = processingQueue.current.shift()!;
           console.log(`➕ Fast-adding message ${index + 1}:`, log.message);
           
           addMessage(
@@ -179,7 +176,7 @@ export const TabbedPromptInterface = ({
         return;
       }
 
-      const { jobId, log, index } = processingQueue.current.shift()!;
+      const { log, index } = processingQueue.current.shift()!;
       
       console.log(`➕ Adding message ${index + 1} with typewriter effect:`, log.message);
       
@@ -247,7 +244,7 @@ export const TabbedPromptInterface = ({
           
           // Process the new messages immediately without delays
           const newQueuedMessages = processingQueue.current.splice(-newLogs.length);
-          newQueuedMessages.forEach(({ jobId, log, index }) => {
+          newQueuedMessages.forEach(({ log, index }) => {
             console.log(`➕ Immediate-adding message ${index + 1}:`, log.message);
             addMessage(
               log.step || 'info',
