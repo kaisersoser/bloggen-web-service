@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { useSession } from 'next-auth/react';
 import { API_BASE_URL } from '@/config/constants';
+import { logger } from '@/lib/logger';
 
 interface SSEMessage {
   id: number;
@@ -53,7 +54,7 @@ export function RedisSSEComparisonTester() {
       
       return token;
     } catch (error) {
-      console.error('❌ Failed to get auth token:', error);
+      logger.error('❌ Failed to get auth token', error);
       throw error;
     }
   }, []);
@@ -61,14 +62,14 @@ export function RedisSSEComparisonTester() {
   // Start SSE monitoring
   const startSSEMonitoring = useCallback(async (token: string) => {
     try {
-      const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
-      console.log('🔗 Starting SSE monitoring:', streamUrl);
+  const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
+  logger.info('🔗 Starting SSE monitoring', { streamUrl });
       
       const eventSource = new EventSource(streamUrl);
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
-        console.log('✅ SSE connection established');
+        logger.info('✅ SSE connection established');
       };
 
       eventSource.onmessage = (event) => {
@@ -95,20 +96,20 @@ export function RedisSSEComparisonTester() {
           };
           
           setSSEMessages(prev => [sseMessage, ...prev.slice(0, 99)]);
-          console.log('🔵 SSE message:', messageType, data);
+          logger.info('🔵 SSE message received', { messageType, data });
           
         } catch (parseError) {
-          console.error('❌ Failed to parse SSE message:', parseError);
+          logger.error('❌ Failed to parse SSE message', parseError);
         }
       };
 
       eventSource.onerror = (error) => {
-        console.error('❌ SSE connection error:', error);
+        logger.error('❌ SSE connection error', error);
         setConnectionError('SSE connection failed');
       };
 
     } catch (error) {
-      console.error('❌ Failed to start SSE monitoring:', error);
+      logger.error('❌ Failed to start SSE monitoring', error);
       setConnectionError(error instanceof Error ? error.message : 'Unknown SSE error');
     }
   }, [taskId]);
@@ -130,7 +131,7 @@ export function RedisSSEComparisonTester() {
       setIsMonitoring(true);
       
     } catch (error) {
-      console.error('❌ Failed to start monitoring:', error);
+      logger.error('❌ Failed to start monitoring', error);
       setConnectionError(error instanceof Error ? error.message : 'Unknown connection error');
     }
   }, [taskId, getAuthToken, startSSEMonitoring]);
@@ -205,7 +206,7 @@ ${sseMessages.map(msg => `[${msg.timestamp}] ${msg.type}: ${JSON.stringify(msg.d
       await navigator.clipboard.writeText(report);
       alert('✅ SSE analysis report copied to clipboard!');
     } catch (error) {
-      console.error('Failed to copy report:', error);
+      logger.error('Failed to copy report', error);
       alert('❌ Failed to copy report');
     }
   }, [taskId, messageStats, sseMessages]);

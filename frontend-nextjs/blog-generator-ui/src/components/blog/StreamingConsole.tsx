@@ -11,6 +11,7 @@ import {
   Download
 } from "lucide-react";
 import { ConsoleMessage } from '@/hooks/useConsoleMessages';
+import { logger } from '@/lib/logger';
 
 interface StreamingConsoleProps {
   messages: ConsoleMessage[];
@@ -45,7 +46,7 @@ export function StreamingConsole({
       await navigator.clipboard.writeText(consoleText);
       // Could add a toast notification here
     } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
+      logger.error('Failed to copy streaming console output', err);
     }
   };
 

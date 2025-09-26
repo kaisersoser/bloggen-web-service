@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { signOut } from 'next-auth/react';
+import { logger } from '@/lib/logger';
 
 export function useAuthenticationErrorHandler() {
   const handleAuthError = useCallback((error: Error): boolean => {
@@ -18,7 +19,7 @@ export function useAuthenticationErrorHandler() {
     );
     
     if (isAuthError) {
-      console.warn('Authentication error detected, signing out:', error.message);
+      logger.warn('Authentication error detected, signing out', { message: error.message });
       signOut({ callbackUrl: '/auth/signin' });
       return true;
     }

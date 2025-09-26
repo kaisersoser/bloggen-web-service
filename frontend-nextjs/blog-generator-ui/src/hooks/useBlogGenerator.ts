@@ -4,6 +4,7 @@ import { useUserStats } from '@/hooks/useUserStats';
 import { useBlogManagement } from '@/hooks/useBlogManagement';
 import { useEnhancedSSEConnection } from '@/hooks/useEnhancedSSE';
 import { useAuthenticationErrorHandler } from '@/hooks/useAuthenticationErrorHandler';
+import { logger } from '@/lib/logger';
 import { blogService } from '@/lib/services/blog';
 import { taskService } from '@/lib/services/task';
 import { BlogData, ErrorInfo, LogEntry, JobState } from '@/types/blog';
@@ -49,13 +50,13 @@ export function useBlogGenerator() {
   // Safety mechanism: Reset generating state when an error occurs
   useEffect(() => {
     if (generationError && isGenerating) {
-      console.log('🔧 Safety reset: Setting isGenerating(false) due to generation error');
+      logger.info('🔧 Safety reset: Setting isGenerating(false) due to generation error');
       setIsGenerating(false);
     }
   }, [generationError, isGenerating]);
 
   const handleTaskCompletion = useCallback(async (taskId: string, content: string, heroImageUrl?: string) => {
-    console.log('🔍 Frontend handleTaskCompletion called:', {
+    logger.info('🔍 Frontend handleTaskCompletion called', {
       taskId,
       contentLength: content?.length || 0,
       hasContent: !!content,
@@ -79,23 +80,23 @@ export function useBlogGenerator() {
     // CRITICAL FIX: Remove duplicate completion persistence call
     // The backend already handles completion persistence in task_manager.complete_task()
     // This was causing duplicate API calls and "Invalid status" errors
-    console.log('✅ Blog completion handled locally - backend already persisted completion');
+    logger.info('✅ Blog completion handled locally - backend already persisted completion');
     
     // CRITICAL: Remove completed job from local jobs array FIRST to prevent duplicates
-    console.log('🗑️ Removing job from local state:', taskId);
-    console.log('📊 Jobs before deletion:', jobs.map(j => ({ id: j.id, topic: j.topic, status: j.status })));
+    logger.info('🗑️ Removing job from local state', { taskId });
+    logger.info('📊 Jobs before deletion', { jobs: jobs.map(j => ({ id: j.id, topic: j.topic, status: j.status })) });
     deleteJob(taskId);
-    console.log('✅ Removed completed job from local state to prevent duplicate cards');
+    logger.info('✅ Removed completed job from local state to prevent duplicate cards');
     
     // Refresh data without making duplicate completion API call
     try { 
-      console.log('🔄 Refreshing stats and blog list...');
+      logger.info('🔄 Refreshing stats and blog list');
       await Promise.all([refetchStats(), fetchPreviousBlogs()]); 
-      console.log('✅ Refreshed stats and blog list after completion');
-      console.log('📊 Previous blogs after refresh:', previousBlogs.map(b => ({ id: b.id, topic: b.topic, status: b.status })));
+      logger.info('✅ Refreshed stats and blog list after completion');
+      logger.info('📊 Previous blogs after refresh', { previousBlogs: previousBlogs.map(b => ({ id: b.id, topic: b.topic, status: b.status })) });
     }
     catch (err) { 
-      console.error('Failed to refresh data after completion:', err);
+      logger.error('Failed to refresh data after completion', err);
       // Don't mark as failed since completion itself succeeded
     }
   }, [activeConnectionId, jobs, previousBlogs, updateJob, refetchStats, fetchPreviousBlogs, deleteJob]);
@@ -107,30 +108,30 @@ export function useBlogGenerator() {
       setActiveConnectionId(null);
       setIsGenerating(false); // Reset generating state on error
     }
-    try { await blogService.updateBlogCompletion(taskId, 'failed', undefined, errorInfo); } catch (err) { console.error('Failed to persist error state:', err); }
+    try { await blogService.updateBlogCompletion(taskId, 'failed', undefined, errorInfo); } catch (err) { logger.error('Failed to persist error state', err); }
   }, [activeConnectionId, updateJob]);
 
   const handleGenerateBlog = useCallback(async (topic: string, instructions: string) => {
-    console.log('🚀 handleGenerateBlog called with:', { topic, instructions, canGenerate, activeConnectionId });
+    logger.info('🚀 handleGenerateBlog called', { topic, instructions, canGenerate, activeConnectionId });
     
     if (!topic.trim()) { 
-      console.log('❌ Empty topic provided');
+      logger.info('❌ Empty topic provided');
       setGenerationError('Please enter a topic'); 
       return; 
     }
     if (!canGenerate) { 
-      console.log('❌ Cannot generate - limit reached');
+      logger.info('❌ Cannot generate - limit reached');
       setGenerationError('Monthly generation limit reached. Upgrade to Premium for more.'); 
       return; 
     }
     if (activeConnectionId) { 
-      console.log('🔄 Closing existing connection:', activeConnectionId);
+      logger.info('🔄 Closing existing connection', { activeConnectionId });
       closeConnection(); 
       setActiveConnectionId(null); 
     }
     
     try {
-      console.log('🎯 Starting blog generation process...');
+      logger.info('🎯 Starting blog generation process');
       setGenerationError(null);
       setIsGenerating(true);
       setCreatingNew(false); // Once generation starts, exit new mode
@@ -141,9 +142,9 @@ export function useBlogGenerator() {
       // This prevents interference with SSE message flow
       
       // SOLUTION: Pre-generate task ID and start generation BEFORE establishing SSE connection
-      console.log('🆔 Pre-generating task ID for blog generation...');
+      logger.info('🆔 Pre-generating task ID for blog generation');
       const taskId = await blogService.generateTaskId();
-      console.log('🆔 Generated task ID:', taskId);
+      logger.info('🆔 Generated task ID', { taskId });
 
       // ✨ IMMEDIATE FEEDBACK: Add first console message when blog generation starts
       const initialMessage = {
@@ -153,27 +154,27 @@ export function useBlogGenerator() {
         progress: 0
       };
       setTaskLogs(prev => ({ ...prev, [taskId]: [initialMessage] }));
-      console.log('✅ Immediate feedback message added to console');
+      logger.info('✅ Immediate feedback message added to console');
       
       // Create job and set current state immediately
-      console.log('📝 Creating local job for task:', taskId);
+      logger.info('📝 Creating local job for task', { taskId });
       createJob(taskId, topic.trim(), instructions.trim());
       setCurrentJobId(taskId);
       setActiveConnectionId(taskId);
-      console.log('✅ Local job created and state updated');
+      logger.info('✅ Local job created and state updated');
       
       // FIXED: Start blog generation FIRST to ensure backend task exists
-      console.log('🚀 Starting blog generation to create backend task...');
+      logger.info('🚀 Starting blog generation to create backend task');
       const data = await blogService.generateBlog(topic.trim(), instructions.trim(), taskId);
-      console.log('✅ Blog generation started with task ID:', data.task_id);
+      logger.info('✅ Blog generation started with task ID', { taskId: data.task_id });
       
       // Verify the task IDs match
       if (data.task_id !== taskId) {
-        console.warn('⚠️ Task ID mismatch! Expected:', taskId, 'Got:', data.task_id);
+        logger.warn('⚠️ Task ID mismatch', { expectedTaskId: taskId, receivedTaskId: data.task_id });
       }
       
       // NOW establish SSE connection to the existing backend task
-      console.log('🔗 Establishing SSE connection to existing backend task:', taskId);
+      logger.info('🔗 Establishing SSE connection to existing backend task', { taskId });
 
         
         // ✨ IMMEDIATE FEEDBACK: Add second console message when SSE connection is ready
@@ -183,37 +184,37 @@ export function useBlogGenerator() {
           message: 'Preparing blog generation plan...',
           progress: 5
         };
-        console.log('🕐 Adding "Preparing blog generation plan..." message at:', new Date().toISOString(), 'for task:', taskId);
+        logger.info('🕐 Adding "Preparing blog generation plan..." message', { timestamp: new Date().toISOString(), taskId });
         setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), connectionMessage] }));
-        console.log('✅ SSE connection feedback message added to console');
+        logger.info('✅ SSE connection feedback message added to console');
 
       try {
         await connectToTaskStream(
           taskId,
           (taskId: string, updates: Partial<JobState>) => {
-            console.log('🔄 useBlogGenerator: SSE Update received:', taskId, updates);
+            logger.info('🔄 useBlogGenerator: SSE Update received', { taskId, updates });
             updateJob(taskId, updates);
             // Keep isGenerating true until actual completion
             // Only track that we received the first update for debugging
             if (firstUpdateReceivedRef.current !== taskId) {
               firstUpdateReceivedRef.current = taskId;
-              console.log('✅ First SSE update received, real-time connection active');
+              logger.info('✅ First SSE update received, real-time connection active');
             }
           },
           (taskId: string, content: string, heroImageUrl?: string) => {
             // Only set isGenerating to false when task actually completes
-            console.log('🎉 Blog generation completed, setting isGenerating to false');
+            logger.info('🎉 Blog generation completed, setting isGenerating to false');
             setIsGenerating(false);
             handleTaskCompletion(taskId, content, heroImageUrl);
           },
           handleTaskError,
           (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
         );
-        console.log('✅ SSE connection established successfully to existing task:', taskId);
+        logger.info('✅ SSE connection established successfully to existing task', { taskId });
         
         // Don't set isGenerating(false) here - let the first SSE update handle it
       } catch (sseErr) {
-        console.error('Failed to start SSE stream:', sseErr);
+        logger.error('Failed to start SSE stream', sseErr);
         
         // Handle authentication errors in SSE connection
         if (sseErr instanceof Error) {
@@ -228,7 +229,7 @@ export function useBlogGenerator() {
         setIsGenerating(false);
       }
     } catch (err) {
-      console.error('Error starting blog generation:', err);
+      logger.error('Error starting blog generation', err);
       
       // Handle authentication errors specially
       if (err instanceof Error) {
@@ -275,7 +276,7 @@ export function useBlogGenerator() {
         setGenerationError(`Failed to delete ${blogIds.length - succeeded} blog(s).`); 
       } 
     } catch (err) { 
-      console.error('Bulk delete failed:', err); 
+      logger.error('Bulk delete failed', err); 
       setGenerationError('Bulk delete failed.'); 
     } 
   }, [deleteBlog, fetchPreviousBlogs]);
@@ -293,11 +294,11 @@ export function useBlogGenerator() {
       } 
       await fetchPreviousBlogs(); 
     } catch (err) { 
-      console.error('Delete stuck task failed:', err); 
+      logger.error('Delete stuck task failed', err); 
       setGenerationError('Failed to delete stuck task.'); 
     } 
   }, [deleteTask, currentJobId, activeConnectionId, closeConnection, fetchPreviousBlogs]);
-  const confirmDeleteBlog = useCallback(async () => { if (!blogToDelete) return; setIsDeleting(true); try { const success = await deleteBlog(blogToDelete.id); if (success) { setShowDeleteDialog(false); if (currentJobId === blogToDelete.id) { setCurrentJobId(null); setGenerationError(null); } } } catch (err) { console.error('Delete blog failed:', err); setGenerationError('Failed to delete blog.'); } finally { setIsDeleting(false); } }, [blogToDelete, deleteBlog, currentJobId]);
+  const confirmDeleteBlog = useCallback(async () => { if (!blogToDelete) return; setIsDeleting(true); try { const success = await deleteBlog(blogToDelete.id); if (success) { setShowDeleteDialog(false); if (currentJobId === blogToDelete.id) { setCurrentJobId(null); setGenerationError(null); } } } catch (err) { logger.error('Delete blog failed', err); setGenerationError('Failed to delete blog.'); } finally { setIsDeleting(false); } }, [blogToDelete, deleteBlog, currentJobId]);
   const handleNewBlog = useCallback(() => {
     if (isGenerating && activeConnectionId) return; // prevent clearing active generation
     setCreatingNew(true);
@@ -310,7 +311,7 @@ export function useBlogGenerator() {
   // Function to clear taskLogs (used by TabbedPromptInterface)
   const clearTaskLogs = useCallback(() => {
     setTaskLogs({});
-    console.log('🧹 TaskLogs cleared via clearTaskLogs callback');
+    logger.info('🧹 TaskLogs cleared via clearTaskLogs callback');
   }, []);
 
   // State recovery: Check for active tasks on page load/refresh (run only once when authenticated)
@@ -340,14 +341,14 @@ export function useBlogGenerator() {
                     (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
                   );
                 } catch (sseErr) {
-                  console.error(`Failed to reconnect to task ${task.id}:`, sseErr);
+                  logger.error(`Failed to reconnect to task ${task.id}`, sseErr);
                   setGenerationError('Lost connection to active generation. Status may be outdated.');
                 }
               }
             }
           }
         } catch (error) {
-          console.error('Failed to recover active jobs:', error);
+          logger.error('Failed to recover active jobs', error);
         }
       };
       

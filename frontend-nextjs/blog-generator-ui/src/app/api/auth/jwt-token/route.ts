@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
+import { serverLogger } from '@/lib/logger/server'
 import jwt from 'jsonwebtoken'
 
 export async function GET() {
@@ -28,7 +29,7 @@ export async function GET() {
     return NextResponse.json({ token }, { status: 200 })
     
   } catch (error) {
-    console.error("JWT token generation error:", error)
+    serverLogger.error("JWT token generation error", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

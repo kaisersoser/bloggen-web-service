@@ -38,9 +38,29 @@ export class ProtocolConfig {
   }
 
   static logConfig(): void {
-    console.log(`🔧 Protocol Config: ${this.protocol.toUpperCase()} mode`);
-    console.log(`   Frontend: ${this.getFrontendUrl()}`);
-    console.log(`   Backend: ${this.getBackendUrl()}`);
+    const details = {
+      mode: this.protocol.toUpperCase(),
+      frontendUrl: this.getFrontendUrl(),
+      backendUrl: this.getBackendUrl(),
+    };
+
+    if (typeof window !== 'undefined') {
+      void import('@/lib/logger')
+        .then(({ logger }) => {
+          logger.info('🔧 Protocol configuration (client)', details);
+        })
+        .catch(() => {
+          // Swallow logging transport errors silently
+        });
+    } else {
+      void import('@/lib/logger/server')
+        .then(({ serverLogger }) => {
+          serverLogger.info('🔧 Protocol configuration (server)', details);
+        })
+        .catch(() => {
+          // Silent failure if logger unavailable during build
+        });
+    }
   }
 }
 

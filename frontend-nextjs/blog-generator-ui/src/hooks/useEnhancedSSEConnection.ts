@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
+import { logger } from '@/lib/logger';
 
 export interface SSEConnectionOptions {
   maxRetries?: number;
@@ -82,7 +83,7 @@ export function useEnhancedSSEConnection(
 
       return data.token;
     } catch (error) {
-      console.error('JWT token retrieval failed:', error);
+      logger.error('JWT token retrieval failed', error);
       throw error;
     }
   }, [session, status]);
@@ -135,7 +136,7 @@ export function useEnhancedSSEConnection(
 
       // Handle successful connection
       eventSource.onopen = () => {
-        console.log('✅ SSE connection established');
+        logger.info('✅ SSE connection established');
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
@@ -155,13 +156,13 @@ export function useEnhancedSSEConnection(
           const message: SSEMessage = JSON.parse(event.data);
           onMessage(message);
         } catch (error) {
-          console.error('Failed to parse SSE message:', error);
+          logger.error('Failed to parse SSE message', error);
         }
       };
 
       // Handle connection errors with smart retry logic
       eventSource.onerror = (error) => {
-        console.error('SSE connection error:', error);
+        logger.error('SSE connection error', error);
         cleanup();
 
         const isAuthError = eventSource.readyState === EventSource.CLOSED;

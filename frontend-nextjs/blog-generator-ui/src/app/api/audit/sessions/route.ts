@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { serverLogger } from '@/lib/logger/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(auditSession, { status: 201 });
 
   } catch (error) {
-    console.error('Error creating audit session:', error);
+    serverLogger.error('Error creating audit session', error);
     return NextResponse.json(
       { error: 'Failed to create audit session' },
       { status: 500 }

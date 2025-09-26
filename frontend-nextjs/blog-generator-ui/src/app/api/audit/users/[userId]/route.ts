@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { serverLogger } from '@/lib/logger/server';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
 ) {
+  const { userId } = await params;
   try {
-    const { userId } = await params;
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '10');
     const offset = parseInt(url.searchParams.get('offset') || '0');
@@ -93,7 +94,10 @@ export async function GET(
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Error getting user audit summary:', error);
+    serverLogger.error('Error getting user audit summary', {
+      error,
+      userId,
+    });
     return NextResponse.json(
       { error: 'Failed to get user audit summary' },
       { status: 500 }

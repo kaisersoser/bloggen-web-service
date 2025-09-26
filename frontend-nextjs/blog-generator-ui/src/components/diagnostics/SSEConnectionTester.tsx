@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { useSession } from 'next-auth/react';
 import { API_BASE_URL } from '@/config/constants';
+import { logger } from '@/lib/logger';
 
 interface MessageLog {
   id: number;
@@ -68,7 +69,7 @@ export function SSEConnectionTester() {
       setAuthToken(token);
       return token;
     } catch (error) {
-      console.error('❌ Failed to get auth token:', error);
+      logger.error('❌ Failed to get auth token', error);
       throw error;
     }
   }, []);
@@ -97,11 +98,11 @@ export function SSEConnectionTester() {
       });
       
       // Get authentication token
-      const token = await getAuthToken();
+  const token = await getAuthToken();
       
-      // Create SSE connection
-      const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
-      console.log('🔗 Connecting to SSE stream:', streamUrl);
+  // Create SSE connection
+  const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
+  logger.info('🔗 Connecting to SSE stream', { streamUrl });
       
       const eventSource = new EventSource(streamUrl);
       eventSourceRef.current = eventSource;
@@ -111,7 +112,7 @@ export function SSEConnectionTester() {
 
       // Connection opened
       eventSource.onopen = () => {
-        console.log('✅ SSE connection established');
+        logger.info('✅ SSE connection established');
         setIsConnected(true);
         setConnectionError(null);
         
@@ -171,17 +172,17 @@ export function SSEConnectionTester() {
             return newStats;
           });
           
-          console.log('📩 SSE message received:', messageType, data);
+          logger.info('📩 SSE message received', { messageType, data });
           
         } catch (parseError) {
-          console.error('❌ Failed to parse SSE message:', parseError);
+          logger.error('❌ Failed to parse SSE message', parseError);
           setConnectionError('Failed to parse incoming message');
         }
       };
 
       // Connection error
       eventSource.onerror = (error) => {
-        console.error('❌ SSE connection error:', error);
+        logger.error('❌ SSE connection error', error);
         setIsConnected(false);
         
         if (eventSource.readyState === EventSource.CLOSED) {
@@ -197,7 +198,7 @@ export function SSEConnectionTester() {
       };
 
     } catch (error) {
-      console.error('❌ Failed to create SSE connection:', error);
+      logger.error('❌ Failed to create SSE connection', error);
       setConnectionError(error instanceof Error ? error.message : 'Unknown connection error');
       setIsConnected(false);
     }
@@ -267,7 +268,7 @@ MESSAGE LOG:
       }
       
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+      logger.error('Failed to copy SSE logs to clipboard', error);
       alert('Failed to copy to clipboard. Please manually select and copy the content.');
     }
   }, [messages, connectionStats, taskId]);

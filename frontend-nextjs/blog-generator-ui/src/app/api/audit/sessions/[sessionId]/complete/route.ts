@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { serverLogger } from '@/lib/logger/server';
 
 export async function PATCH(
   request: NextRequest,
@@ -21,7 +22,7 @@ export async function PATCH(
     return NextResponse.json(updatedSession);
 
   } catch (error) {
-    console.error('Error completing audit session:', error);
+    serverLogger.error('Error completing audit session', error);
     return NextResponse.json(
       { error: 'Failed to complete audit session' },
       { status: 500 }
@@ -71,7 +72,7 @@ export async function GET(
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Error getting audit session:', error);
+    serverLogger.error('Error getting audit session', error);
     return NextResponse.json(
       { error: 'Failed to get audit session' },
       { status: 500 }

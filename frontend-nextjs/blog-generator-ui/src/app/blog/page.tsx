@@ -9,6 +9,7 @@ import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
 import { signIn } from "next-auth/react";
+import { logger } from "@/lib/logger";
 
 export default function BlogGenerator() {
   const { theme, setTheme } = useTheme();
@@ -43,7 +44,7 @@ export default function BlogGenerator() {
   } = useBlogGenerator();
 
   // Debug logging to track duplicate blog cards
-  console.log('📊 Blog page render debug:', {
+  logger.debug('Blog page render debug', {
     jobsCount: jobs?.length || 0,
     previousBlogsCount: previousBlogs?.length || 0,
     jobsData: jobs?.map(j => ({ id: j.id, topic: j.topic, status: j.status })) || [],

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { BlogService } from "@/lib/services/user"
+import { serverLogger } from '@/lib/logger/server'
 
 export async function GET() {
   try {
@@ -16,7 +17,7 @@ export async function GET() {
     return NextResponse.json({ blogs })
 
   } catch (error) {
-    console.error("Error fetching user blogs:", error)
+    serverLogger.error("Error fetching user blogs", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -56,7 +57,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ message: "Blog deleted successfully" })
 
   } catch (error) {
-    console.error("Error deleting blog:", error)
+    serverLogger.error("Error deleting blog", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

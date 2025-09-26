@@ -4,14 +4,17 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getFrontendUrl } from '@/config/protocol';
 import { authenticatedBackendFetch } from '@/lib/backend-fetch';
+import { serverLogger } from '@/lib/logger/server';
 
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
     // Debug: Check environment variables
-    console.log('Active tasks route - NODE_TLS_REJECT_UNAUTHORIZED:', process.env.NODE_TLS_REJECT_UNAUTHORIZED);
-    console.log('Active tasks route - API_BASE_URL:', process.env.API_BASE_URL);
+    serverLogger.info('Active tasks route environment', {
+      nodeTlsRejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED,
+      apiBaseUrl: process.env.API_BASE_URL,
+    });
     
     const session = await getServerSession(authOptions);
     
@@ -35,19 +38,21 @@ export async function GET(request: NextRequest) {
     const { token } = await tokenResponse.json();
 
     // Use utility function for backend fetch with SSL handling
-    console.log('About to call authenticatedBackendFetch with token:', token ? 'present' : 'missing');
+    serverLogger.info('Calling authenticatedBackendFetch for active tasks', {
+      tokenPresent: Boolean(token),
+    });
     const response = await authenticatedBackendFetch('/tasks/active', token);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Backend error:', errorText);
+      serverLogger.error('Backend error fetching active tasks', { errorText });
       return NextResponse.json({ error: 'Failed to fetch active tasks' }, { status: response.status });
     }
 
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error('Active tasks API error details:', {
+    serverLogger.error('Active tasks API error details', {
       message: error instanceof Error ? error.message : String(error),
       code: error instanceof Error && 'code' in error ? error.code : undefined,
       cause: error instanceof Error && 'cause' in error ? error.cause : undefined,

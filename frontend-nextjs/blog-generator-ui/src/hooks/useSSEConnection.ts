@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { API_BASE_URL } from '@/config/constants';
+import { logger } from '@/lib/logger';
 import { JobState, SSEUpdate, LogEntry } from '@/types/blog';
 
 export function useSSEConnection() {
@@ -28,15 +29,14 @@ export function useSSEConnection() {
       const { token } = await tokenResponse.json();
       const streamUrl = `${API_BASE_URL}/stream/${taskId}?token=${encodeURIComponent(token)}`;
       
-      console.log('🔗 Attempting SSE connection to:', streamUrl);
-      console.log('🔗 Task ID:', taskId);
+  logger.info('🔗 Attempting SSE connection', { streamUrl, taskId });
       
       const eventSource = new EventSource(streamUrl);
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
-        console.log('✅ SSE connection established for task', taskId);
-        console.log('✅ EventSource readyState:', eventSource.readyState);
+        logger.info('✅ SSE connection established for task', { taskId });
+        logger.info('✅ EventSource readyState', { readyState: eventSource.readyState, taskId });
       };
 
       eventSource.onmessage = (event) => {
@@ -171,21 +171,21 @@ export function useSSEConnection() {
               ));
           }
         } catch (err) {
-          console.error('Failed to parse SSE data:', err);
+          logger.error('Failed to parse SSE data', err);
         }
       };
 
       eventSource.onerror = (err) => {
-        console.error('❌ SSE connection error for task', taskId, ':', err);
-        console.error('❌ EventSource readyState:', eventSource.readyState);
-        console.error('❌ EventSource URL:', eventSource.url);
+        logger.error('❌ SSE connection error for task', { taskId, error: err });
+        logger.error('❌ EventSource readyState', { readyState: eventSource.readyState, taskId });
+        logger.error('❌ EventSource URL', { url: eventSource.url, taskId });
         
         // Try to provide more detailed error information
         const errorMsg = eventSource.readyState === EventSource.CLOSED 
           ? 'Connection was closed by server - check authentication or server logs'
           : 'Network connection failed - check internet connection and server availability';
         
-        console.error('❌ Error type:', errorMsg);
+        logger.error('❌ Error type', { errorType: errorMsg, taskId });
         
         try { eventSource.close(); } catch {}
         if (eventSourceRef.current === eventSource) {
@@ -198,7 +198,7 @@ export function useSSEConnection() {
 
       return eventSource;
     } catch (err) {
-      console.error('Failed to create SSE connection:', err);
+      logger.error('Failed to create SSE connection', err);
       throw err;
     }
   }, []);

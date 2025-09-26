@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { blogService } from '@/lib/services/blog';
+import { logger } from '@/lib/logger';
 import { Send, Settings } from 'lucide-react';
 
 export interface PromptConfig {
@@ -169,7 +170,7 @@ export function ChatPromptInput({
       const generatedTitle = await blogService.generateTitle(preprocessedInstructions);
       return generatedTitle;
     } catch (error) {
-      console.error('Failed to generate title:', error);
+      logger.error('Failed to generate title', error);
       // Fallback to extracted topic
       return extractTopicFromInput(instructions);
     } finally {
@@ -200,7 +201,7 @@ export function ChatPromptInput({
           const title = await blogService.generateTitle(preprocessedInstructions);
           setGeneratedTitle(title);
         } catch (error) {
-          console.error('Failed to auto-generate title:', error);
+          logger.error('Failed to auto-generate title', error);
           setGeneratedTitle(extractTopicFromInput(userInput.trim()));
         } finally {
           setIsGeneratingTitle(false);
@@ -229,7 +230,7 @@ export function ChatPromptInput({
         try {
           topic = await generateTitleFromInstructions(userInput.trim());
         } catch (error) {
-          console.error('Failed to generate title, using fallback:', error);
+            logger.error('Failed to generate title, using fallback', error);
           // Continue with extracted topic as fallback
         }
       }
@@ -243,7 +244,7 @@ export function ChatPromptInput({
       setGeneratedTitle('');
       setShowConfig(false);
     } catch (error) {
-      console.error('Prompt submission error:', error);
+        logger.error('Prompt submission error', error);
     }
   };
 

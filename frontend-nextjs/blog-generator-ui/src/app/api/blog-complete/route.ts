@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { BlogService } from "@/lib/services/user"
+import { serverLogger } from "@/lib/logger/server"
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,9 +12,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 })
     }
 
-  const { blog_id, status, content, error, hero_image_url } = await request.json()
+    const { blog_id, status, content, error, hero_image_url } = await request.json()
 
-    console.log('🔍 Blog completion request:', { blog_id, status, content: content?.length || 0, error, hero_image_url });
+    serverLogger.info('Blog completion request received', {
+      blogId: blog_id,
+      status,
+      contentLength: content?.length || 0,
+      error,
+      heroImageUrl: hero_image_url,
+    })
 
     if (!blog_id) {
       return NextResponse.json({ error: "Blog ID is required" }, { status: 400 })
@@ -41,7 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 })
 
   } catch (error) {
-    console.error("Error updating blog completion:", error)
+    serverLogger.error('Error updating blog completion', { error })
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

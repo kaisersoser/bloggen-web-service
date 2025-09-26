@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { BlogData, JobState } from '@/types/blog';
+import { logger } from '@/lib/logger';
 import { blogService } from '@/lib/services/blog';
 
 export function useBlogManagement() {
@@ -56,19 +57,21 @@ export function useBlogManagement() {
   const fetchPreviousBlogs = useCallback(async () => {
     try {
       setBlogsLoading(true);
-      console.log('🔄 Fetching previous blogs from API...');
+      logger.info('🔄 Fetching previous blogs from API');
       const blogs = await blogService.getUserBlogs();
-      console.log('📊 Fetched blogs from API:', blogs.map(b => ({ 
-        id: b.id, 
-        topic: b.topic, 
-        status: b.status, 
-        hasContent: !!b.content,
-        hasHeroImage: !!b.heroImageUrl 
-      })));
+      logger.info('📊 Fetched blogs from API', {
+        blogs: blogs.map(b => ({ 
+          id: b.id, 
+          topic: b.topic, 
+          status: b.status, 
+          hasContent: !!b.content,
+          hasHeroImage: !!b.heroImageUrl 
+        }))
+      });
       setPreviousBlogs(blogs);
-      console.log('✅ Updated previousBlogs state');
+      logger.info('✅ Updated previousBlogs state');
     } catch (error) {
-      console.error('Error fetching previous blogs:', error);
+      logger.error('Error fetching previous blogs', error);
     } finally {
       setBlogsLoading(false);
     }
@@ -82,7 +85,7 @@ export function useBlogManagement() {
       );
       return true;
     } catch (error) {
-      console.error('Error deleting blog:', error);
+      logger.error('Error deleting blog', error);
       return false;
     }
   }, []);
@@ -94,9 +97,9 @@ export function useBlogManagement() {
     
     try {
       await blogService.deleteStuckTask(taskId);
-      console.log(`Stuck task ${taskId} deleted successfully`);
+      logger.info('Stuck task deleted successfully', { taskId });
     } catch (error) {
-      console.error('Error deleting stuck task:', error);
+      logger.error('Error deleting stuck task', error);
       throw error;
     }
   }, []);

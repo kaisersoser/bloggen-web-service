@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { serverLogger } from '@/lib/logger/server';
 
 export async function GET(
   request: NextRequest,
@@ -43,7 +44,7 @@ export async function GET(
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Error getting audit session:', error);
+    serverLogger.error('Error getting audit session', error);
     return NextResponse.json(
       { error: 'Failed to get audit session' },
       { status: 500 }

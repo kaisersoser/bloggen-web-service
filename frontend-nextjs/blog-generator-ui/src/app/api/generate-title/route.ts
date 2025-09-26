@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
+import { serverLogger } from '@/lib/logger/server'
 import jwt from 'jsonwebtoken'
 
 // Force Node.js runtime (not Edge) for compatibility
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     // Validate backend URL is configured
     if (!process.env.API_BASE_URL) {
-      console.error('API_BASE_URL environment variable is not configured')
+      serverLogger.error('API_BASE_URL environment variable is not configured')
       return NextResponse.json({ error: "Backend configuration error" }, { status: 500 })
     }
 
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
 
       if (!backendResponse.ok) {
         const errorText = await backendResponse.text()
-        console.warn('Backend title generation failed:', errorText)
+        serverLogger.warn('Backend title generation failed', errorText)
         // Fallback to simple title generation
         const fallbackTitle = instructions.length > 50 
           ? instructions.substring(0, 47) + '...'
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(data)
       
     } catch (backendError) {
-      console.warn('Backend title generation error:', backendError)
+      serverLogger.warn('Backend title generation error', backendError)
       // Fallback to simple title generation
       const fallbackTitle = instructions.length > 50 
         ? instructions.substring(0, 47) + '...'
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('Title generation error:', error)
+    serverLogger.error('Title generation error', error)
     // Final fallback - use instructions directly if available
     const fallbackTitle = body?.instructions?.length > 50 
       ? body.instructions.substring(0, 47) + '...'

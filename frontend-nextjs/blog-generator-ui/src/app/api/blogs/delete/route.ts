@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { BlogService } from '@/lib/services/user'
+import { serverLogger } from '@/lib/logger/server'
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -57,7 +58,7 @@ export async function DELETE(request: NextRequest) {
     )
 
   } catch (error) {
-    console.error('Error deleting blog:', error)
+    serverLogger.error('Error deleting blog', error)
     return NextResponse.json(
       { error: 'Failed to delete blog' },
       { status: 500 }

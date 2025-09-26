@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getFrontendUrl } from '@/config/protocol';
 import { authenticatedBackendFetch } from '@/lib/backend-fetch';
+import { serverLogger } from '@/lib/logger/server';
 
 export const runtime = 'nodejs';
 
@@ -11,8 +12,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
+  const { taskId } = await params;
   try {
-    const { taskId } = await params;
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
@@ -42,14 +43,20 @@ export async function DELETE(
         return NextResponse.json({ error: 'Task not found' }, { status: 404 });
       }
       const errorText = await response.text();
-      console.error('Backend error:', errorText);
+      serverLogger.error('Backend error deleting task', {
+        taskId,
+        errorText,
+      });
       return NextResponse.json({ error: 'Failed to fetch task status' }, { status: response.status });
     }
 
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error('Task status API error:', error);
+    serverLogger.error('Task status API error', {
+      taskId,
+      error,
+    });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

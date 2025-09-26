@@ -7,6 +7,7 @@ import http from 'http'
 import https from 'https'
 import jwt from 'jsonwebtoken'
 import { isHttpsMode } from '@/config/protocol'
+import { serverLogger } from '@/lib/logger/server'
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,8 +40,12 @@ export async function POST(request: NextRequest) {
     }
 
     const { topic, instructions, task_id } = await request.json()
-    
-    console.log('🆔 Generate-blog API received:', { topic: topic?.substring(0, 50), instructions: instructions?.substring(0, 50), task_id })
+
+    serverLogger.info('Generate-blog API received request', {
+      topicPreview: topic?.substring(0, 50),
+      instructionsPreview: instructions?.substring(0, 50),
+      taskId: task_id,
+    })
 
     if (!topic || !topic.trim()) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 })
@@ -56,14 +61,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Create blog entry in database
-    console.log('Creating blog for user:', session.user.id, 'topic:', topic.trim())
+    serverLogger.info('Creating blog for user', {
+      userId: session.user.id,
+      topic: topic.trim(),
+    })
     const blog = await BlogService.createBlog(
       session.user.id,
       topic.trim(),
       instructions?.trim(),
       task_id  // Pass task_id as the blog ID
     )
-    console.log('Blog created successfully:', blog.id)
+    serverLogger.info('Blog created successfully', { blogId: blog.id })
 
     // NOTE: Do NOT increment generation count here - only increment on successful completion
     // await UserService.incrementGenerationCount(session.user.id)
@@ -74,7 +82,9 @@ export async function POST(request: NextRequest) {
 
     // If topic exceeds backend's 200-character limit, generate a concise title
     if (finalTopic.length > 200) {
-      console.log(`Topic too long (${finalTopic.length} chars), generating concise title...`);
+      serverLogger.info('Topic exceeds length limit, generating concise title', {
+        topicLength: finalTopic.length,
+      })
       
       try {
         // Use existing title generation API to create concise topic
@@ -91,19 +101,23 @@ export async function POST(request: NextRequest) {
           const titleData = await titleResponse.json();
           if (titleData.title && titleData.title.trim()) {
             finalTopic = titleData.title.trim();
-            console.log(`Generated concise title: "${finalTopic}"`);
+            serverLogger.info('Generated concise title for long topic', {
+              title: finalTopic,
+            })
           } else {
             // Fallback: intelligent truncation
             finalTopic = finalTopic.substring(0, 197) + '...';
-            console.log('Title generation returned empty, using truncated topic');
+            serverLogger.warn('Title generation returned empty, using truncated topic')
           }
         } else {
           // Fallback: intelligent truncation
           finalTopic = finalTopic.substring(0, 197) + '...';
-          console.log('Title generation failed, using truncated topic');
+          serverLogger.warn('Title generation failed, using truncated topic')
         }
       } catch (error) {
-        console.warn('Title generation error, using truncated topic:', error);
+        serverLogger.warn('Title generation error, using truncated topic', {
+          error,
+        })
         // Fallback: intelligent truncation
         finalTopic = finalTopic.substring(0, 197) + '...';
       }
@@ -120,7 +134,11 @@ export async function POST(request: NextRequest) {
     
     // SOLUTION 1: Use provided task_id if available, otherwise fall back to blog.id
     const finalTaskId = task_id || blog.id;
-    console.log('🆔 Using task ID for backend:', finalTaskId, '(provided:', task_id, ', blog.id:', blog.id, ')');
+    serverLogger.info('Using task ID for backend', {
+      finalTaskId,
+      providedTaskId: task_id,
+      blogId: blog.id,
+    })
     
     const postData = JSON.stringify({
       task_id: finalTaskId,
@@ -184,14 +202,14 @@ export async function POST(request: NextRequest) {
       try {
         const errorData = await backendResponse.json()
         backendError = JSON.stringify(errorData)
-        console.error("Backend error response:", errorData)
+  serverLogger.error('Backend error response while generating blog', { errorData })
       } catch {
         // If JSON parsing fails, get text response
         try {
           backendError = await backendResponse.text()
-          console.error("Backend error text:", backendError)
+          serverLogger.error('Backend error text while generating blog', { backendError })
         } catch {
-          console.error("Could not parse backend error response")
+          serverLogger.error('Could not parse backend error response')
         }
       }
       
@@ -208,12 +226,12 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error("Error in blog generation:", error)
-    console.error("Error details:", {
+    serverLogger.error('Error in blog generation', { error })
+    serverLogger.error('Error details for blog generation failure', {
       message: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : 'No stack trace',
       type: typeof error,
-      error: error
+      error,
     })
     return NextResponse.json(
       { error: "Internal server error", details: error instanceof Error ? error.message : 'Unknown error' },

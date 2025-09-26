@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { serverLogger } from '@/lib/logger/server';
 
 // Type for audit session data structure
 interface AuditSessionData {
@@ -188,7 +189,7 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error("Error fetching audit analytics:", error);
+    serverLogger.error('Error fetching audit analytics', { error });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

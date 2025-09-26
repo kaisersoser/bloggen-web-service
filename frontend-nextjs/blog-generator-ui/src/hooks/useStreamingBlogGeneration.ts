@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useEnhancedSSEConnection } from '@/hooks/useEnhancedSSE';
+import { logger } from '@/lib/logger';
 import { useStreamingContent } from './useStreamingContent';
 import { JobState, LogEntry } from '../types/blog';
 
@@ -49,7 +50,7 @@ export const useStreamingBlogGeneration = ({
 
       return connection;
     } catch (error) {
-      console.error('Failed to start streaming generation:', error);
+      logger.error('Failed to start streaming generation', error);
       onJobError(taskId, `Failed to start streaming: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return null;
     }

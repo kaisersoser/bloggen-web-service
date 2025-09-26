@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import remarkUnwrapImages from 'remark-unwrap-images';
 import { BlogData } from '@/types/blog';
 import { exportBlog, BlogExportFormat } from '@/lib/exporters/blogExport';
+import { logger } from '@/lib/logger';
 
 interface BlogViewModalProps {
   blog: BlogData | null;
@@ -129,7 +130,7 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     } catch (error) {
-      console.error('Failed to copy content:', error);
+      logger.error('Failed to copy blog content', error);
     }
   };
 
@@ -137,7 +138,7 @@ export function BlogViewModal({ blog, isOpen, onClose }: BlogViewModalProps) {
     if (!blog) return;
     setDownloading(format);
     try { await exportBlog({ format, blog }); }
-    catch (e) { console.error('Export failed:', e); }
+    catch (e) { logger.error('Export failed', e); }
     finally { setDownloading(null); }
   };
 
