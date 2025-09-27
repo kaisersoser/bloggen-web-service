@@ -1,107 +1,97 @@
-import { useSession } from 'next-auth/react';
-import { AlertCircle, CheckCircle, Loader2, WifiOff } from 'lucide-react';
+import React from 'react';
+import { AlertCircle, CheckCircle, Loader2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { signIn, signOut } from 'next-auth/react';
+
+type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'offline_wait' | 'closed' | 'error';
 
 interface SSEConnectionStatusProps {
-  isConnected?: boolean;
-  isConnecting?: boolean;
-  error?: string | null;
+  status?: ConnectionStatus | null;
+  message?: string | null;
+  updatedAt?: string | null;
   onRetry?: () => void;
   className?: string;
 }
 
-export function SSEConnectionStatus({ 
-  isConnected = false, 
-  isConnecting = false, 
-  error = null,
+export function SSEConnectionStatus({
+  status = 'idle',
+  message,
+  updatedAt,
   onRetry,
-  className = '' 
+  className = ''
 }: SSEConnectionStatusProps) {
-  const { status } = useSession();
-
-  // Don't show anything if there's no active task
-  if (!isConnecting && !isConnected && !error) {
+  if (!status || status === 'idle') {
     return null;
   }
 
-  // Authentication error handling
-  if (status === 'unauthenticated' || (error && error.includes('sign'))) {
-    return (
-      <div className={`flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md text-sm ${className}`}>
-        <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-        <span className="text-amber-800 dark:text-amber-200">Authentication required for real-time updates</span>
-        <Button 
-          size="sm" 
-          variant="outline" 
-          onClick={() => signIn()}
-          className="ml-auto"
-        >
-          Sign In
-        </Button>
-      </div>
-    );
-  }
+  const formattedTimestamp = updatedAt
+    ? new Date(updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
 
-  // Session expired error
-  if (error && (error.includes('expired') || error.includes('401'))) {
-    return (
-      <div className={`flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md text-sm ${className}`}>
-        <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0" />
-        <span className="text-red-800 dark:text-red-200">Session expired</span>
-        <Button 
-          size="sm" 
-          variant="outline" 
-          onClick={() => {
-            signOut({ redirect: false }).then(() => signIn());
-          }}
-          className="ml-auto"
-        >
-          Sign In Again
-        </Button>
-      </div>
-    );
-  }
+  const statusConfig: Record<Exclude<ConnectionStatus, 'idle'>, {
+    icon: React.ReactNode;
+    className: string;
+    label: string;
+  }> = {
+    connecting: {
+      icon: <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-300 animate-spin flex-shrink-0" />, 
+      className: 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200',
+      label: 'Connecting to live updates…',
+    },
+    connected: {
+      icon: <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-300 flex-shrink-0" />, 
+      className: 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200',
+      label: 'Live updates connected',
+    },
+    reconnecting: {
+      icon: <RefreshCw className="w-4 h-4 text-amber-600 dark:text-amber-300 animate-spin flex-shrink-0" />, 
+      className: 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-100',
+      label: 'Reconnecting…',
+    },
+    offline_wait: {
+      icon: <Wifi className="w-4 h-4 text-purple-600 dark:text-purple-300 flex-shrink-0" />, 
+      className: 'bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800 text-purple-800 dark:text-purple-200',
+      label: 'Waiting for network…',
+    },
+    closed: {
+      icon: <WifiOff className="w-4 h-4 text-gray-500 dark:text-gray-300 flex-shrink-0" />, 
+      className: 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200',
+      label: 'Live updates ended',
+    },
+    error: {
+      icon: <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-300 flex-shrink-0" />, 
+      className: 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200',
+      label: 'Connection issue',
+    },
+  };
 
-  // Connection error with retry
-  if (error) {
-    return (
-      <div className={`flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md text-sm ${className}`}>
-        <WifiOff className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0" />
-        <span className="text-red-800 dark:text-red-200 flex-1">{error}</span>
-        {onRetry && (
-          <Button 
-            size="sm" 
-            variant="outline" 
-            onClick={onRetry}
-            className="ml-2"
-          >
-            Retry
-          </Button>
+  const config = statusConfig[status] ?? statusConfig.error;
+
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-2 border rounded-md text-sm transition-colors ${config.className} ${className}`}
+    >
+      {config.icon}
+      <div className="flex-1">
+        <p className="font-medium leading-tight">
+          {config.label}
+        </p>
+        {(message || formattedTimestamp) && (
+          <p className="text-xs opacity-80 leading-tight">
+            {message || 'Monitoring connection health.'}
+            {formattedTimestamp && ` · ${formattedTimestamp}`}
+          </p>
         )}
       </div>
-    );
-  }
-
-  // Connecting state
-  if (isConnecting) {
-    return (
-      <div className={`flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-md text-sm ${className}`}>
-        <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin flex-shrink-0" />
-        <span className="text-blue-800 dark:text-blue-200">Connecting to real-time updates...</span>
-      </div>
-    );
-  }
-
-  // Connected state
-  if (isConnected) {
-    return (
-      <div className={`flex items-center gap-2 px-3 py-2 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md text-sm ${className}`}>
-        <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-        <span className="text-green-800 dark:text-green-200">Real-time updates connected</span>
-      </div>
-    );
-  }
-
-  return null;
+      {status === 'error' && onRetry && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onRetry}
+          className="ml-2"
+        >
+          Retry
+        </Button>
+      )}
+    </div>
+  );
 }

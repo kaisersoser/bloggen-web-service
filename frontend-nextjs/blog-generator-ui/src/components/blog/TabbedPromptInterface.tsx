@@ -11,6 +11,7 @@ import { useConsoleMessages } from "@/hooks/useConsoleMessages";
 import { useStreamingContent } from "@/hooks/useStreamingContent";
 import { logger } from '@/lib/logger';
 import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
+import { SSEConnectionStatus } from '@/components/ui/SSEConnectionStatus';
 import { 
   Send, 
   Sparkles, 
@@ -40,6 +41,11 @@ interface TabbedPromptInterfaceProps {
   }>>;
   currentJobId?: string | null;
   clearTaskLogs?: () => void;
+  connectionStatus?: {
+    status: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'offline_wait' | 'closed' | 'error';
+    message?: string | null;
+    updatedAt?: string | null;
+  } | null;
 }
 
 export const TabbedPromptInterface = ({
@@ -51,7 +57,8 @@ export const TabbedPromptInterface = ({
   className = '',
   taskLogs = {},
   currentJobId = null,
-  clearTaskLogs
+  clearTaskLogs,
+  connectionStatus = null
 }: TabbedPromptInterfaceProps) => {
   const [prompt, setPrompt] = useState<string>('');
   const [activeTab, setActiveTab] = useState<string>('instructions');
@@ -609,6 +616,13 @@ export const TabbedPromptInterface = ({
 
         {/* Console Tab - Streaming Notifications */}
         <TabsContent value="console" className="space-y-4">
+          {connectionStatus && (isGenerating || connectionStatus.status !== 'closed') && (
+            <SSEConnectionStatus
+              status={connectionStatus.status}
+              message={connectionStatus.message ?? undefined}
+              updatedAt={connectionStatus.updatedAt ?? undefined}
+            />
+          )}
           <Card className="p-6">
             {/* StreamingConsole Component - handles its own header */}
             <StreamingConsole 

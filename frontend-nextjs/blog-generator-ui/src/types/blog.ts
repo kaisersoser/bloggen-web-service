@@ -49,6 +49,9 @@ export interface JobState {
   error: ErrorInfo | null;
   createdAt: string;
   completedAt?: string;
+  connectionState?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'offline_wait' | 'closed' | 'error';
+  connectionMessage?: string;
+  connectionUpdatedAt?: string;
 }
 
 export interface SSEUpdate {

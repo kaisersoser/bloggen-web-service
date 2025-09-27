@@ -30,6 +30,7 @@ export default function BlogGenerator() {
     showBlogModal,
     taskLogs,
     currentJobId,
+  currentJob,
     handleGenerateBlog,
     handleBlogClick,
     handleBulkDeleteBlogs,
@@ -50,6 +51,12 @@ export default function BlogGenerator() {
     jobsData: jobs?.map(j => ({ id: j.id, topic: j.topic, status: j.status })) || [],
     previousBlogsData: previousBlogs?.map(b => ({ id: b.id, topic: b.topic, status: b.status, hasContent: !!b.content, hasHeroImage: !!b.heroImageUrl })) || []
   });
+
+  const activeConnectionStatus = currentJob?.connectionState ? {
+    status: currentJob.connectionState,
+    message: currentJob.connectionMessage,
+    updatedAt: currentJob.connectionUpdatedAt,
+  } : null;
 
   // Phase 4 Progressive Content Streaming - Future enhancement placeholder
   // SSE connection is handled by useBlogGenerator hook
@@ -109,6 +116,7 @@ export default function BlogGenerator() {
             taskLogs={taskLogs}
             currentJobId={currentJobId}
             clearTaskLogs={clearTaskLogs}
+            connectionStatus={activeConnectionStatus}
           />
         </div>
 

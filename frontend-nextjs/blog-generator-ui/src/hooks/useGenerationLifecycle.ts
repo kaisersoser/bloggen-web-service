@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { logger } from '@/lib/logger';
 import { blogService } from '@/lib/services/blog';
 import { taskService } from '@/lib/services/task';
-import { useEnhancedSSEConnection } from '@/hooks/useEnhancedSSE';
+import { useEnhancedSSEConnection, type ConnectionStateChange } from '@/hooks/useEnhancedSSE';
 import { useAuthenticationErrorHandler } from '@/hooks/useAuthenticationErrorHandler';
 import type { BlogData, ErrorInfo, JobState, LogEntry } from '@/types/blog';
 import type { GenerationState, GenerationStateActions } from '@/hooks/useGenerationStateManager';
@@ -48,6 +48,14 @@ export function useGenerationLifecycle({
   const firstUpdateReceivedRef = useRef<string | null>(null);
   const isRecoveringRef = useRef(false);
 
+  const handleConnectionStateChange = useCallback((taskId: string, state: ConnectionStateChange) => {
+    updateJob(taskId, {
+      connectionState: state.status,
+      connectionMessage: state.message,
+      connectionUpdatedAt: state.timestamp,
+    });
+  }, [updateJob]);
+
   const resetActiveConnection = useCallback(() => {
     actions.setActiveConnectionId(null);
     actions.setIsGenerating(false);
@@ -71,6 +79,9 @@ export function useGenerationLifecycle({
       progress: 100,
       blogContent: content,
       completedAt: new Date().toISOString(),
+      connectionState: 'closed',
+      connectionMessage: 'Live updates completed',
+      connectionUpdatedAt: new Date().toISOString(),
     });
 
     if (state.activeConnectionId === taskId) {
@@ -125,6 +136,9 @@ export function useGenerationLifecycle({
       currentStep: 'Generation failed',
       progress: 0,
       error: errorInfo,
+      connectionState: 'error',
+      connectionMessage: errorMessage,
+      connectionUpdatedAt: new Date().toISOString(),
     });
 
     if (state.activeConnectionId === taskId) {
@@ -229,6 +243,7 @@ export function useGenerationLifecycle({
           (logTaskId: string, log: LogEntry) => {
             actions.appendTaskLog(logTaskId, log);
           },
+          handleConnectionStateChange
         );
       } catch (connectionError) {
         logger.error('Failed to start SSE stream', connectionError);
@@ -264,7 +279,7 @@ export function useGenerationLifecycle({
 
       actions.setIsGenerating(false);
     }
-  }, [actions, canGenerate, closeConnection, completedTasksRef, connectToTaskStream, createJob, handleAuthError, handleTaskCompletion, handleTaskError, state.activeConnectionId, state.taskLogs, updateJob]);
+  }, [actions, canGenerate, closeConnection, completedTasksRef, connectToTaskStream, createJob, handleAuthError, handleTaskCompletion, handleTaskError, handleConnectionStateChange, state.activeConnectionId, state.taskLogs, updateJob]);
 
   // Recover any active jobs on initial load
   useEffect(() => {
@@ -297,6 +312,7 @@ export function useGenerationLifecycle({
                 handleTaskCompletion,
                 handleTaskError,
                 (logTaskId: string, log: LogEntry) => actions.appendTaskLog(logTaskId, log),
+                handleConnectionStateChange
               );
             } catch (error) {
               logger.error(`Failed to reconnect to task ${task.id}`, error);
@@ -310,7 +326,7 @@ export function useGenerationLifecycle({
     };
 
     void recoverActiveJobs();
-  }, [actions, addTemporaryJob, connectToTaskStream, handleTaskCompletion, handleTaskError, isAuthLoading, isAuthenticated, state.currentJobId, updateJob]);
+  }, [actions, addTemporaryJob, connectToTaskStream, handleConnectionStateChange, handleTaskCompletion, handleTaskError, isAuthLoading, isAuthenticated, state.currentJobId, updateJob]);
 
   // Clean up connection reference on unmount
   useEffect(() => closeConnection, [closeConnection]);
@@ -318,8 +334,15 @@ export function useGenerationLifecycle({
   const closeActiveConnection = useCallback(() => {
     closeConnection();
     completedTasksRef.current.clear();
+    if (state.activeConnectionId) {
+      updateJob(state.activeConnectionId, {
+        connectionState: 'closed',
+        connectionMessage: 'Live updates closed by user',
+        connectionUpdatedAt: new Date().toISOString(),
+      });
+    }
     actions.setActiveConnectionId(null);
-  }, [actions, closeConnection, completedTasksRef]);
+  }, [actions, closeConnection, completedTasksRef, state.activeConnectionId, updateJob]);
 
   return {
     handleGenerateBlog,

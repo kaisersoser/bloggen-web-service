@@ -6,6 +6,14 @@ import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 import { JobState, SSEUpdate, LogEntry } from '@/types/blog';
 import { TimeoutResistantSSE } from '@/lib/TimeoutResistantSSE';
 
+export interface ConnectionStateChange {
+  status: 'connecting' | 'connected' | 'reconnecting' | 'offline_wait' | 'closed' | 'error';
+  message: string;
+  attempt?: number;
+  delayMs?: number;
+  timestamp: string;
+}
+
 export function useEnhancedSSEConnection() {
   const { data: session, status } = useSession();
   const sseConnectionRef = useRef<TimeoutResistantSSE | null>(null);
@@ -361,7 +369,8 @@ export function useEnhancedSSEConnection() {
     onUpdate: (taskId: string, updates: Partial<JobState>) => void,
     onCompletion: (taskId: string, content: string, heroImageUrl?: string) => void,
     onError: (taskId: string, error: string) => void,
-    onLogUpdate?: (taskId: string, log: LogEntry) => void
+    onLogUpdate?: (taskId: string, log: LogEntry) => void,
+    onConnectionStateChange?: (taskId: string, state: ConnectionStateChange) => void
   ): Promise<TimeoutResistantSSE> => {
     try {
       const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
@@ -437,6 +446,12 @@ export function useEnhancedSSEConnection() {
 
       const sseConnection = new TimeoutResistantSSE(streamUrlFactory, sseOptions);
 
+      onConnectionStateChange?.(taskId, {
+        status: 'connecting',
+        message: 'Connecting to live updates…',
+        timestamp: new Date().toISOString(),
+      });
+
       sseConnectionRef.current = sseConnection;
 
       sseConnection.addEventListener('open', () => {
@@ -451,6 +466,11 @@ export function useEnhancedSSEConnection() {
             progress: 5,
           });
         }
+        onConnectionStateChange?.(taskId, {
+          status: 'connected',
+          message: 'Live updates connected',
+          timestamp: new Date().toISOString(),
+        });
       });
 
       sseConnection.addEventListener('reconnecting', ({ attempt, delay }) => {
@@ -468,6 +488,13 @@ export function useEnhancedSSEConnection() {
             progress: 0,
           });
         }
+        onConnectionStateChange?.(taskId, {
+          status: 'reconnecting',
+          message: `Reconnecting in ${(delay / 1000).toFixed(1)} seconds…`,
+          attempt,
+          delayMs: delay,
+          timestamp: new Date().toISOString(),
+        });
       });
 
       sseConnection.addEventListener('offline_wait', ({ attempt }) => {
@@ -485,6 +512,12 @@ export function useEnhancedSSEConnection() {
             progress: 0,
           });
         }
+        onConnectionStateChange?.(taskId, {
+          status: 'offline_wait',
+          message: 'Offline detected. Waiting for network before retrying…',
+          attempt,
+          timestamp: new Date().toISOString(),
+        });
       });
 
       sseConnection.addEventListener('reconnected', ({ attempt }) => {
@@ -502,6 +535,12 @@ export function useEnhancedSSEConnection() {
             progress: 10,
           });
         }
+        onConnectionStateChange?.(taskId, {
+          status: 'connected',
+          message: `Connection restored (attempt ${attempt})`,
+          attempt,
+          timestamp: new Date().toISOString(),
+        });
       });
 
       sseConnection.addEventListener('error', (error: any) => {
@@ -515,6 +554,11 @@ export function useEnhancedSSEConnection() {
         logger.error('❌ Enhanced SSE connection error', { taskId, timestamp: new Date().toISOString(), error });
         contentCacheRef.current.delete(taskId);
         onError(taskId, error.message || 'Connection failed. Your blog generation continues in the background.');
+        onConnectionStateChange?.(taskId, {
+          status: 'error',
+          message: error.message || 'Connection failed. Live updates will retry automatically.',
+          timestamp: new Date().toISOString(),
+        });
       });
 
       sseConnection.addEventListener('close', (data) => {
@@ -530,6 +574,11 @@ export function useEnhancedSSEConnection() {
             progress: 100,
           });
         }
+        onConnectionStateChange?.(taskId, {
+          status: 'closed',
+          message: data?.reason ? `Connection closed: ${data.reason}` : 'Connection closed',
+          timestamp: new Date().toISOString(),
+        });
       });
 
       sseConnection.addEventListener('message', async (data) => {
@@ -609,6 +658,12 @@ export function useEnhancedSSEConnection() {
 
       return sseConnection;
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create Enhanced SSE connection';
+      onConnectionStateChange?.(taskId, {
+        status: 'error',
+        message: errorMessage,
+        timestamp: new Date().toISOString(),
+      });
       logger.error('Failed to create Enhanced SSE connection', err);
       throw err;
     }

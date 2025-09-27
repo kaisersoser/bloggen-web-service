@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+  "test": "vitest run",
     "db:studio": "prisma studio --port 5555",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
@@ -61,6 +62,11 @@
     "eslint": "^9",
     "eslint-config-next": "15.3.4",
     "postcss": "^8.5.6",
-    "typescript": "^5"
+    "typescript": "^5",
+  "@testing-library/jest-dom": "^6.6.3",
+  "@testing-library/react": "^16.3.0",
+  "@testing-library/user-event": "^14.6.1",
+    "jsdom": "^25.0.1",
+    "vitest": "^2.1.4"
   }
 }

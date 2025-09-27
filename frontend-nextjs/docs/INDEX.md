@@ -6,6 +6,7 @@ This directory contains **frontend-specific documentation** for the Next.js blog
 
 ### Core Frontend Documentation
 - [`FRONTEND_README.md`](./FRONTEND_README.md) - Frontend architecture, setup, and development guide
+- [`SSE_RESILIENCE_UPDATES.md`](../blog-generator-ui/src/docs/SSE_RESILIENCE_UPDATES.md) - Adaptive streaming retries and connection telemetry (Priority 2)
 
 ## 🏗️ Frontend Architecture Overview
 

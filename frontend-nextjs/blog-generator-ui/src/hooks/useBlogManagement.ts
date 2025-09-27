@@ -44,7 +44,10 @@ export function useBlogManagement() {
       logs: [],
       blogContent: '',
       error: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      connectionState: 'connecting',
+      connectionMessage: 'Preparing live updates…',
+      connectionUpdatedAt: new Date().toISOString()
     };
     
     setJobs(prevJobs => [...prevJobs, newJob]);
@@ -125,7 +128,10 @@ export function useBlogManagement() {
     blogContent: blog.content || '',
     error: blog.error,
     createdAt: blog.createdAt,
-    completedAt: blog.completedAt || undefined
+    completedAt: blog.completedAt || undefined,
+    connectionState: 'closed',
+    connectionMessage: 'Live updates ended',
+    connectionUpdatedAt: new Date().toISOString()
   }), []);
 
   const addTemporaryJob = useCallback((job: JobState) => {
