@@ -10,6 +10,7 @@ export function useEnhancedSSEConnection() {
   const { data: session, status } = useSession();
   const sseConnectionRef = useRef<TimeoutResistantSSE | null>(null);
   const completedTasksRef = useRef<Set<string>>(new Set());
+  const contentCacheRef = useRef<Map<string, string>>(new Map());
 
   // Helper function to send completion acknowledgment to backend
   const sendCompletionAcknowledgment = useCallback(async (taskId: string) => {
@@ -156,9 +157,11 @@ export function useEnhancedSSEConnection() {
           }
           if (!completedTasksRef.current.has(taskId)) {
             completedTasksRef.current.add(taskId);
-            const finalContent = data.final_content || data.content || '';
+            const cachedContent = contentCacheRef.current.get(taskId);
+            const finalContent = data.final_content || data.content || cachedContent || '';
             const heroImageUrl = data.hero_image_url;
             onCompletion(taskId, finalContent, heroImageUrl);
+            contentCacheRef.current.delete(taskId);
             
             // Send acknowledgment to backend for 2-phase completion protocol
             try {
@@ -178,9 +181,11 @@ export function useEnhancedSSEConnection() {
           }
           if (!completedTasksRef.current.has(taskId)) {
             completedTasksRef.current.add(taskId);
-            const finalContent = data.final_content || data.content || '';
+            const cachedContent = contentCacheRef.current.get(taskId);
+            const finalContent = data.final_content || data.content || cachedContent || '';
             const heroImageUrl = data.hero_image_url;
             onCompletion(taskId, finalContent, heroImageUrl);
+            contentCacheRef.current.delete(taskId);
             
             // Send acknowledgment to backend for 2-phase completion protocol
             try {
@@ -252,10 +257,13 @@ export function useEnhancedSSEConnection() {
           progress: data.progress || 0
         });
       }
-      if (data.status === 'completed' && data.result) {
+      if (data.status === 'completed') {
         if (!completedTasksRef.current.has(taskId)) {
           completedTasksRef.current.add(taskId);
-          onCompletion(taskId, data.result, (data as any).hero_image_url);
+          const cachedContent = contentCacheRef.current.get(taskId);
+          const finalContent = data.result || cachedContent || '';
+          onCompletion(taskId, finalContent, (data as any).hero_image_url);
+          contentCacheRef.current.delete(taskId);
           // Close the SSE connection when task completes
           if (sseConnectionRef.current) {
             if (canLogVerbose) {
@@ -279,6 +287,7 @@ export function useEnhancedSSEConnection() {
       }
       if (data.status === 'failed' && data.error) {
         onError(taskId, data.error);
+        contentCacheRef.current.delete(taskId);
         // Close the SSE connection on error
         if (sseConnectionRef.current) {
           logger.warn('❌ Legacy task failed - closing SSE connection', { taskId });
@@ -342,9 +351,10 @@ export function useEnhancedSSEConnection() {
         logger.error('❌ Stream error', { message: data.message, taskId });
         // Call the onError callback to properly handle the error in the UI
         onError(taskId, data.error || data.message || 'Unknown error occurred');
+        contentCacheRef.current.delete(taskId);
         break;
     }
-  }, [sendCompletionAcknowledgment]);
+  }, [sendCompletionAcknowledgment, contentCacheRef]);
 
   const connectToTaskStream = useCallback(async (
     taskId: string,
@@ -355,131 +365,261 @@ export function useEnhancedSSEConnection() {
   ): Promise<TimeoutResistantSSE> => {
     try {
       const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
-      // Check authentication first
+
       if (status !== 'authenticated' || !session) {
         throw new Error('Please sign in to connect to the stream');
       }
 
-      // Close any existing connection first
       if (sseConnectionRef.current) {
         sseConnectionRef.current.close();
         sseConnectionRef.current = null;
       }
 
-      // Get fresh JWT token
-      const tokenResponse = await fetch('/api/auth/jwt-token', {
-        method: 'GET',
-        credentials: 'include'
-      });
-      
-      if (!tokenResponse.ok) {
-        if (tokenResponse.status === 401) {
-          throw new Error('Session expired - please sign out and sign back in');
-        }
-        throw new Error(`Authentication failed: ${tokenResponse.status}`);
-      }
-      
-      const { token } = await tokenResponse.json();
-      if (!token) {
-        throw new Error('No authentication token received');
-      }
+      contentCacheRef.current.delete(taskId);
 
-      const streamUrl = `${API_BASE_URL}/stream/${taskId}?token=${encodeURIComponent(token)}`;
-      
-      if (canLogVerbose) {
-        logger.info('🔗 Starting Enhanced SSE connection', { streamUrl, taskId });
-      }
-      
-      // Create enhanced SSE connection with proper timeout strategy
-      const sseConnection = new TimeoutResistantSSE(streamUrl, {
-        timeout: 600000, // Increase to 10 minutes for blog generation + acknowledgment protocol
-        retryDelay: 3000, // Reduced to 3 seconds for faster recovery
-        maxRetries: 5, // Increased retries for better reliability
-        reconnectOnError: true
-      });
+      const tokenCache: { value: string | null; expiresAt: number } = {
+        value: null,
+        expiresAt: 0,
+      };
+
+      const getAuthToken = async (): Promise<string> => {
+        const now = Date.now();
+        if (tokenCache.value && now < tokenCache.expiresAt) {
+          return tokenCache.value;
+        }
+
+        const tokenResponse = await fetch('/api/auth/jwt-token', {
+          method: 'GET',
+          credentials: 'include',
+        });
+
+        if (!tokenResponse.ok) {
+          if (tokenResponse.status === 401) {
+            throw new Error('Session expired - please sign out and sign back in');
+          }
+          throw new Error(`Authentication failed: ${tokenResponse.status}`);
+        }
+
+        const { token } = await tokenResponse.json();
+        if (!token) {
+          throw new Error('No authentication token received');
+        }
+
+        tokenCache.value = token;
+        tokenCache.expiresAt = now + 45000; // Cache token for 45 seconds to reduce churn
+        return token;
+      };
+
+      const streamUrlFactory = async () => {
+        const token = await getAuthToken();
+        const streamUrl = `${API_BASE_URL}/stream/${taskId}?token=${encodeURIComponent(token)}`;
+        if (canLogVerbose) {
+          logger.info('🔗 Prepared Enhanced SSE URL', {
+            taskId,
+            tokenLength: token.length,
+          });
+        }
+        return streamUrl;
+      };
+
+      // Prime token acquisition so auth errors surface immediately
+      await getAuthToken();
+
+      const sseOptions = {
+        timeout: 600000,
+        retryDelay: 2500,
+        maxRetries: 8,
+        reconnectOnError: true,
+        maxRetryDelay: 45000,
+        backoffMultiplier: 1.8,
+        jitterMs: 750,
+      } as const;
+
+      const sseConnection = new TimeoutResistantSSE(streamUrlFactory, sseOptions);
 
       sseConnectionRef.current = sseConnection;
 
-      // Set up event listeners
       sseConnection.addEventListener('open', () => {
         if (canLogVerbose) {
           logger.info('✅ Enhanced SSE connection established', { taskId, timestamp: new Date().toISOString() });
         }
+        if (onLogUpdate) {
+          onLogUpdate(taskId, {
+            timestamp: new Date().toISOString(),
+            step: 'connection',
+            message: 'Live updates connected',
+            progress: 5,
+          });
+        }
       });
 
-      sseConnection.addEventListener('error', (error) => {
+      sseConnection.addEventListener('reconnecting', ({ attempt, delay }) => {
+        if (canLogVerbose) {
+          logger.warn('♻️ Enhanced SSE reconnect scheduled', { taskId, attempt, delay });
+        }
+        onUpdate(taskId, {
+          currentStep: 'Reconnecting to live updates…',
+        });
+        if (onLogUpdate) {
+          onLogUpdate(taskId, {
+            timestamp: new Date().toISOString(),
+            step: 'connection',
+            message: `Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${attempt})`,
+            progress: 0,
+          });
+        }
+      });
+
+      sseConnection.addEventListener('offline_wait', ({ attempt }) => {
+        if (canLogVerbose) {
+          logger.info('📴 Browser offline detected, waiting to reconnect', { taskId, attempt });
+        }
+        onUpdate(taskId, {
+          currentStep: 'Waiting for network connectivity…',
+        });
+        if (onLogUpdate) {
+          onLogUpdate(taskId, {
+            timestamp: new Date().toISOString(),
+            step: 'connection',
+            message: 'Offline detected. Waiting for connection before retrying…',
+            progress: 0,
+          });
+        }
+      });
+
+      sseConnection.addEventListener('reconnected', ({ attempt }) => {
+        if (canLogVerbose) {
+          logger.info('🔄 Enhanced SSE reconnected', { taskId, attempt });
+        }
+        onUpdate(taskId, {
+          currentStep: 'Connection restored. Resuming updates…',
+        });
+        if (onLogUpdate) {
+          onLogUpdate(taskId, {
+            timestamp: new Date().toISOString(),
+            step: 'connection',
+            message: `Connection restored (attempt ${attempt})`,
+            progress: 10,
+          });
+        }
+      });
+
+      sseConnection.addEventListener('error', (error: any) => {
+        const isConnectionFailure = typeof error?.retryCount === 'number' || Boolean(error?.originalError);
+
+        if (!isConnectionFailure) {
+          // Server-sent error events are routed through processSSEMessage to avoid double notifications
+          return;
+        }
+
         logger.error('❌ Enhanced SSE connection error', { taskId, timestamp: new Date().toISOString(), error });
+        contentCacheRef.current.delete(taskId);
         onError(taskId, error.message || 'Connection failed. Your blog generation continues in the background.');
       });
 
       sseConnection.addEventListener('close', (data) => {
+        contentCacheRef.current.delete(taskId);
         if (canLogVerbose) {
-          logger.info('🔌 Enhanced SSE connection closed', { taskId, timestamp: new Date().toISOString(), reason: data.reason });
+          logger.info('🔌 Enhanced SSE connection closed', { taskId, timestamp: new Date().toISOString(), reason: data?.reason });
+        }
+        if (onLogUpdate) {
+          onLogUpdate(taskId, {
+            timestamp: new Date().toISOString(),
+            step: 'connection',
+            message: 'Connection closed',
+            progress: 100,
+          });
         }
       });
 
-      // Handle regular messages
       sseConnection.addEventListener('message', async (data) => {
         await processSSEMessage(data, taskId, onUpdate, onCompletion, onError, onLogUpdate);
       });
 
-      // Handle all other message types
       const messageTypes = [
-        'status', 'taskcreated', 'initializing', 'agentthinking', 'toolcall',
-        'contentstream', 'researchfinding', 'completed', 'completion_pending', 'error', 'keepalive',
-        'connected', 'log_update', 'status_update', 'stream_ended'
+        'status',
+        'taskcreated',
+        'initializing',
+        'agentthinking',
+        'toolcall',
+        'contentstream',
+        'researchfinding',
+        'completed',
+        'completion_pending',
+        'error',
+        'keepalive',
+        'connected',
+        'log_update',
+        'status_update',
+        'stream_ended',
       ];
 
-      messageTypes.forEach(type => {
+      messageTypes.forEach((type) => {
         sseConnection.addEventListener(type, async (data) => {
           await processSSEMessage({ ...data, message_type: type }, taskId, onUpdate, onCompletion, onError, onLogUpdate);
         });
       });
 
-      // Handle chunked content for large AI data
       sseConnection.addEventListener('content_progress', (data) => {
+        const totalBytes = typeof data.total === 'number' ? data.total : 0;
+        const receivedBytes = typeof data.received === 'number' ? data.received : 0;
+        const progressValue = typeof data.progress === 'number' && Number.isFinite(data.progress)
+          ? data.progress
+          : totalBytes > 0
+            ? (receivedBytes / totalBytes) * 100
+            : 0;
+        const clampedProgress = Math.min(100, Math.max(0, progressValue));
+
         if (onLogUpdate) {
+          const progressMessage = totalBytes > 0
+            ? `📡 Receiving content… ${clampedProgress.toFixed(1)}% (${receivedBytes}/${totalBytes} bytes)`
+            : `📡 Receiving streaming content… ${receivedBytes} bytes`;
+
           onLogUpdate(taskId, {
             timestamp: new Date().toISOString(),
             step: 'Content Streaming',
-            message: `📡 Receiving content... ${data.progress.toFixed(1)}% (${data.received}/${data.total} bytes)`,
-            progress: data.progress
+            message: progressMessage,
+            progress: clampedProgress,
           });
         }
       });
 
       sseConnection.addEventListener('content_complete', (data) => {
+        contentCacheRef.current.set(taskId, data.content);
         if (canLogVerbose) {
-          logger.info('📄 Large content received for task', { taskId });
+          logger.info('📄 Large content buffer assembled', {
+            taskId,
+            contentLength: data.content?.length ?? 0,
+          });
         }
-        if (!completedTasksRef.current.has(taskId)) {
-          completedTasksRef.current.add(taskId);
-          onCompletion(taskId, data.content);
-          // Close the SSE connection when large content completes
-          if (canLogVerbose) {
-            logger.info('✅ Large content completed - closing SSE connection', { taskId });
-          }
-          sseConnection.close();
-          sseConnectionRef.current = null;
+        onUpdate(taskId, {
+          currentStep: 'Finalizing blog content…',
+        });
+        if (onLogUpdate) {
+          onLogUpdate(taskId, {
+            timestamp: new Date().toISOString(),
+            step: 'Content Streaming',
+            message: 'Full content received. Waiting for finalization…',
+            progress: 95,
+          });
         }
       });
 
-      // Start the connection
       await sseConnection.connect();
 
       return sseConnection;
-
     } catch (err) {
       logger.error('Failed to create Enhanced SSE connection', err);
       throw err;
     }
-  }, [session, status, processSSEMessage]);
+  }, [session, status, processSSEMessage, contentCacheRef]);
 
   const closeConnection = useCallback(() => {
     if (sseConnectionRef.current) {
       sseConnectionRef.current.close();
       sseConnectionRef.current = null;
     }
+    contentCacheRef.current.clear();
   }, []);
 
   useEffect(() => () => closeConnection(), [closeConnection]);
