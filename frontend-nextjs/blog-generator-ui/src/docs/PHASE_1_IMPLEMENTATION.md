@@ -4,8 +4,8 @@
 
 ### ✅ **Completed (Quick Fixes):**
 - [x] OptimizedBlogConsole.tsx - Performance-optimized console
-- [x] useOptimizedSSE.ts - Debounced SSE handling  
-- [x] useLightweightBlogState.ts - Lightweight state management
+- [x] useOptimizedSSE.ts - Removed (replaced by enhanced lifecycle hooks)  
+- [x] useLightweightBlogState.ts - Removed during Priority 1 refactor
 - [x] OptimizedBlogHistorySidebarFixed.tsx - Fixed TypeScript errors
 - [x] Installed dependencies: @tanstack/react-query, zustand, react-window
 - [x] Created QueryProvider.tsx for React Query setup
@@ -78,7 +78,7 @@ import { useBlogGenerator } from "@/hooks/useBlogGenerator";
 
 // With these:
 import { useOptimizedBlogs } from "@/hooks/useOptimizedBlogs";
-import { useOptimizedSSE } from "@/hooks/useOptimizedSSE";
+import { useEnhancedSSEConnection } from "@/hooks/useEnhancedSSEConnection";
 import { OptimizedBlogHistorySidebarFixed as BlogHistorySidebar } from "@/components/blog/OptimizedBlogHistorySidebarFixed";
 ```
 
@@ -94,7 +94,7 @@ const {
 
 // With these:
 const { blogs, isLoading: blogsLoading, deleteBlog, bulkDeleteBlogs } = useOptimizedBlogs();
-const { connectToStream, taskLogs } = useOptimizedSSE();
+const { connectToStream, taskLogs } = useEnhancedSSEConnection();
 ```
 
 ### Step 4: Create skeleton components

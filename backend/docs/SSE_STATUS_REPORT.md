@@ -24,7 +24,7 @@
    - Verify token retrieval from `/api/auth/jwt-token`
 
 2. **Frontend Component State**:
-   - Check if `useSSEConnection` hook is properly mounted
+   - Check if `useEnhancedSSEConnection` hook is properly mounted
    - Verify task ID is passed correctly to SSE connection
    - Check if component is updating UI based on SSE updates
 
@@ -57,7 +57,7 @@ curl -N "https://localhost:5000/stream/[task-id]?token=[jwt-token]" -k
 
 ## 🎯 **LIKELY CAUSES IF STILL BROKEN:**
 
-1. **Frontend not calling SSE**: Check if `useSSEConnection` is being used in the blog generation UI
+1. **Frontend not calling SSE**: Check if `useEnhancedSSEConnection` (or the new lifecycle hooks) are being used in the blog generation UI
 2. **Task ID mismatch**: Verify task ID from blog generation matches SSE connection
 3. **Token issues**: JWT token might be invalid or expired
 4. **Component state**: UI components might not be updating based on SSE updates

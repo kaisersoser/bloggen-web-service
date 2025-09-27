@@ -15,7 +15,7 @@ Successfully implemented Day 1 of the Frontend Notification Testing Plan: **Conn
 ### 1️⃣ **Audit of Existing Frontend SSE Integration** ✅
 
 **Findings:**
-- **Multiple SSE Hooks Available**: `useSSEConnection.ts`, `useEnhancedSSE.ts`, `useEnhancedSSEConnection.ts`
+- **Multiple SSE Hooks Available**: Legacy hooks removed; `useEnhancedSSEConnection.ts` is now the supported implementation
 - **Comprehensive Message Type Support**: Handles 15+ message types including image notifications
 - **Authentication Flow**: JWT token retrieval via `/api/auth/jwt-token` with proper error handling
 - **Backend Integration**: Well-implemented SSE endpoint at `/stream/{task_id}` with Redis pub/sub

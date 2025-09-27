@@ -10,6 +10,7 @@ import { StreamingConsole } from "./StreamingConsole";
 import { useConsoleMessages } from "@/hooks/useConsoleMessages";
 import { useStreamingContent } from "@/hooks/useStreamingContent";
 import { logger } from '@/lib/logger';
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 import { 
   Send, 
   Sparkles, 
@@ -91,6 +92,7 @@ export const TabbedPromptInterface = ({
 
   // Detect blog completion based on isGenerating prop and completion messages
   React.useEffect(() => {
+    const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
     const wasCompleted = isBlogCompleted.current;
     const isNowCompleted = !isGenerating && currentJobId; // Blog completed when generation stops
     
@@ -105,17 +107,23 @@ export const TabbedPromptInterface = ({
       );
       
       if (hasCompletionMessage && !wasCompleted) {
-        logger.info('🎯 Blog completion detected via completion message! Flushing remaining console messages...');
+        if (canLogVerbose) {
+          logger.info('🎯 Blog completion detected via completion message! Flushing remaining console messages...');
+        }
         isBlogCompleted.current = true;
         
         // Flush all remaining messages immediately
         if (processingQueue.current.length > 0) {
-          logger.info(`⚡ Fast-flushing ${processingQueue.current.length} remaining messages`);
+          if (canLogVerbose) {
+            logger.info(`⚡ Fast-flushing ${processingQueue.current.length} remaining messages`);
+          }
           
           // Process all remaining messages without delays
           while (processingQueue.current.length > 0) {
             const { log, index } = processingQueue.current.shift()!;
-            logger.info(`➕ Fast-adding message ${index + 1}:`, log.message);
+            if (canLogVerbose) {
+              logger.info(`➕ Fast-adding message ${index + 1}:`, log.message);
+            }
             
             addMessage(
               log.step || 'info',
@@ -131,17 +139,23 @@ export const TabbedPromptInterface = ({
     }
     
     if (!wasCompleted && isNowCompleted) {
-      logger.info('🎯 Blog completion detected via isGenerating! Flushing remaining console messages...');
+      if (canLogVerbose) {
+        logger.info('🎯 Blog completion detected via isGenerating! Flushing remaining console messages...');
+      }
       isBlogCompleted.current = true;
       
       // Flush all remaining messages immediately
       if (processingQueue.current.length > 0) {
-        logger.info(`⚡ Fast-flushing ${processingQueue.current.length} remaining messages`);
+        if (canLogVerbose) {
+          logger.info(`⚡ Fast-flushing ${processingQueue.current.length} remaining messages`);
+        }
         
         // Process all remaining messages without delays
         while (processingQueue.current.length > 0) {
           const { log, index } = processingQueue.current.shift()!;
-          logger.info(`➕ Fast-adding message ${index + 1}:`, log.message);
+          if (canLogVerbose) {
+            logger.info(`➕ Fast-adding message ${index + 1}:`, log.message);
+          }
           
           addMessage(
             log.step || 'info',
@@ -163,6 +177,7 @@ export const TabbedPromptInterface = ({
 
   // Sequential message processor with typewriter effect
   const processMessageQueue = React.useCallback(async () => {
+    const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
     if (isProcessingQueue.current || processingQueue.current.length === 0) {
       return;
     }
@@ -172,14 +187,18 @@ export const TabbedPromptInterface = ({
     while (processingQueue.current.length > 0) {
       // Check if blog is completed - if so, stop typewriter effect and let flush handle it
       if (isBlogCompleted.current) {
-        logger.info('🛑 Blog completed during typewriter processing, stopping to allow fast flush');
+        if (canLogVerbose) {
+          logger.info('🛑 Blog completed during typewriter processing, stopping to allow fast flush');
+        }
         isProcessingQueue.current = false;
         return;
       }
 
       const { log, index } = processingQueue.current.shift()!;
       
-      logger.info(`➕ Adding message ${index + 1} with typewriter effect:`, log.message);
+      if (canLogVerbose) {
+        logger.info(`➕ Adding message ${index + 1} with typewriter effect:`, log.message);
+      }
       
       // Add the message
       addMessage(
@@ -192,8 +211,10 @@ export const TabbedPromptInterface = ({
       // Calculate typewriter delay based on message length
       const messageLength = log.message?.length || 0;
       const typewriterDelay = Math.max(800, Math.min(3000, (messageLength / 30) * 1000 + 600));
-      
-  logger.info(`⏰ Typewriter delay: ${typewriterDelay}ms for message length: ${messageLength}`);
+
+      if (canLogVerbose) {
+        logger.info(`⏰ Typewriter delay: ${typewriterDelay}ms for message length: ${messageLength}`);
+      }
       
       // Wait for typewriter effect (only if there are more messages and blog isn't completed)
       if (processingQueue.current.length > 0 && !isBlogCompleted.current) {
@@ -206,26 +227,31 @@ export const TabbedPromptInterface = ({
 
   // Convert taskLogs to console messages with sequential typewriter streaming
   React.useEffect(() => {
+    const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
     if (currentJobId && taskLogs[currentJobId]) {
       const logs = taskLogs[currentJobId];
       const lastIndex = lastProcessedIndex.current[currentJobId] || 0;
-      
-      logger.info('📊 TaskLogs processing:', {
-        currentJobId,
-        logsCount: logs.length,
-        lastProcessedIndex: lastIndex,
-        queueLength: processingQueue.current.length,
-        blogCompleted: isBlogCompleted.current
-      });
+
+      if (canLogVerbose) {
+        logger.info('📊 TaskLogs processing:', {
+          currentJobId,
+          logsCount: logs.length,
+          lastProcessedIndex: lastIndex,
+          queueLength: processingQueue.current.length,
+          blogCompleted: isBlogCompleted.current
+        });
+      }
       
       // Only process new messages that haven't been processed yet
       if (logs.length > lastIndex) {
         const newLogs = logs.slice(lastIndex);
         
-        logger.info('✅ Queueing new logs for typewriter processing:', {
-          newLogsCount: newLogs.length,
-          startingFromIndex: lastIndex
-        });
+        if (canLogVerbose) {
+          logger.info('✅ Queueing new logs for typewriter processing:', {
+            newLogsCount: newLogs.length,
+            startingFromIndex: lastIndex
+          });
+        }
         
         // Add new messages to the processing queue
         newLogs.forEach((log, index) => {
@@ -241,12 +267,16 @@ export const TabbedPromptInterface = ({
         
         // If blog is already completed, flush immediately, otherwise start typewriter processing
         if (isBlogCompleted.current) {
-          logger.info('⚡ Blog already completed, processing new messages immediately');
+          if (canLogVerbose) {
+            logger.info('⚡ Blog already completed, processing new messages immediately');
+          }
           
           // Process the new messages immediately without delays
           const newQueuedMessages = processingQueue.current.splice(-newLogs.length);
           newQueuedMessages.forEach(({ log, index }) => {
-            logger.info(`➕ Immediate-adding message ${index + 1}:`, log.message);
+            if (canLogVerbose) {
+              logger.info(`➕ Immediate-adding message ${index + 1}:`, log.message);
+            }
             addMessage(
               log.step || 'info',
               log.message,
@@ -276,16 +306,21 @@ export const TabbedPromptInterface = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim() && !isGenerating && !disabled) {
+      const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
       // Clear console messages before starting new generation
       clearMessages();
       
       // Also clear taskLogs if the callback is provided
       if (clearTaskLogs) {
         clearTaskLogs();
-        logger.info('🧹 TaskLogs cleared for new blog generation');
+        if (canLogVerbose) {
+          logger.info('🧹 TaskLogs cleared for new blog generation');
+        }
       }
-      
-      logger.info('🧹 Console cleared for new blog generation request');
+
+      if (canLogVerbose) {
+        logger.info('🧹 Console cleared for new blog generation request');
+      }
       
       onSubmit(prompt.trim());
       setPrompt('');

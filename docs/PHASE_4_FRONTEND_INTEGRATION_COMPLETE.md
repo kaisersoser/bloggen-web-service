@@ -22,7 +22,7 @@ Phase 4 Progressive Content Streaming has been successfully integrated into the 
   - `getStreamingStats()`: Provides streaming statistics
   - `resetStreamingContent()`: Clears state for new generation
 
-### 3. Enhanced WebSocket Connection (`/src/hooks/useWebSocketConnection.ts`)
+### 3. Enhanced WebSocket Connection (legacy `/src/hooks/useWebSocketConnection.ts` removed in favor of `useEnhancedSSEConnection.ts`)
 - **Enhanced Function**: `connectToTaskStream()` now accepts streaming callbacks
 - **New Message Handlers**:
   - `content_stream`: Routes ContentStreamMessage to frontend

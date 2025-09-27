@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useSession } from 'next-auth/react';
 import { API_BASE_URL } from '@/config/constants';
 import { logger } from '@/lib/logger';
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 
 interface MessageLog {
   id: number;
@@ -98,11 +99,14 @@ export function SSEConnectionTester() {
       });
       
       // Get authentication token
-  const token = await getAuthToken();
-      
-  // Create SSE connection
-  const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
-  logger.info('🔗 Connecting to SSE stream', { streamUrl });
+      const token = await getAuthToken();
+      const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
+
+      // Create SSE connection
+      const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
+      if (canLogVerbose) {
+        logger.info('🔗 Connecting to SSE stream', { streamUrl });
+      }
       
       const eventSource = new EventSource(streamUrl);
       eventSourceRef.current = eventSource;
@@ -112,7 +116,10 @@ export function SSEConnectionTester() {
 
       // Connection opened
       eventSource.onopen = () => {
-        logger.info('✅ SSE connection established');
+        const openCanLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
+        if (openCanLogVerbose) {
+          logger.info('✅ SSE connection established');
+        }
         setIsConnected(true);
         setConnectionError(null);
         
@@ -172,7 +179,10 @@ export function SSEConnectionTester() {
             return newStats;
           });
           
-          logger.info('📩 SSE message received', { messageType, data });
+          const messageCanLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
+          if (messageCanLogVerbose) {
+            logger.info('📩 SSE message received', { messageType, data });
+          }
           
         } catch (parseError) {
           logger.error('❌ Failed to parse SSE message', parseError);

@@ -1,361 +1,242 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import { useAuth, useRoleCheck } from '@/hooks/useAuth';
 import { useUserStats } from '@/hooks/useUserStats';
 import { useBlogManagement } from '@/hooks/useBlogManagement';
-import { useEnhancedSSEConnection } from '@/hooks/useEnhancedSSE';
-import { useAuthenticationErrorHandler } from '@/hooks/useAuthenticationErrorHandler';
 import { logger } from '@/lib/logger';
-import { blogService } from '@/lib/services/blog';
-import { taskService } from '@/lib/services/task';
-import { BlogData, ErrorInfo, LogEntry, JobState } from '@/types/blog';
-// PromptConfig import removed (unused after refactor)
+import type { BlogData } from '@/types/blog';
+import { useGenerationStateManager } from '@/hooks/useGenerationStateManager';
+import { useGenerationLifecycle } from '@/hooks/useGenerationLifecycle';
 
 export function useBlogGenerator() {
   const { isAuthenticated, isLoading } = useAuth();
   const { canGenerateBlog, isFree } = useRoleCheck();
   const { stats, loading: statsLoading, refetch: refetchStats } = useUserStats();
-  const { jobs, previousBlogs, blogsLoading, updateJob, createJob, fetchPreviousBlogs, deleteBlog, deleteTask, deleteJob, addTemporaryJob } = useBlogManagement();
-  const { connectToTaskStream, closeConnection, completedTasksRef } = useEnhancedSSEConnection();
-  const { handleAuthError } = useAuthenticationErrorHandler();
+  const {
+    jobs,
+    previousBlogs,
+    blogsLoading,
+    updateJob,
+    createJob,
+    fetchPreviousBlogs,
+    deleteBlog,
+    deleteTask,
+    deleteJob,
+    addTemporaryJob,
+  } = useBlogManagement();
 
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
-  const [generationError, setGenerationError] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
-  const [taskLogs, setTaskLogs] = useState<Record<string, LogEntry[]>>({});
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [blogToDelete, setBlogToDelete] = useState<BlogData | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Track if we've received the first SSE update to avoid multiple setIsGenerating(false) calls
-  const firstUpdateReceivedRef = useRef<string | null>(null);
-  const [selectedBlog, setSelectedBlog] = useState<BlogData | null>(null);
-  const [showBlogModal, setShowBlogModal] = useState(false);
-  // Tracks whether user explicitly requested starting a new blog (prevents auto re-selecting last job)
-  const [creatingNew, setCreatingNew] = useState(false);
+  const { state, actions } = useGenerationStateManager();
+  const {
+    currentJobId,
+    generationError,
+    isGenerating,
+    activeConnectionId,
+    taskLogs,
+    showDeleteDialog,
+    blogToDelete,
+    isDeleting,
+    selectedBlog,
+    showBlogModal,
+    creatingNew,
+  } = state;
 
-  const currentJob = useMemo(() => currentJobId ? (jobs.find(j => j.id === currentJobId) || null) : null, [jobs, currentJobId]);
-  const canGenerate = useMemo(() => { if (!stats) return canGenerateBlog(); return stats.remainingGenerations > 0 || stats.monthlyLimit === -1; }, [stats, canGenerateBlog]);
-
-  useEffect(() => { if (isAuthenticated && !isLoading) fetchPreviousBlogs(); }, [isAuthenticated, isLoading, fetchPreviousBlogs]);
-  // Auto-select most recent job only if user isn't intentionally starting a new one
-  useEffect(() => {
-    if (jobs.length > 0 && !currentJobId && !creatingNew) {
-      setCurrentJobId(jobs[jobs.length - 1].id);
+  const canGenerate = useMemo(() => {
+    if (!stats) {
+      return canGenerateBlog();
     }
-  }, [jobs, currentJobId, creatingNew]);
-  useEffect(() => { setGenerationError(null); }, [currentJobId]);
-  useEffect(() => () => { if (activeConnectionId) { closeConnection(); setActiveConnectionId(null); } }, [activeConnectionId, closeConnection]);
-  
-  // Safety mechanism: Reset generating state when an error occurs
-  useEffect(() => {
-    if (generationError && isGenerating) {
-      logger.info('🔧 Safety reset: Setting isGenerating(false) due to generation error');
-      setIsGenerating(false);
-    }
-  }, [generationError, isGenerating]);
+    return stats.remainingGenerations > 0 || stats.monthlyLimit === -1;
+  }, [stats, canGenerateBlog]);
 
-  const handleTaskCompletion = useCallback(async (taskId: string, content: string, heroImageUrl?: string) => {
-    logger.info('🔍 Frontend handleTaskCompletion called', {
-      taskId,
-      contentLength: content?.length || 0,
-      hasContent: !!content,
-      contentPreview: content?.substring(0, 100) + '...',
-      heroImageUrl,
-      currentJobsCount: jobs.length,
-      currentPreviousBlogsCount: previousBlogs.length
-    });
-    
-    updateJob(taskId, { status: 'completed', currentStep: 'Blog generation complete!', progress: 100, blogContent: content, completedAt: new Date().toISOString() });
-    if (activeConnectionId === taskId) {
-      setActiveConnectionId(null);
-      setIsGenerating(false); // Reset generating state on completion
-    }
-    const job = jobs.find(j => j.id === taskId);
-    if (job) {
-      const blogData: BlogData = { id: taskId, userId: '', topic: job.topic, instructions: job.instructions, content, status: 'completed', progress: 100, currentStep: 'Blog generation complete!', error: null, createdAt: typeof job.createdAt === 'string' ? job.createdAt : new Date(job.createdAt).toISOString(), updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), heroImageUrl: heroImageUrl || null } as any;
-      setSelectedBlog(blogData); setShowBlogModal(true);
-    }
-    
-    // CRITICAL FIX: Remove duplicate completion persistence call
-    // The backend already handles completion persistence in task_manager.complete_task()
-    // This was causing duplicate API calls and "Invalid status" errors
-    logger.info('✅ Blog completion handled locally - backend already persisted completion');
-    
-    // CRITICAL: Remove completed job from local jobs array FIRST to prevent duplicates
-    logger.info('🗑️ Removing job from local state', { taskId });
-    logger.info('📊 Jobs before deletion', { jobs: jobs.map(j => ({ id: j.id, topic: j.topic, status: j.status })) });
-    deleteJob(taskId);
-    logger.info('✅ Removed completed job from local state to prevent duplicate cards');
-    
-    // Refresh data without making duplicate completion API call
-    try { 
-      logger.info('🔄 Refreshing stats and blog list');
-      await Promise.all([refetchStats(), fetchPreviousBlogs()]); 
-      logger.info('✅ Refreshed stats and blog list after completion');
-      logger.info('📊 Previous blogs after refresh', { previousBlogs: previousBlogs.map(b => ({ id: b.id, topic: b.topic, status: b.status })) });
-    }
-    catch (err) { 
-      logger.error('Failed to refresh data after completion', err);
-      // Don't mark as failed since completion itself succeeded
-    }
-  }, [activeConnectionId, jobs, previousBlogs, updateJob, refetchStats, fetchPreviousBlogs, deleteJob]);
+  const { handleGenerateBlog, closeActiveConnection } = useGenerationLifecycle({
+    state,
+    actions,
+    canGenerate,
+    jobs,
+    previousBlogs,
+    updateJob,
+    createJob,
+    deleteJob,
+    refetchStats,
+    fetchPreviousBlogs,
+    addTemporaryJob,
+    isAuthenticated,
+    isAuthLoading: isLoading,
+  });
 
-  const handleTaskError = useCallback(async (taskId: string, errorMessage: string) => {
-    const errorInfo: ErrorInfo = { error_type: 'generation_error', user_message: errorMessage, technical_details: errorMessage, is_recoverable: true, suggestions: ['Try a different topic','Check your connection'], timestamp: new Date().toISOString(), severity: 'error' };
-    updateJob(taskId, { status: 'failed', currentStep: 'Generation failed', progress: 0, error: errorInfo });
-    if (activeConnectionId === taskId) {
-      setActiveConnectionId(null);
-      setIsGenerating(false); // Reset generating state on error
+  const currentJob = useMemo(() => {
+    if (!currentJobId) {
+      return null;
     }
-    try { await blogService.updateBlogCompletion(taskId, 'failed', undefined, errorInfo); } catch (err) { logger.error('Failed to persist error state', err); }
-  }, [activeConnectionId, updateJob]);
+    return jobs.find((job) => job.id === currentJobId) || null;
+  }, [jobs, currentJobId]);
 
-  const handleGenerateBlog = useCallback(async (topic: string, instructions: string) => {
-    logger.info('🚀 handleGenerateBlog called', { topic, instructions, canGenerate, activeConnectionId });
-    
-    if (!topic.trim()) { 
-      logger.info('❌ Empty topic provided');
-      setGenerationError('Please enter a topic'); 
-      return; 
-    }
-    if (!canGenerate) { 
-      logger.info('❌ Cannot generate - limit reached');
-      setGenerationError('Monthly generation limit reached. Upgrade to Premium for more.'); 
-      return; 
-    }
-    if (activeConnectionId) { 
-      logger.info('🔄 Closing existing connection', { activeConnectionId });
-      closeConnection(); 
-      setActiveConnectionId(null); 
-    }
-    
-    try {
-      logger.info('🎯 Starting blog generation process');
-      setGenerationError(null);
-      setIsGenerating(true);
-      setCreatingNew(false); // Once generation starts, exit new mode
-      completedTasksRef.current.clear();
-      firstUpdateReceivedRef.current = null; // Reset the flag for new generation
-      
-      // Don't clear taskLogs here - let the console handle it when user submits
-      // This prevents interference with SSE message flow
-      
-      // SOLUTION: Pre-generate task ID and start generation BEFORE establishing SSE connection
-      logger.info('🆔 Pre-generating task ID for blog generation');
-      const taskId = await blogService.generateTaskId();
-      logger.info('🆔 Generated task ID', { taskId });
-
-      // ✨ IMMEDIATE FEEDBACK: Add first console message when blog generation starts
-      const initialMessage = {
-        timestamp: new Date().toISOString(),
-        step: 'initialization',
-        message: `Blog generation started for topic: "${topic.trim()}"${instructions.trim() ? ` with instructions: "${instructions.trim()}"` : ''}`,
-        progress: 0
-      };
-      setTaskLogs(prev => ({ ...prev, [taskId]: [initialMessage] }));
-      logger.info('✅ Immediate feedback message added to console');
-      
-      // Create job and set current state immediately
-      logger.info('📝 Creating local job for task', { taskId });
-      createJob(taskId, topic.trim(), instructions.trim());
-      setCurrentJobId(taskId);
-      setActiveConnectionId(taskId);
-      logger.info('✅ Local job created and state updated');
-      
-      // FIXED: Start blog generation FIRST to ensure backend task exists
-      logger.info('🚀 Starting blog generation to create backend task');
-      const data = await blogService.generateBlog(topic.trim(), instructions.trim(), taskId);
-      logger.info('✅ Blog generation started with task ID', { taskId: data.task_id });
-      
-      // Verify the task IDs match
-      if (data.task_id !== taskId) {
-        logger.warn('⚠️ Task ID mismatch', { expectedTaskId: taskId, receivedTaskId: data.task_id });
-      }
-      
-      // NOW establish SSE connection to the existing backend task
-      logger.info('🔗 Establishing SSE connection to existing backend task', { taskId });
-
-        
-        // ✨ IMMEDIATE FEEDBACK: Add second console message when SSE connection is ready
-        const connectionMessage = {
-          timestamp: new Date().toISOString(),
-          step: 'connection',
-          message: 'Preparing blog generation plan...',
-          progress: 5
-        };
-        logger.info('🕐 Adding "Preparing blog generation plan..." message', { timestamp: new Date().toISOString(), taskId });
-        setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), connectionMessage] }));
-        logger.info('✅ SSE connection feedback message added to console');
-
-      try {
-        await connectToTaskStream(
-          taskId,
-          (taskId: string, updates: Partial<JobState>) => {
-            logger.info('🔄 useBlogGenerator: SSE Update received', { taskId, updates });
-            updateJob(taskId, updates);
-            // Keep isGenerating true until actual completion
-            // Only track that we received the first update for debugging
-            if (firstUpdateReceivedRef.current !== taskId) {
-              firstUpdateReceivedRef.current = taskId;
-              logger.info('✅ First SSE update received, real-time connection active');
-            }
-          },
-          (taskId: string, content: string, heroImageUrl?: string) => {
-            // Only set isGenerating to false when task actually completes
-            logger.info('🎉 Blog generation completed, setting isGenerating to false');
-            setIsGenerating(false);
-            handleTaskCompletion(taskId, content, heroImageUrl);
-          },
-          handleTaskError,
-          (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
-        );
-        logger.info('✅ SSE connection established successfully to existing task', { taskId });
-        
-        // Don't set isGenerating(false) here - let the first SSE update handle it
-      } catch (sseErr) {
-        logger.error('Failed to start SSE stream', sseErr);
-        
-        // Handle authentication errors in SSE connection
-        if (sseErr instanceof Error) {
-          const wasAuthError = handleAuthError(sseErr);
-          if (wasAuthError) {
-            setIsGenerating(false);
-            return;
-          }
-        }
-        
-        setGenerationError('Real-time updates unavailable, but your blog is being generated in the background. Refresh the page in a few minutes to see your completed blog.');
-        setIsGenerating(false);
-      }
-    } catch (err) {
-      logger.error('Error starting blog generation', err);
-      
-      // Handle authentication errors specially
-      if (err instanceof Error) {
-        const wasAuthError = handleAuthError(err);
-        if (wasAuthError) {
-          setIsGenerating(false);
-          return; // Don't show generic error if we handled auth error
-        }
-      }
-      
-      const msg = err instanceof Error ? err.message : 'Failed to start blog generation.';
-      setGenerationError(msg);
-      if (activeConnectionId) setActiveConnectionId(null);
-      setIsGenerating(false);
-    }
-  }, [canGenerate, activeConnectionId, closeConnection, completedTasksRef, createJob, updateJob, connectToTaskStream, handleTaskCompletion, handleTaskError, handleAuthError]);
-
-  const handleJobClick = useCallback((jobId: string) => { 
-    if (activeConnectionId && activeConnectionId !== jobId) { 
-      closeConnection(); 
-      setActiveConnectionId(null); 
-    } 
-    setCurrentJobId(jobId); 
-    setGenerationError(null); 
-  }, [activeConnectionId, closeConnection]);
-  const handleBlogClick = useCallback((blog: BlogData) => { 
-    setSelectedBlog(blog); 
-    setShowBlogModal(true); 
-  }, []);
-  const handleDeleteBlog = useCallback((blogId: string) => { 
-    const blog = previousBlogs.find(b => b.id === blogId); 
-    if (blog) { 
-      setBlogToDelete(blog); 
-      setShowDeleteDialog(true); 
-    } 
-  }, [previousBlogs]);
-  const handleBulkDeleteBlogs = useCallback(async (blogIds: string[]) => { 
-    try { 
-      const results = await Promise.all(blogIds.map(id => deleteBlog(id))); 
-      const succeeded = results.filter(Boolean).length; 
-      if (succeeded === blogIds.length) { 
-        await fetchPreviousBlogs(); 
-      } else { 
-        setGenerationError(`Failed to delete ${blogIds.length - succeeded} blog(s).`); 
-      } 
-    } catch (err) { 
-      logger.error('Bulk delete failed', err); 
-      setGenerationError('Bulk delete failed.'); 
-    } 
-  }, [deleteBlog, fetchPreviousBlogs]);
-  const handleDeleteStuckTask = useCallback(async (taskId: string) => { 
-    try { 
-      await deleteTask(taskId); 
-      // If we reach here, deletion was successful
-      if (currentJobId === taskId) { 
-        setCurrentJobId(null); 
-        setGenerationError(null); 
-      } 
-      if (activeConnectionId === taskId) { 
-        closeConnection(); 
-        setActiveConnectionId(null); 
-      } 
-      await fetchPreviousBlogs(); 
-    } catch (err) { 
-      logger.error('Delete stuck task failed', err); 
-      setGenerationError('Failed to delete stuck task.'); 
-    } 
-  }, [deleteTask, currentJobId, activeConnectionId, closeConnection, fetchPreviousBlogs]);
-  const confirmDeleteBlog = useCallback(async () => { if (!blogToDelete) return; setIsDeleting(true); try { const success = await deleteBlog(blogToDelete.id); if (success) { setShowDeleteDialog(false); if (currentJobId === blogToDelete.id) { setCurrentJobId(null); setGenerationError(null); } } } catch (err) { logger.error('Delete blog failed', err); setGenerationError('Failed to delete blog.'); } finally { setIsDeleting(false); } }, [blogToDelete, deleteBlog, currentJobId]);
-  const handleNewBlog = useCallback(() => {
-    if (isGenerating && activeConnectionId) return; // prevent clearing active generation
-    setCreatingNew(true);
-    setCurrentJobId(null);
-    setGenerationError(null);
-    setSelectedBlog(null);
-    setShowBlogModal(false);
-  }, [isGenerating, activeConnectionId]);
-
-  // Function to clear taskLogs (used by TabbedPromptInterface)
-  const clearTaskLogs = useCallback(() => {
-    setTaskLogs({});
-    logger.info('🧹 TaskLogs cleared via clearTaskLogs callback');
-  }, []);
-
-  // State recovery: Check for active tasks on page load/refresh (run only once when authenticated)
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      const recoverActiveJobs = async () => {
-        try {
-          const activeTasks = await taskService.getActiveTasks();
-          
-          if (activeTasks.length > 0) {
-            for (const task of activeTasks) {
-              const job = taskService.convertTaskToJob(task);
-              addTemporaryJob(job);
-              
-              // Auto-select the most recent in-progress task
-              if (task.status === 'in_progress' && !currentJobId) {
-                setCurrentJobId(task.id);
-                setActiveConnectionId(task.id);
-                
-                // Reconnect SSE for in-progress tasks
-                try {
-                  await connectToTaskStream(
-                    task.id,
-                    (taskId: string, updates: Partial<JobState>) => updateJob(taskId, updates),
-                    handleTaskCompletion,
-                    handleTaskError,
-                    (taskId: string, log: LogEntry) => setTaskLogs(prev => ({ ...prev, [taskId]: [...(prev[taskId] || []), log] }))
-                  );
-                } catch (sseErr) {
-                  logger.error(`Failed to reconnect to task ${task.id}`, sseErr);
-                  setGenerationError('Lost connection to active generation. Status may be outdated.');
-                }
-              }
-            }
-          }
-        } catch (error) {
-          logger.error('Failed to recover active jobs', error);
-        }
-      };
-      
-      recoverActiveJobs();
+      void fetchPreviousBlogs();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, isLoading]); // Only run when auth state changes, not on function changes
+  }, [fetchPreviousBlogs, isAuthenticated, isLoading]);
 
-  return { isAuthenticated, isLoading, stats, statsLoading, isFree, jobs, previousBlogs, blogsLoading, currentJobId, currentJob, generationError, isGenerating, activeConnectionId, taskLogs, showDeleteDialog, blogToDelete, isDeleting, selectedBlog, showBlogModal, canGenerate, handleGenerateBlog, handleJobClick, handleBlogClick, handleDeleteBlog, handleBulkDeleteBlogs, handleDeleteStuckTask, confirmDeleteBlog, handleNewBlog, clearTaskLogs, setShowDeleteDialog, setBlogToDelete, setIsDeleting, setGenerationError, setSelectedBlog, setShowBlogModal, refetchStats, fetchPreviousBlogs };
+  useEffect(() => {
+    if (jobs.length > 0 && !currentJobId && !creatingNew) {
+      actions.setCurrentJobId(jobs[jobs.length - 1].id);
+    }
+  }, [actions, creatingNew, currentJobId, jobs]);
+
+  useEffect(() => {
+    actions.setGenerationError(null);
+  }, [actions, currentJobId]);
+
+  useEffect(() => {
+    if (generationError && isGenerating) {
+      logger.warn('Resetting isGenerating due to error state');
+      actions.setIsGenerating(false);
+    }
+  }, [actions, generationError, isGenerating]);
+
+  useEffect(() => {
+    return () => {
+      if (state.activeConnectionId) {
+        closeActiveConnection();
+      }
+    };
+  }, [closeActiveConnection, state.activeConnectionId]);
+
+  const handleJobClick = useCallback((jobId: string) => {
+    if (activeConnectionId && activeConnectionId !== jobId) {
+      closeActiveConnection();
+    }
+    actions.setCurrentJobId(jobId);
+    actions.setGenerationError(null);
+  }, [actions, activeConnectionId, closeActiveConnection]);
+
+  const handleBlogClick = useCallback((blog: BlogData) => {
+    actions.setSelectedBlog(blog);
+    actions.setShowBlogModal(true);
+  }, [actions]);
+
+  const handleDeleteBlog = useCallback((blogId: string) => {
+    const blog = previousBlogs.find((item) => item.id === blogId);
+    if (blog) {
+      actions.setBlogToDelete(blog);
+      actions.setShowDeleteDialog(true);
+    }
+  }, [actions, previousBlogs]);
+
+  const handleBulkDeleteBlogs = useCallback(async (blogIds: string[]) => {
+    try {
+      const results = await Promise.all(blogIds.map((id) => deleteBlog(id)));
+      const succeeded = results.filter(Boolean).length;
+
+      if (succeeded === blogIds.length) {
+        await fetchPreviousBlogs();
+      } else {
+        actions.setGenerationError(`Failed to delete ${blogIds.length - succeeded} blog(s).`);
+      }
+    } catch (error) {
+      logger.error('Bulk delete failed', error);
+      actions.setGenerationError('Bulk delete failed.');
+    }
+  }, [actions, deleteBlog, fetchPreviousBlogs]);
+
+  const handleDeleteStuckTask = useCallback(async (taskId: string) => {
+    try {
+      await deleteTask(taskId);
+
+      if (currentJobId === taskId) {
+        actions.setCurrentJobId(null);
+        actions.setGenerationError(null);
+      }
+
+      if (activeConnectionId === taskId) {
+        closeActiveConnection();
+      }
+
+      await fetchPreviousBlogs();
+    } catch (error) {
+      logger.error('Delete stuck task failed', error);
+      actions.setGenerationError('Failed to delete stuck task.');
+    }
+  }, [actions, activeConnectionId, closeActiveConnection, currentJobId, deleteTask, fetchPreviousBlogs]);
+
+  const confirmDeleteBlog = useCallback(async () => {
+    if (!blogToDelete) {
+      return;
+    }
+
+    actions.setIsDeleting(true);
+
+    try {
+      const success = await deleteBlog(blogToDelete.id);
+      if (success) {
+        actions.setShowDeleteDialog(false);
+        if (currentJobId === blogToDelete.id) {
+          actions.setCurrentJobId(null);
+          actions.setGenerationError(null);
+        }
+      }
+    } catch (error) {
+      logger.error('Delete blog failed', error);
+      actions.setGenerationError('Failed to delete blog.');
+    } finally {
+      actions.setIsDeleting(false);
+    }
+  }, [actions, blogToDelete, currentJobId, deleteBlog]);
+
+  const handleNewBlog = useCallback(() => {
+    if (isGenerating && activeConnectionId) {
+      return;
+    }
+
+    actions.setCreatingNew(true);
+    actions.setCurrentJobId(null);
+    actions.setGenerationError(null);
+    actions.setSelectedBlog(null);
+    actions.setShowBlogModal(false);
+  }, [actions, activeConnectionId, isGenerating]);
+
+  const clearTaskLogs = useCallback(() => {
+    actions.clearTaskLogs();
+    if (logger.shouldLog('debug')) {
+      logger.debug('Task logs cleared via clearTaskLogs callback');
+    }
+  }, [actions]);
+
+  return {
+    isAuthenticated,
+    isLoading,
+    stats,
+    statsLoading,
+    isFree,
+    jobs,
+    previousBlogs,
+    blogsLoading,
+    currentJobId,
+    currentJob,
+    generationError,
+    isGenerating,
+    activeConnectionId,
+    taskLogs,
+    showDeleteDialog,
+    blogToDelete,
+    isDeleting,
+    selectedBlog,
+    showBlogModal,
+    canGenerate,
+    handleGenerateBlog,
+    handleJobClick,
+    handleBlogClick,
+    handleDeleteBlog,
+    handleBulkDeleteBlogs,
+    handleDeleteStuckTask,
+    confirmDeleteBlog,
+    handleNewBlog,
+  clearTaskLogs,
+    setShowDeleteDialog: actions.setShowDeleteDialog,
+    setBlogToDelete: actions.setBlogToDelete,
+    setIsDeleting: actions.setIsDeleting,
+    setGenerationError: actions.setGenerationError,
+    setSelectedBlog: actions.setSelectedBlog,
+    setShowBlogModal: actions.setShowBlogModal,
+    refetchStats,
+    fetchPreviousBlogs,
+  } as const;
 }

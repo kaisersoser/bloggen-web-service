@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { BlogData, JobState } from '@/types/blog';
 import { logger } from '@/lib/logger';
 import { blogService } from '@/lib/services/blog';
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 
 export function useBlogManagement() {
   const [jobs, setJobs] = useState<JobState[]>([]);
@@ -57,19 +58,26 @@ export function useBlogManagement() {
   const fetchPreviousBlogs = useCallback(async () => {
     try {
       setBlogsLoading(true);
-      logger.info('🔄 Fetching previous blogs from API');
+      const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
+      if (canLogVerbose) {
+        logger.info('🔄 Fetching previous blogs from API');
+      }
       const blogs = await blogService.getUserBlogs();
-      logger.info('📊 Fetched blogs from API', {
-        blogs: blogs.map(b => ({ 
-          id: b.id, 
-          topic: b.topic, 
-          status: b.status, 
-          hasContent: !!b.content,
-          hasHeroImage: !!b.heroImageUrl 
-        }))
-      });
+      if (canLogVerbose) {
+        logger.info('📊 Fetched blogs from API', {
+          blogs: blogs.map(b => ({ 
+            id: b.id, 
+            topic: b.topic, 
+            status: b.status, 
+            hasContent: !!b.content,
+            hasHeroImage: !!b.heroImageUrl 
+          }))
+        });
+      }
       setPreviousBlogs(blogs);
-      logger.info('✅ Updated previousBlogs state');
+      if (canLogVerbose) {
+        logger.info('✅ Updated previousBlogs state');
+      }
     } catch (error) {
       logger.error('Error fetching previous blogs', error);
     } finally {
@@ -97,7 +105,9 @@ export function useBlogManagement() {
     
     try {
       await blogService.deleteStuckTask(taskId);
-      logger.info('Stuck task deleted successfully', { taskId });
+      if (VERBOSE_LOGGING_ENABLED && logger.shouldLog('info')) {
+        logger.info('Stuck task deleted successfully', { taskId });
+      }
     } catch (error) {
       logger.error('Error deleting stuck task', error);
       throw error;

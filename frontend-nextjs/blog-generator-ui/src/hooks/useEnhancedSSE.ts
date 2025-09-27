@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { API_BASE_URL } from '@/config/constants';
 import { logger } from '@/lib/logger';
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 import { JobState, SSEUpdate, LogEntry } from '@/types/blog';
 import { TimeoutResistantSSE } from '@/lib/TimeoutResistantSSE';
 
@@ -13,6 +14,7 @@ export function useEnhancedSSEConnection() {
   // Helper function to send completion acknowledgment to backend
   const sendCompletionAcknowledgment = useCallback(async (taskId: string) => {
     try {
+      const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
       if (status !== 'authenticated' || !session) {
         throw new Error('Please sign in to send acknowledgment');
       }
@@ -46,7 +48,9 @@ export function useEnhancedSSEConnection() {
       }
 
       const result = await response.json();
-      logger.info('✅ Completion acknowledgment sent', result);
+      if (canLogVerbose) {
+        logger.info('✅ Completion acknowledgment sent', result);
+      }
       return result;
       
     } catch (error) {
@@ -64,14 +68,19 @@ export function useEnhancedSSEConnection() {
     onError: (taskId: string, error: string) => void,
     onLogUpdate?: (taskId: string, log: LogEntry) => void
   ) => {
-  logger.info('📨 Processing SSE message', { timestamp: new Date().toISOString(), messageType: data.message_type || data.type });
+    const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
+    if (canLogVerbose) {
+      logger.info('📨 Processing SSE message', { timestamp: new Date().toISOString(), messageType: data.message_type || data.type });
+    }
 
     // Handle enhanced message types from Phase 1 Foundation
     if (data.message_type) {
       switch (data.message_type) {
         case 'status':
-          logger.info('🔢 Frontend: Received status update', { progress: data.progress, taskId });
-          logger.info('🔢 Frontend: Message content', { message: data.message, step: data.step, taskId });
+          if (canLogVerbose) {
+            logger.info('🔢 Frontend: Received status update', { progress: data.progress, taskId });
+            logger.info('🔢 Frontend: Message content', { message: data.message, step: data.step, taskId });
+          }
           onUpdate(taskId, {
             status: data.status as JobState['status'],
             currentStep: data.message || data.step,
@@ -142,7 +151,9 @@ export function useEnhancedSSEConnection() {
           break;
         case 'completed':
           // Handle direct completion messages (new format)
-          logger.info('🎉 Direct completion message received', { taskId });
+          if (canLogVerbose) {
+            logger.info('🎉 Direct completion message received', { taskId });
+          }
           if (!completedTasksRef.current.has(taskId)) {
             completedTasksRef.current.add(taskId);
             const finalContent = data.final_content || data.content || '';
@@ -152,7 +163,9 @@ export function useEnhancedSSEConnection() {
             // Send acknowledgment to backend for 2-phase completion protocol
             try {
               await sendCompletionAcknowledgment(taskId);
-              logger.info('✅ Completion acknowledgment sent to backend for task', { taskId });
+              if (canLogVerbose) {
+                logger.info('✅ Completion acknowledgment sent to backend for task', { taskId });
+              }
             } catch (error) {
               logger.warn('⚠️ Failed to send completion acknowledgment', error);
             }
@@ -160,7 +173,9 @@ export function useEnhancedSSEConnection() {
           break;
         case 'completion_pending':
           // Handle 2-phase completion protocol
-          logger.info('⏳ Completion pending message received', { taskId });
+          if (canLogVerbose) {
+            logger.info('⏳ Completion pending message received', { taskId });
+          }
           if (!completedTasksRef.current.has(taskId)) {
             completedTasksRef.current.add(taskId);
             const finalContent = data.final_content || data.content || '';
@@ -170,7 +185,9 @@ export function useEnhancedSSEConnection() {
             // Send acknowledgment to backend for 2-phase completion protocol
             try {
               await sendCompletionAcknowledgment(taskId);
-              logger.info('✅ Completion acknowledgment sent to backend for task', { taskId });
+              if (canLogVerbose) {
+                logger.info('✅ Completion acknowledgment sent to backend for task', { taskId });
+              }
             } catch (error) {
               logger.warn('⚠️ Failed to send completion acknowledgment', error);
             }
@@ -178,10 +195,14 @@ export function useEnhancedSSEConnection() {
           break;
         case 'keepalive':
         case 'connected':
-          logger.info('💓 Keepalive/connection message received', { taskId });
+          if (canLogVerbose) {
+            logger.info('💓 Keepalive/connection message received', { taskId });
+          }
           break;
         default:
-          logger.info('❓ Unknown message type encountered', { messageType: data.message_type, data });
+          if (canLogVerbose) {
+            logger.info('❓ Unknown message type encountered', { messageType: data.message_type, data });
+          }
           // Fallback: treat unknown messages as general log entries
           if (onLogUpdate && data.message) {
             onLogUpdate(taskId, {
@@ -202,7 +223,9 @@ export function useEnhancedSSEConnection() {
       const messageContent = data.message || (typeof anyData.data === 'string' ? anyData.data : JSON.stringify(anyData.data));
       const messageType = anyData.type || anyData.event || 'message';
       
-  logger.info('📝 Processing fallback message', { messageType, messageContent });
+      if (canLogVerbose) {
+        logger.info('📝 Processing fallback message', { messageType, messageContent });
+      }
       
       if (onLogUpdate) {
         onLogUpdate(taskId, {
@@ -235,7 +258,9 @@ export function useEnhancedSSEConnection() {
           onCompletion(taskId, data.result, (data as any).hero_image_url);
           // Close the SSE connection when task completes
           if (sseConnectionRef.current) {
-            logger.info('✅ Legacy task completed - closing SSE connection', { taskId });
+            if (canLogVerbose) {
+              logger.info('✅ Legacy task completed - closing SSE connection', { taskId });
+            }
             sseConnectionRef.current.close();
             sseConnectionRef.current = null;
             
@@ -278,7 +303,9 @@ export function useEnhancedSSEConnection() {
     // Structured type field format
     switch (data.type) {
       case 'connected':
-        logger.info('✅ SSE connection confirmed', { taskId });
+        if (canLogVerbose) {
+          logger.info('✅ SSE connection confirmed', { taskId });
+        }
         break;
       case 'log_update':
         if (onLogUpdate && data.step && data.message && data.timestamp) {
@@ -307,7 +334,9 @@ export function useEnhancedSSEConnection() {
         }
         break;
       case 'stream_ended':
-        logger.info('🔚 Stream ended for task', { taskId });
+        if (canLogVerbose) {
+          logger.info('🔚 Stream ended for task', { taskId });
+        }
         break;
       case 'error':
         logger.error('❌ Stream error', { message: data.message, taskId });
@@ -325,6 +354,7 @@ export function useEnhancedSSEConnection() {
     onLogUpdate?: (taskId: string, log: LogEntry) => void
   ): Promise<TimeoutResistantSSE> => {
     try {
+      const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
       // Check authentication first
       if (status !== 'authenticated' || !session) {
         throw new Error('Please sign in to connect to the stream');
@@ -356,7 +386,9 @@ export function useEnhancedSSEConnection() {
 
       const streamUrl = `${API_BASE_URL}/stream/${taskId}?token=${encodeURIComponent(token)}`;
       
-  logger.info('🔗 Starting Enhanced SSE connection', { streamUrl, taskId });
+      if (canLogVerbose) {
+        logger.info('🔗 Starting Enhanced SSE connection', { streamUrl, taskId });
+      }
       
       // Create enhanced SSE connection with proper timeout strategy
       const sseConnection = new TimeoutResistantSSE(streamUrl, {
@@ -370,7 +402,9 @@ export function useEnhancedSSEConnection() {
 
       // Set up event listeners
       sseConnection.addEventListener('open', () => {
-        logger.info('✅ Enhanced SSE connection established', { taskId, timestamp: new Date().toISOString() });
+        if (canLogVerbose) {
+          logger.info('✅ Enhanced SSE connection established', { taskId, timestamp: new Date().toISOString() });
+        }
       });
 
       sseConnection.addEventListener('error', (error) => {
@@ -379,7 +413,9 @@ export function useEnhancedSSEConnection() {
       });
 
       sseConnection.addEventListener('close', (data) => {
-        logger.info('🔌 Enhanced SSE connection closed', { taskId, timestamp: new Date().toISOString(), reason: data.reason });
+        if (canLogVerbose) {
+          logger.info('🔌 Enhanced SSE connection closed', { taskId, timestamp: new Date().toISOString(), reason: data.reason });
+        }
       });
 
       // Handle regular messages
@@ -413,12 +449,16 @@ export function useEnhancedSSEConnection() {
       });
 
       sseConnection.addEventListener('content_complete', (data) => {
-        logger.info('📄 Large content received for task', { taskId });
+        if (canLogVerbose) {
+          logger.info('📄 Large content received for task', { taskId });
+        }
         if (!completedTasksRef.current.has(taskId)) {
           completedTasksRef.current.add(taskId);
           onCompletion(taskId, data.content);
           // Close the SSE connection when large content completes
-          logger.info('✅ Large content completed - closing SSE connection', { taskId });
+          if (canLogVerbose) {
+            logger.info('✅ Large content completed - closing SSE connection', { taskId });
+          }
           sseConnection.close();
           sseConnectionRef.current = null;
         }

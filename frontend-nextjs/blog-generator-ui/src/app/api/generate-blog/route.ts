@@ -8,9 +8,11 @@ import https from 'https'
 import jwt from 'jsonwebtoken'
 import { isHttpsMode } from '@/config/protocol'
 import { serverLogger } from '@/lib/logger/server'
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env'
 
 export async function POST(request: NextRequest) {
   try {
+    const canLogVerbose = VERBOSE_LOGGING_ENABLED;
     const session = await getServerSession(authOptions)
     
     if (!session || !session.user) {
@@ -41,11 +43,13 @@ export async function POST(request: NextRequest) {
 
     const { topic, instructions, task_id } = await request.json()
 
-    serverLogger.info('Generate-blog API received request', {
-      topicPreview: topic?.substring(0, 50),
-      instructionsPreview: instructions?.substring(0, 50),
-      taskId: task_id,
-    })
+    if (canLogVerbose) {
+      serverLogger.info('Generate-blog API received request', {
+        topicPreview: topic?.substring(0, 50),
+        instructionsPreview: instructions?.substring(0, 50),
+        taskId: task_id,
+      })
+    }
 
     if (!topic || !topic.trim()) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 })
@@ -61,17 +65,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Create blog entry in database
-    serverLogger.info('Creating blog for user', {
-      userId: session.user.id,
-      topic: topic.trim(),
-    })
+    if (canLogVerbose) {
+      serverLogger.info('Creating blog for user', {
+        userId: session.user.id,
+        topic: topic.trim(),
+      })
+    }
     const blog = await BlogService.createBlog(
       session.user.id,
       topic.trim(),
       instructions?.trim(),
       task_id  // Pass task_id as the blog ID
     )
-    serverLogger.info('Blog created successfully', { blogId: blog.id })
+    if (canLogVerbose) {
+      serverLogger.info('Blog created successfully', { blogId: blog.id })
+    }
 
     // NOTE: Do NOT increment generation count here - only increment on successful completion
     // await UserService.incrementGenerationCount(session.user.id)
@@ -82,9 +90,11 @@ export async function POST(request: NextRequest) {
 
     // If topic exceeds backend's 200-character limit, generate a concise title
     if (finalTopic.length > 200) {
-      serverLogger.info('Topic exceeds length limit, generating concise title', {
-        topicLength: finalTopic.length,
-      })
+      if (canLogVerbose) {
+        serverLogger.info('Topic exceeds length limit, generating concise title', {
+          topicLength: finalTopic.length,
+        })
+      }
       
       try {
         // Use existing title generation API to create concise topic
@@ -101,9 +111,11 @@ export async function POST(request: NextRequest) {
           const titleData = await titleResponse.json();
           if (titleData.title && titleData.title.trim()) {
             finalTopic = titleData.title.trim();
-            serverLogger.info('Generated concise title for long topic', {
-              title: finalTopic,
-            })
+            if (canLogVerbose) {
+              serverLogger.info('Generated concise title for long topic', {
+                title: finalTopic,
+              })
+            }
           } else {
             // Fallback: intelligent truncation
             finalTopic = finalTopic.substring(0, 197) + '...';
@@ -134,11 +146,13 @@ export async function POST(request: NextRequest) {
     
     // SOLUTION 1: Use provided task_id if available, otherwise fall back to blog.id
     const finalTaskId = task_id || blog.id;
-    serverLogger.info('Using task ID for backend', {
-      finalTaskId,
-      providedTaskId: task_id,
-      blogId: blog.id,
-    })
+    if (canLogVerbose) {
+      serverLogger.info('Using task ID for backend', {
+        finalTaskId,
+        providedTaskId: task_id,
+        blogId: blog.id,
+      })
+    }
     
     const postData = JSON.stringify({
       task_id: finalTaskId,

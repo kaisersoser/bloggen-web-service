@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useSession } from 'next-auth/react';
 import { API_BASE_URL } from '@/config/constants';
 import { logger } from '@/lib/logger';
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 
 interface SSEMessage {
   id: number;
@@ -62,14 +63,19 @@ export function RedisSSEComparisonTester() {
   // Start SSE monitoring
   const startSSEMonitoring = useCallback(async (token: string) => {
     try {
-  const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
-  logger.info('🔗 Starting SSE monitoring', { streamUrl });
+      const canLogVerbose = VERBOSE_LOGGING_ENABLED && logger.shouldLog('info');
+      const streamUrl = `${API_BASE_URL}/stream/${taskId.trim()}?token=${encodeURIComponent(token)}`;
+      if (canLogVerbose) {
+        logger.info('🔗 Starting SSE monitoring', { streamUrl });
+      }
       
       const eventSource = new EventSource(streamUrl);
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
-        logger.info('✅ SSE connection established');
+        if (canLogVerbose) {
+          logger.info('✅ SSE connection established');
+        }
       };
 
       eventSource.onmessage = (event) => {
@@ -96,7 +102,9 @@ export function RedisSSEComparisonTester() {
           };
           
           setSSEMessages(prev => [sseMessage, ...prev.slice(0, 99)]);
-          logger.info('🔵 SSE message received', { messageType, data });
+          if (canLogVerbose) {
+            logger.info('🔵 SSE message received', { messageType, data });
+          }
           
         } catch (parseError) {
           logger.error('❌ Failed to parse SSE message', parseError);

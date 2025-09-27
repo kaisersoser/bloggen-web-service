@@ -30,7 +30,7 @@ The SSE connection timeouts (`net::ERR_TIMED_OUT`) were **NOT** caused by:
 ## 🔧 **Solutions Implemented**
 
 ### 1. **Enhanced SSE Error Handling** ✅
-- Updated `useSSEConnection.ts` with better authentication error detection
+- Replaced legacy hook with `useEnhancedSSEConnection.ts` for better authentication error detection
 - Added connection timeouts and retry logic with exponential backoff
 - Created `SSEConnectionStatus` component for clear user feedback
 

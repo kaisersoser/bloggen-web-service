@@ -5,16 +5,19 @@ import { authOptions } from '@/lib/auth';
 import { getFrontendUrl } from '@/config/protocol';
 import { authenticatedBackendFetch } from '@/lib/backend-fetch';
 import { serverLogger } from '@/lib/logger/server';
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
     // Debug: Check environment variables
-    serverLogger.info('Active tasks route environment', {
-      nodeTlsRejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED,
-      apiBaseUrl: process.env.API_BASE_URL,
-    });
+    if (VERBOSE_LOGGING_ENABLED) {
+      serverLogger.info('Active tasks route environment', {
+        nodeTlsRejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED,
+        apiBaseUrl: process.env.API_BASE_URL,
+      });
+    }
     
     const session = await getServerSession(authOptions);
     
@@ -38,9 +41,11 @@ export async function GET(request: NextRequest) {
     const { token } = await tokenResponse.json();
 
     // Use utility function for backend fetch with SSL handling
-    serverLogger.info('Calling authenticatedBackendFetch for active tasks', {
-      tokenPresent: Boolean(token),
-    });
+    if (VERBOSE_LOGGING_ENABLED) {
+      serverLogger.info('Calling authenticatedBackendFetch for active tasks', {
+        tokenPresent: Boolean(token),
+      });
+    }
     const response = await authenticatedBackendFetch('/tasks/active', token);
 
     if (!response.ok) {

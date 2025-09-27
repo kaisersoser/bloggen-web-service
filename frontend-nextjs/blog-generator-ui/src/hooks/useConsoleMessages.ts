@@ -1,4 +1,7 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+
+const MAX_MESSAGES = 300;
+const SCROLL_DELAY_MS = 80;
 
 export interface ConsoleMessage {
   id: string;
@@ -14,16 +17,26 @@ export function useConsoleMessages() {
   const messageCountRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const consoleContainerRef = useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-scroll to bottom when new messages arrive (within console container only)
   const scrollToBottom = useCallback(() => {
-    if (consoleContainerRef.current && messagesEndRef.current) {
-      // Scroll within the console container, not the entire page
-      consoleContainerRef.current.scrollTo({
-        top: consoleContainerRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
     }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      if (consoleContainerRef.current) {
+        consoleContainerRef.current.scrollTo({
+          top: consoleContainerRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+      scrollTimeoutRef.current = null;
+    }, SCROLL_DELAY_MS);
   }, []);
 
   // Add a new console message
@@ -42,10 +55,15 @@ export function useConsoleMessages() {
       level
     };
 
-    setMessages(prev => [...prev, newMessage]);
-    
-    // Auto-scroll after a short delay to ensure DOM is updated
-    setTimeout(scrollToBottom, 100);
+    setMessages(prev => {
+      const next = [...prev, newMessage];
+      if (next.length > MAX_MESSAGES) {
+        return next.slice(next.length - MAX_MESSAGES);
+      }
+      return next;
+    });
+
+    scrollToBottom();
   }, [scrollToBottom]);
 
   // Clear all messages
@@ -147,6 +165,14 @@ export function useConsoleMessages() {
       default:
         return 'text-gray-300';
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
   }, []);
 
   return {

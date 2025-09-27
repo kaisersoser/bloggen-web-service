@@ -1,3 +1,4 @@
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 /**
  * Protocol configuration for frontend
  * Reads from environment variables to determine HTTP/HTTPS mode
@@ -38,6 +39,10 @@ export class ProtocolConfig {
   }
 
   static logConfig(): void {
+    if (!VERBOSE_LOGGING_ENABLED) {
+      return;
+    }
+
     const details = {
       mode: this.protocol.toUpperCase(),
       frontendUrl: this.getFrontendUrl(),
@@ -47,7 +52,9 @@ export class ProtocolConfig {
     if (typeof window !== 'undefined') {
       void import('@/lib/logger')
         .then(({ logger }) => {
-          logger.info('🔧 Protocol configuration (client)', details);
+          if (logger.shouldLog('info')) {
+            logger.info('🔧 Protocol configuration (client)', details);
+          }
         })
         .catch(() => {
           // Swallow logging transport errors silently

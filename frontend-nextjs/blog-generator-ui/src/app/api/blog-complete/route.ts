@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { BlogService } from "@/lib/services/user"
 import { serverLogger } from "@/lib/logger/server"
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env'
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,13 +15,15 @@ export async function POST(request: NextRequest) {
 
     const { blog_id, status, content, error, hero_image_url } = await request.json()
 
-    serverLogger.info('Blog completion request received', {
-      blogId: blog_id,
-      status,
-      contentLength: content?.length || 0,
-      error,
-      heroImageUrl: hero_image_url,
-    })
+    if (VERBOSE_LOGGING_ENABLED) {
+      serverLogger.info('Blog completion request received', {
+        blogId: blog_id,
+        status,
+        contentLength: content?.length || 0,
+        error,
+        heroImageUrl: hero_image_url,
+      })
+    }
 
     if (!blog_id) {
       return NextResponse.json({ error: "Blog ID is required" }, { status: 400 })

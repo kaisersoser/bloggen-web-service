@@ -37,7 +37,7 @@ payload = {
 The SSE connection should include better error handling for authentication failures:
 
 ```typescript
-// In useSSEConnection.ts - Enhanced error handling needed
+// Legacy hook removed; refer to useEnhancedSSEConnection.ts for enhanced error handling
 eventSource.onerror = (err) => {
   console.error('SSE connection error:', err);
   

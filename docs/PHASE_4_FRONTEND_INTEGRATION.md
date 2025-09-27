@@ -37,7 +37,7 @@ interface ProgressStreamMessage {
 ```
 
 ### 2. Enhance WebSocket Connection Hook
-**File**: `frontend-nextjs/blog-generator-ui/src/hooks/useWebSocketConnection.ts`
+**File**: ~~`frontend-nextjs/blog-generator-ui/src/hooks/useWebSocketConnection.ts`~~ (removed; SSE connections now handled by `useEnhancedSSEConnection.ts`)
 **Action**: Handle new message types and progressive content
 
 ```typescript

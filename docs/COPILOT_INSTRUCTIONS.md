@@ -94,14 +94,15 @@ docker-compose up -d
 
 ### Modular Frontend Architecture
 - **Page components**: Keep pages lightweight, delegate logic to hooks and services
-- **Custom hooks**: Extract stateful logic (`useAuth`, `useUserStats`, `useSSEConnection`)
+- **Custom hooks**: Extract stateful logic (`useAuth`, `useUserStats`, `useGenerationLifecycle`, `useEnhancedSSEConnection`)
 - **Service layer**: API interactions centralized in `src/lib/services/`
 - **Component composition**: Break complex UI into smaller, reusable components
 - **Type definitions**: Shared interfaces in `src/types/` for consistent data contracts
 
 ```typescript
 // Example modular structure
-// src/hooks/useSSEConnection.ts - SSE logic
+// src/hooks/useGenerationLifecycle.ts - Orchestrates generation lifecycle
+// src/hooks/useEnhancedSSEConnection.ts - SSE logic
 // src/components/blog/BlogCard.tsx - Reusable card
 // src/components/blog/BlogModal.tsx - Modal component  
 // src/lib/services/blog.ts - API calls

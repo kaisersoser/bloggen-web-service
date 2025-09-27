@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { logger } from '@/lib/logger';
+import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 
 export interface SSEConnectionOptions {
   maxRetries?: number;
@@ -136,7 +137,9 @@ export function useEnhancedSSEConnection(
 
       // Handle successful connection
       eventSource.onopen = () => {
-        logger.info('✅ SSE connection established');
+        if (VERBOSE_LOGGING_ENABLED && logger.shouldLog('info')) {
+          logger.info('✅ SSE connection established');
+        }
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
