@@ -156,7 +156,7 @@ Route (app)                     Size    First Load JS
    - ✅ `useSSEConnection.ts` - Removed during Priority 1 cleanup
    - ✅ `useOptimizedSSE.ts` - Removed during Priority 1 cleanup
    - ✅ `useWebSocketConnection.ts` - Removed during Priority 1 cleanup
-   - ✅ `useEnhancedSSEConnection.ts` - Currently used
+   - ✅ `useEnhancedSSE.ts` (exports `useEnhancedSSEConnection`) - Currently used
 
 2. **Redundant Console Components**
    - ❌ `BlogGenerationConsole.tsx` - Superseded by StreamingConsole

@@ -217,7 +217,7 @@ export function useGenerationLifecycle({
       const connectionLog: LogEntry = {
         timestamp: new Date().toISOString(),
         step: 'connection',
-        message: 'Preparing blog generation plan...',
+        message: 'Setting up connection...',
         progress: 5,
       };
 

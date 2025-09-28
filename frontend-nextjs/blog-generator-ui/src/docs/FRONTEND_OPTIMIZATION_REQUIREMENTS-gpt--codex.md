@@ -110,7 +110,7 @@ High-signal findings (manual triage required before removal):
 
 | Category | Candidate | Notes |
 |----------|-----------|-------|
-| Legacy hooks | `src/hooks/useEnhancedSSEConnection.ts`, ~~`src/hooks/useSSEConnection.ts`~~ (removed), `src/hooks/useStreamingBlogGeneration.ts` | `useEnhancedSSEConnection` now primary; confirm if `useStreamingBlogGeneration` still needed. |
+| Legacy hooks | `src/hooks/useEnhancedSSE.ts` (exports `useEnhancedSSEConnection`), ~~`src/hooks/useSSEConnection.ts`~~ (removed), `src/hooks/useStreamingBlogGeneration.ts` | `useEnhancedSSEConnection` now primary; confirm if `useStreamingBlogGeneration` still needed. |
 | Alternative SSE impls | ~~`src/hooks/useOptimizedSSE.ts`~~ (removed), ~~`src/hooks/useWebSocketConnection.ts`~~ (removed) | Legacy experimentation retired during Priority 1 cleanup. |
 | Blog UI variants | `AgenticChatInterface`, `BlogGenerationView`, `BlogHistorySidebar`, `MinimizedCrewConsole` | Not mounted in production routes. Either archive under `legacy/` or remove after design sign-off. |
 | Skeletons | `BlogHistorySkeleton`, `BlogGenerationSkeleton`, `ConsoleSkeleton` | Unused after recent redesign; keep if upcoming skeleton states require them. |

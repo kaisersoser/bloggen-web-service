@@ -78,7 +78,7 @@ import { useBlogGenerator } from "@/hooks/useBlogGenerator";
 
 // With these:
 import { useOptimizedBlogs } from "@/hooks/useOptimizedBlogs";
-import { useEnhancedSSEConnection } from "@/hooks/useEnhancedSSEConnection";
+import { useEnhancedSSEConnection } from "@/hooks/useEnhancedSSE";
 import { OptimizedBlogHistorySidebarFixed as BlogHistorySidebar } from "@/components/blog/OptimizedBlogHistorySidebarFixed";
 ```
 

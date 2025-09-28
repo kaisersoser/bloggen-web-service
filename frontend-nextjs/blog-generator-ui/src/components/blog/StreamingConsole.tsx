@@ -20,8 +20,8 @@ interface StreamingConsoleProps {
   formatTimestamp: (timestamp: string) => string;
   getMessageIcon: (type: string, level: ConsoleMessage['level']) => string;
   getMessageColorClass: (level: ConsoleMessage['level']) => string;
-  messagesEndRef: React.RefObject<HTMLDivElement>;
-  consoleContainerRef: React.RefObject<HTMLDivElement>;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  consoleContainerRef: React.RefObject<HTMLDivElement | null>;
   className?: string;
 }
 

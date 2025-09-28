@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect } from 'react';
 import { useAuth, useRoleCheck } from '@/hooks/useAuth';
 import { useUserStats } from '@/hooks/useUserStats';
