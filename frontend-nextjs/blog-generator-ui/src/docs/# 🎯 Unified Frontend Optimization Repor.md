@@ -25,38 +25,40 @@ The frontend codebase demonstrates **solid architectural foundations** with mode
 ### 🔴 Priority 1: Critical Issues (Week 1-2)
 *Must fix to prevent production issues*
 
-| Task | Current Issue | Solution | Impact | Effort |
-|------|--------------|----------|--------|--------|
-| **1. Split `useBlogGenerator` Hook** | 400+ lines, 15 useState calls, multiple responsibilities | Break into 3 focused hooks: `useGenerationLifecycle`, `useGenerationActions`, `useGenerationUiState` | High - Reduces complexity by 60% | 2 days |
-| **2. Fix Memory Leaks** | Console messages grow infinitely, SSE connections not cleaned up | Cap messages at 300, implement proper cleanup in useEffect | Critical - Prevents browser crashes | 1 day |
-| **3. Remove Unused SSE Hooks** | 6 duplicate hooks adding 20kB | ✅ Removed `useSSEConnection.ts`, `useOptimizedSSE.ts`, `useWebSocketConnection.ts`; consolidated on enhanced hook | High - 20kB bundle reduction | 4 hours |
-| **4. Fix Logger Performance** | Hundreds of production logs with heavy metadata | Gate behind `if (process.env.NODE_ENV === 'development')` | Medium - 10-15% CPU reduction | 2 hours |
+| Task | Current Issue | Solution | Impact | Effort | Status |
+|------|--------------|----------|--------|--------|--------|
+| **1. Split `useBlogGenerator` Hook** | 400+ lines, 15 useState calls, multiple responsibilities | Break into 3 focused hooks: `useGenerationLifecycle`, `useGenerationActions`, `useGenerationUiState` | High - Reduces complexity by 60% | 2 days | ✅ Completed (Sep 28, 2025) |
+| **2. Fix Memory Leaks** | Console messages grow infinitely, SSE connections not cleaned up | Cap messages at 300, implement proper cleanup in useEffect | Critical - Prevents browser crashes | 1 day | ✅ Completed (Sep 24, 2025) |
+| **3. Remove Unused SSE Hooks** | 6 duplicate hooks adding 20kB | ✅ Removed `useSSEConnection.ts`, `useOptimizedSSE.ts`, `useWebSocketConnection.ts`; consolidated on enhanced hook | High - 20kB bundle reduction | 4 hours | ✅ Completed (Sep 26, 2025) |
+| **4. Fix Logger Performance** | Hundreds of production logs with heavy metadata | Gate behind `if (process.env.NODE_ENV === 'development')` | Medium - 10-15% CPU reduction | 2 hours | ✅ Completed (Sep 21, 2025) |
 
 ### 🟡 Priority 2: Performance Optimizations (Week 2-3)
 *Significant user experience improvements*
 
-| Task | Current Issue | Solution | Impact | Effort |
-|------|--------------|----------|--------|--------|
-| **5. Optimize Bundle Size** | 323kB main bundle, Recharts loaded everywhere | Dynamic import heavy components, lazy load icons | High - 30% bundle reduction | 1 day |
-| **6. Implement React.memo** | BlogCard re-renders on every state change | Wrap in React.memo with proper comparison | Medium - 40% fewer renders | 4 hours |
-| **7. Virtual Scrolling** | All blogs rendered in DOM | Use `react-window` for virtualization | Medium - Handles 1000+ blogs smoothly | 1 day |
-| **8. Optimize Typewriter Effect** | Blocking setTimeout delays (800-3000ms) | Use `requestIdleCallback` or Web Worker | Low - Better perceived performance | 4 hours |
+| Task | Current Issue | Solution | Impact | Effort | Status |
+|------|--------------|----------|--------|--------|--------|
+| **5. Optimize Bundle Size** | 323kB main bundle, Recharts loaded everywhere | Dynamic import heavy components, lazy load icons | High - 30% bundle reduction | 1 day | ✅ Completed (Sep 28, 2025) |
+| **6. Implement React.memo** | BlogCard re-renders on every state change | Wrap in React.memo with proper comparison | Medium - 40% fewer renders | 4 hours | ✅ Completed (Sep 28, 2025) |
+| **7. Virtual Scrolling** | All blogs rendered in DOM | Use `react-window` for virtualization | Medium - Handles 1000+ blogs smoothly | 1 day | ✅ Completed (Sep 28, 2025) |
+| **8. Optimize Typewriter Effect** | Blocking setTimeout delays (800-3000ms) | Use `requestIdleCallback` or Web Worker | Low - Better perceived performance | 4 hours | ✅ Completed (Sep 28, 2025) |
 
 ### 🟢 Priority 3: Architecture Improvements (Week 3-4)
 *Long-term maintainability and scalability*
 
-| Task | Current Issue | Solution | Impact | Effort |
-|------|--------------|----------|--------|--------|
-| **9. State Management** | Prop drilling, manual state sync | Implement Zustand for global state | High - 50% less boilerplate | 2 days |
-| **10. Component Decomposition** | `TabbedPromptInterface` is 500+ lines | Extract into 5-6 focused components | Medium - Better testability | 1 day |
-| **11. Centralize Token Management** | Token fetched repeatedly | Create singleton token manager with caching | Low - Fewer API calls | 4 hours |
-| **12. React Query Integration** | Manual fetch + state management | Use React Query for all data fetching | High - Automatic caching/invalidation | 2 days |
+| Task | Current Issue | Solution | Impact | Effort | Status |
+|------|--------------|----------|--------|--------|--------|
+| **9. State Management** | Prop drilling, manual state sync | Implement Zustand for global state | High - 50% less boilerplate | 2 days | 🕒 Pending |
+| **10. Component Decomposition** | `TabbedPromptInterface` is 500+ lines | Extract into 5-6 focused components | Medium - Better testability | 1 day | 🕒 Pending |
+| **11. Centralize Token Management** | Token fetched repeatedly | Create singleton token manager with caching | Low - Fewer API calls | 4 hours | 🕒 Pending |
+| **12. React Query Integration** | Manual fetch + state management | Use React Query for all data fetching | High - Automatic caching/invalidation | 2 days | 🕒 Pending |
 
 ---
 
 ## 📋 Detailed Implementation Guide
 
 ### 1. Refactor `useBlogGenerator` Hook
+
+> **Status:** ✅ Completed on Sep 28, 2025 — hook responsibilities split across `useGenerationLifecycle`, `useGenerationUiState`, and `useGenerationActions` with updated consumers.
 
 ```typescript
 // filepath: frontend-nextjs/blog-generator-ui/src/hooks/useGenerationLifecycle.ts
@@ -88,6 +90,8 @@ export const useGenerationActions = () => {
 ```
 
 ### 2. Memory Leak Prevention
+
+> **Status:** ✅ Completed — `useConsoleMessages` enforces a 300-entry cap and enhanced SSE hooks close connections and clear timers automatically.
 
 ```typescript
 // filepath: frontend-nextjs/blog-generator-ui/src/hooks/useConsoleMessages.ts
@@ -125,6 +129,8 @@ export const useConsoleMessages = () => {
 
 ### 3. Bundle Size Optimization
 
+> **Status:** ✅ Completed — blog page now lazy-loads console/modal components using `next/dynamic`, shrinking the initial chunk.
+
 ```typescript
 // filepath: frontend-nextjs/blog-generator-ui/src/app/blog/page.tsx
 import dynamic from 'next/dynamic';
@@ -151,6 +157,8 @@ const LucideIcons = dynamic(
 ```
 
 ### 4. React.memo Implementation
+
+> **Status:** ✅ Completed — `BlogTile` now wraps in `React.memo` with an equality check to suppress redundant renders.
 
 ```typescript
 // filepath: frontend-nextjs/blog-generator-ui/src/components/blog/BlogCard.tsx
@@ -207,27 +215,27 @@ Total Reduction: ~98kB (28% overall)
 ## 🗺️ Strategic Roadmap
 
 ### Phase 1: Foundation (Weeks 1-2)
-✅ Fix critical bugs and memory leaks  
-✅ Remove unused code  
-✅ Implement basic optimizations  
+✅ Fix critical bugs and memory leaks *(console logs capped, SSE teardown merged Sep 24, 2025)*  
+✅ Remove unused code *(duplicate SSE hooks removed Sep 26, 2025)*  
+🟡 Implement basic optimizations *(hook decomposition shipped; remaining tuning in progress)*  
 **Deliverable:** Stable, performant baseline
 
 ### Phase 2: Architecture (Weeks 3-4)
-🔧 Refactor state management  
-🔧 Component decomposition  
-🔧 Implement caching layer  
+🔧 Refactor state management *(not started)*  
+🔧 Component decomposition *(not started)*  
+🔧 Implement caching layer *(not started)*  
 **Deliverable:** Maintainable, scalable architecture
 
 ### Phase 3: Enhancement (Weeks 5-6)
-🚀 Add virtual scrolling  
-🚀 Implement code splitting  
-🚀 Optimize animations  
+🚀 Add virtual scrolling *(completed Sep 28, 2025)*  
+🚀 Implement code splitting *(completed Sep 28, 2025)*  
+🚀 Optimize animations *(not started)*  
 **Deliverable:** Premium user experience
 
 ### Phase 4: Monitoring (Week 7)
-📊 Add performance monitoring  
-📊 Implement error tracking  
-📊 Set up analytics  
+📊 Add performance monitoring *(not started)*  
+📊 Implement error tracking *(not started)*  
+📊 Set up analytics *(not started)*  
 **Deliverable:** Observable, measurable system
 
 ---
@@ -272,11 +280,11 @@ Total Reduction: ~98kB (28% overall)
 
 ## ✅ Immediate Next Steps
 
-1. **Day 1-2:** Remove unused SSE hooks and fix memory leaks
-2. **Day 3-4:** Refactor `useBlogGenerator` hook
-3. **Day 5:** Implement React.memo on key components
-4. **Week 2:** Begin state management migration
-5. **Week 3:** Deploy Phase 1 improvements to staging
+1. ✅ **Day 1-2:** Remove unused SSE hooks *(completed Sep 26, 2025) and deploy console/SSE leak fixes (Sep 24, 2025)*
+2. ✅ **Day 3-4:** Refactor `useBlogGenerator` hook *(completed Sep 28, 2025)*
+3. ✅ **Day 5:** Implement React.memo on key components *(completed Sep 28, 2025)*
+4. 🕒 **Week 2:** Begin state management migration
+5. 🕒 **Week 3:** Deploy Phase 1 improvements to staging
 
 ---
 
@@ -291,6 +299,25 @@ The frontend codebase has **strong foundations** but requires focused optimizati
 The total effort estimate is **4-6 weeks** for complete implementation, with measurable improvements visible after each phase. The ROI is compelling: better user experience, reduced infrastructure costs, and increased development velocity.
 
 **Recommendation:** Begin with Priority 1 tasks immediately as they address critical issues with minimal risk and high impact.
+
+---
+
+## 📌 Roadmap Status Table
+
+| Priority | Task | Status | Notes / Next Action |
+|----------|------|--------|----------------------|
+| 1 | Split `useBlogGenerator` hook | ✅ Completed | Delivered Sep 28, 2025; hook logic now distributed across lifecycle, UI, and action hooks. |
+| 1 | Fix memory leaks | ✅ Completed | `useConsoleMessages` caps logs at 300 entries; SSE hooks auto-close connections and clear timers. |
+| 1 | Remove unused SSE hooks | ✅ Completed | Legacy hooks removed Sep 26, 2025; ensure no regression tests failing. |
+| 1 | Fix logger performance | ✅ Completed | Logger gated via `NEXT_PUBLIC_LOG_LEVEL` and `NEXT_PUBLIC_ENABLE_VERBOSE_LOGGING`; expensive metadata now skipped by default. |
+| 2 | Optimize bundle size | ✅ Completed | Modals/console now lazy-load via `next/dynamic`, trimming the initial blog page bundle. |
+| 2 | Implement React.memo | ✅ Completed | `BlogTile` wrapped with `React.memo` + comparator to minimize re-renders. |
+| 2 | Virtual scrolling | ✅ Completed | Blog grid/list powered by `react-window` with responsive virtualization. |
+| 2 | Optimize typewriter effect | ✅ Completed | Typewriter now uses `requestAnimationFrame` batching to stream without blocking the main thread. |
+| 3 | State management overhaul | 🕒 Pending | Evaluate Zustand adoption and migration plan. |
+| 3 | Component decomposition | 🕒 Pending | Break `TabbedPromptInterface` into focused child components. |
+| 3 | Centralize token management | 🕒 Pending | Implement cached singleton to avoid redundant fetches. |
+| 3 | React Query integration | 🕒 Pending | Gradually migrate data fetching to React Query with caching policies. |
 
 ---
 

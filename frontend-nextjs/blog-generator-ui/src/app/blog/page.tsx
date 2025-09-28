@@ -1,15 +1,24 @@
 "use client"
+import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { UserProfileDropdown } from "@/components/auth/UserProfileDropdown";
 import { TabbedPromptInterface } from "@/components/blog/TabbedPromptInterface";
 import { BlogTileGrid } from "@/components/blog/BlogTileGrid";
-import { BlogViewModal } from "@/components/blog/BlogViewModal";
-import { DeleteConfirmationDialog } from "@/components/blog/DeleteConfirmationDialog";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
 import { signIn } from "next-auth/react";
 import { logger } from "@/lib/logger";
+
+const DeleteConfirmationDialog = dynamic(
+  () => import("@/components/blog/DeleteConfirmationDialog").then((mod) => mod.DeleteConfirmationDialog),
+  { loading: () => null }
+);
+
+const BlogViewModal = dynamic(
+  () => import("@/components/blog/BlogViewModal").then((mod) => mod.BlogViewModal),
+  { ssr: false, loading: () => null }
+);
 
 export default function BlogGenerator() {
   const { theme, setTheme } = useTheme();
@@ -30,7 +39,7 @@ export default function BlogGenerator() {
     showBlogModal,
     taskLogs,
     currentJobId,
-  currentJob,
+    currentJob,
     handleGenerateBlog,
     handleBlogClick,
     handleBulkDeleteBlogs,

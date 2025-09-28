@@ -1,5 +1,5 @@
 "use client"
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import Image from 'next/image';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,7 @@ interface BlogTileProps {
   className?: string;
 }
 
-export function BlogTile({ 
+function BlogTileComponent({ 
   blog, 
   onView, 
   onDelete, 
@@ -275,3 +275,29 @@ export function BlogTile({
     </Card>
   );
 }
+
+function areBlogPropsEqual(prev: BlogTileProps, next: BlogTileProps): boolean {
+  const prevBlog = prev.blog;
+  const nextBlog = next.blog;
+
+  const blogChanged =
+    prevBlog.id !== nextBlog.id ||
+    prevBlog.topic !== nextBlog.topic ||
+    prevBlog.instructions !== nextBlog.instructions ||
+    prevBlog.heroImageUrl !== nextBlog.heroImageUrl ||
+    prevBlog.status !== nextBlog.status ||
+    prevBlog.progress !== nextBlog.progress ||
+    prevBlog.content !== nextBlog.content ||
+    prevBlog.createdAt !== nextBlog.createdAt;
+
+  const selectionChanged =
+    prev.isSelectionMode !== next.isSelectionMode ||
+    prev.isSelected !== next.isSelected ||
+    prev.isPulsing !== next.isPulsing;
+
+  const classChanged = prev.className !== next.className;
+
+  return !blogChanged && !selectionChanged && !classChanged;
+}
+
+export const BlogTile = memo(BlogTileComponent, areBlogPropsEqual);

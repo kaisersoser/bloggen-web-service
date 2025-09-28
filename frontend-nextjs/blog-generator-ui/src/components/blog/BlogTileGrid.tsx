@@ -1,11 +1,12 @@
 "use client"
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { BlogTile } from './BlogTile';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { Button } from "@/components/ui/button";
 import { Search, Grid, List, SortAsc, SortDesc, CheckSquare, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SelectionState } from "@/types/blog";
+import { FixedSizeGrid as VirtualGrid, FixedSizeList as VirtualList, type GridChildComponentProps, type ListChildComponentProps } from 'react-window';
 
 interface BlogTileGridProps {
   blogs: any[];
@@ -43,15 +44,38 @@ export function BlogTileGrid({
   // Delete confirmation modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+      }
+    };
+
+    updateDimensions();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateDimensions());
+      if (containerRef.current) {
+        observer.observe(containerRef.current);
+      }
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, []);
+
   // Filter and sort blogs
   const processedBlogs = useMemo(() => {
     const filtered = blogs.filter(blog => {
-      const title = blog.title || '';
-      const topic = blog.topic || '';
       const query = searchQuery.toLowerCase();
-      
-      return title.toLowerCase().includes(query) || 
-             topic.toLowerCase().includes(query);
+      const sortLabel = (blog.title || blog.topic || '').toLowerCase();
+      const topic = blog.topic?.toLowerCase() || '';
+
+      return sortLabel.includes(query) || topic.includes(query);
     });
 
     // Sort blogs
@@ -63,15 +87,46 @@ export function BlogTileGrid({
         filtered.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
         break;
       case 'title-asc':
-        filtered.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+        filtered.sort((a, b) => (a.title || a.topic || '').localeCompare(b.title || b.topic || '', undefined, { sensitivity: 'base' }));
         break;
       case 'title-desc':
-        filtered.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
+        filtered.sort((a, b) => (b.title || b.topic || '').localeCompare(a.title || a.topic || '', undefined, { sensitivity: 'base' }));
         break;
     }
 
     return filtered;
   }, [blogs, searchQuery, sortBy]);
+
+  const columnCount = useMemo(() => {
+    if (viewMode === 'list') {
+      return 1;
+    }
+    if (containerWidth >= 1280) return 4;
+    if (containerWidth >= 1024) return 3;
+    if (containerWidth >= 768) return 2;
+    return 1;
+  }, [containerWidth, viewMode]);
+
+  const rowHeight = viewMode === 'grid' ? 420 : 200;
+  const columnWidth = useMemo(() => {
+    if (containerWidth === 0) {
+      return 0;
+    }
+    return containerWidth / Math.max(columnCount, 1);
+  }, [columnCount, containerWidth]);
+
+  const gridRowCount = useMemo(() => Math.ceil(processedBlogs.length / Math.max(columnCount, 1)), [columnCount, processedBlogs.length]);
+
+  const virtualHeight = useMemo(() => {
+    const totalRows = viewMode === 'grid'
+      ? gridRowCount
+      : processedBlogs.length;
+    const calculatedHeight = totalRows * rowHeight;
+    return Math.max(rowHeight, Math.min(calculatedHeight, 900));
+  }, [gridRowCount, processedBlogs.length, rowHeight, viewMode]);
+
+  const shouldVirtualizeGrid = viewMode === 'grid' && processedBlogs.length > columnCount * 2 && containerWidth > 0;
+  const shouldVirtualizeList = viewMode === 'list' && processedBlogs.length > 20 && containerWidth > 0;
 
   // Selection handlers
   const exitSelectionMode = useCallback(() => {
@@ -174,6 +229,60 @@ export function BlogTileGrid({
         return <SortDesc className="w-4 h-4" />;
     }
   };
+
+  const renderGridItem = useCallback(({ columnIndex, rowIndex, style }: GridChildComponentProps) => {
+    const index = rowIndex * columnCount + columnIndex;
+    if (index >= processedBlogs.length) {
+      return null;
+    }
+
+    const blog = processedBlogs[index];
+
+    return (
+      <div style={{ ...style, padding: 12, boxSizing: 'border-box' }}>
+        <BlogTile
+          blog={blog}
+          onView={onBlogView}
+          onDelete={onBlogDelete}
+          isSelectionMode={selectionState.isSelectionMode}
+          isSelected={selectionState.selectedBlogIds.has(blog.id)}
+          isPulsing={selectionState.pulsingBlogId === blog.id}
+          onSelectionToggle={toggleBlogSelection}
+          onLongPress={handleLongPress}
+          onMouseUp={handleMouseUp}
+          className="h-full"
+        />
+      </div>
+    );
+  }, [columnCount, handleLongPress, handleMouseUp, onBlogDelete, onBlogView, processedBlogs, selectionState.isSelectionMode, selectionState.pulsingBlogId, selectionState.selectedBlogIds, toggleBlogSelection]);
+
+  const renderListItem = useCallback(({ index, style }: ListChildComponentProps) => {
+    const blog = processedBlogs[index];
+
+    return (
+      <div style={{ ...style, padding: 12, boxSizing: 'border-box' }}>
+        <BlogTile
+          blog={blog}
+          onView={onBlogView}
+          onDelete={onBlogDelete}
+          isSelectionMode={selectionState.isSelectionMode}
+          isSelected={selectionState.selectedBlogIds.has(blog.id)}
+          isPulsing={selectionState.pulsingBlogId === blog.id}
+          onSelectionToggle={toggleBlogSelection}
+          onLongPress={handleLongPress}
+          onMouseUp={handleMouseUp}
+          className="w-full"
+        />
+      </div>
+    );
+  }, [handleLongPress, handleMouseUp, onBlogDelete, onBlogView, processedBlogs, selectionState.isSelectionMode, selectionState.pulsingBlogId, selectionState.selectedBlogIds, toggleBlogSelection]);
+
+  const gridItemKey = useCallback(({ columnIndex, rowIndex }: { columnIndex: number; rowIndex: number }) => {
+    const index = rowIndex * columnCount + columnIndex;
+    return processedBlogs[index]?.id ?? `${rowIndex}-${columnIndex}`;
+  }, [columnCount, processedBlogs]);
+
+  const listItemKey = useCallback((index: number) => processedBlogs[index]?.id ?? index, [processedBlogs]);
 
   if (isLoading) {
     return (
@@ -317,26 +426,55 @@ export function BlogTileGrid({
           </div>
         </div>
       ) : (
-        <div className={
-          viewMode === 'grid' 
-            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-            : "flex flex-col gap-4"
-        }>
-          {processedBlogs.map((blog) => (
-            <BlogTile
-              key={blog.id}
-              blog={blog}
-              onView={onBlogView}
-              onDelete={onBlogDelete}
-              isSelectionMode={selectionState.isSelectionMode}
-              isSelected={selectionState.selectedBlogIds.has(blog.id)}
-              isPulsing={selectionState.pulsingBlogId === blog.id}
-              onSelectionToggle={toggleBlogSelection}
-              onLongPress={handleLongPress}
-              onMouseUp={handleMouseUp}
-              className={viewMode === 'list' ? 'max-w-none' : ''}
-            />
-          ))}
+        <div ref={containerRef} className="relative w-full">
+          {shouldVirtualizeGrid ? (
+            <VirtualGrid
+              height={virtualHeight}
+              width={containerWidth || Math.max(columnCount * 320, 320)}
+              columnCount={columnCount}
+              columnWidth={columnWidth || 320}
+              rowCount={gridRowCount}
+              rowHeight={rowHeight}
+              itemKey={gridItemKey}
+              overscanRowCount={2}
+              overscanColumnCount={1}
+            >
+              {renderGridItem}
+            </VirtualGrid>
+          ) : shouldVirtualizeList ? (
+            <VirtualList
+              height={virtualHeight}
+              width={containerWidth || '100%'}
+              itemCount={processedBlogs.length}
+              itemSize={rowHeight}
+              itemKey={listItemKey}
+              overscanCount={3}
+            >
+              {renderListItem}
+            </VirtualList>
+          ) : (
+            <div className={
+              viewMode === 'grid'
+                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                : "flex flex-col gap-4"
+            }>
+              {processedBlogs.map((blog) => (
+                <BlogTile
+                  key={blog.id}
+                  blog={blog}
+                  onView={onBlogView}
+                  onDelete={onBlogDelete}
+                  isSelectionMode={selectionState.isSelectionMode}
+                  isSelected={selectionState.selectedBlogIds.has(blog.id)}
+                  isPulsing={selectionState.pulsingBlogId === blog.id}
+                  onSelectionToggle={toggleBlogSelection}
+                  onLongPress={handleLongPress}
+                  onMouseUp={handleMouseUp}
+                  className={viewMode === 'list' ? 'max-w-none' : ''}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

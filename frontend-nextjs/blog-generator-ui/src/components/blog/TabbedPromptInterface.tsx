@@ -1,12 +1,12 @@
 "use client"
 import React, { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { StreamingConsole } from "./StreamingConsole";
 import { useConsoleMessages } from "@/hooks/useConsoleMessages";
 import { useStreamingContent } from "@/hooks/useStreamingContent";
 import { logger } from '@/lib/logger';
@@ -25,6 +25,23 @@ import {
   FileText,
   Search
 } from "lucide-react";
+
+const StreamingConsole = dynamic(() => import('./StreamingConsole').then((mod) => mod.StreamingConsole), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-6 border border-gray-800 dark:border-gray-700">
+      <div className="flex items-center justify-between pb-4 border-b border-gray-800">
+        <div className="h-5 w-40 bg-gray-800 animate-pulse rounded" />
+        <div className="h-8 w-24 bg-gray-800 animate-pulse rounded" />
+      </div>
+      <div className="space-y-2 mt-4">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="h-10 bg-gray-800/70 animate-pulse rounded" />
+        ))}
+      </div>
+    </div>
+  ),
+});
 
 interface TabbedPromptInterfaceProps {
   onSubmit: (prompt: string) => void;
