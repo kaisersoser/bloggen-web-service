@@ -5,6 +5,7 @@ import { logger } from '@/lib/logger';
 import { VERBOSE_LOGGING_ENABLED } from '@/lib/logger/env';
 import { JobState, SSEUpdate, LogEntry } from '@/types/blog';
 import { TimeoutResistantSSE } from '@/lib/TimeoutResistantSSE';
+import { authTokenManager, AuthTokenError } from '@/lib/authTokenManager';
 
 export interface ConnectionStateChange {
   status: 'connecting' | 'connected' | 'reconnecting' | 'offline_wait' | 'closed' | 'error';
@@ -28,17 +29,16 @@ export function useEnhancedSSEConnection() {
         throw new Error('Please sign in to send acknowledgment');
       }
 
-      // Get fresh JWT token for authentication
-      const tokenResponse = await fetch('/api/auth/jwt-token', {
-        method: 'GET',
-        credentials: 'include'
-      });
-      
-      if (!tokenResponse.ok) {
-        throw new Error(`Failed to get auth token: ${tokenResponse.status}`);
+      let token: string | null = null;
+      try {
+        token = await authTokenManager.getToken();
+      } catch (error) {
+        if (error instanceof AuthTokenError && error.status === 401) {
+          throw new Error('Authentication required to send acknowledgment');
+        }
+        throw error;
       }
-      
-      const { token } = await tokenResponse.json();
+
       if (!token) {
         throw new Error('No authentication token received');
       }
@@ -386,36 +386,24 @@ export function useEnhancedSSEConnection() {
 
       contentCacheRef.current.delete(taskId);
 
-      const tokenCache: { value: string | null; expiresAt: number } = {
-        value: null,
-        expiresAt: 0,
-      };
-
-      const getAuthToken = async (): Promise<string> => {
-        const now = Date.now();
-        if (tokenCache.value && now < tokenCache.expiresAt) {
-          return tokenCache.value;
-        }
-
-        const tokenResponse = await fetch('/api/auth/jwt-token', {
-          method: 'GET',
-          credentials: 'include',
-        });
-
-        if (!tokenResponse.ok) {
-          if (tokenResponse.status === 401) {
+      const getAuthToken = async (forceRefresh = false): Promise<string> => {
+        let token: string | null = null;
+        try {
+          token = await authTokenManager.getToken({ forceRefresh });
+        } catch (error) {
+          if (error instanceof AuthTokenError && error.status === 401) {
             throw new Error('Session expired - please sign out and sign back in');
           }
-          throw new Error(`Authentication failed: ${tokenResponse.status}`);
+          if (error instanceof Error) {
+            throw error;
+          }
+          throw new Error('Failed to get authentication token');
         }
 
-        const { token } = await tokenResponse.json();
         if (!token) {
           throw new Error('No authentication token received');
         }
 
-        tokenCache.value = token;
-        tokenCache.expiresAt = now + 45000; // Cache token for 45 seconds to reduce churn
         return token;
       };
 
@@ -432,7 +420,7 @@ export function useEnhancedSSEConnection() {
       };
 
       // Prime token acquisition so auth errors surface immediately
-      await getAuthToken();
+  await getAuthToken();
 
       const sseOptions = {
         timeout: 600000,

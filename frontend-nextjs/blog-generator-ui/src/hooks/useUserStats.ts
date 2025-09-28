@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import { useSession } from 'next-auth/react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 interface UserStats {
   monthlyGenerations: number
@@ -13,42 +14,39 @@ interface UserStats {
 
 export function useUserStats() {
   const { data: session } = useSession()
-  const [stats, setStats] = useState<UserStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
-  const fetchStats = useCallback(async () => {
-    if (!session) {
-      setLoading(false)
-      return
-    }
+  const statsQuery = useQuery<UserStats>({
+    queryKey: ['user-stats'],
+    enabled: Boolean(session),
+    queryFn: async () => {
+      const response = await fetch('/api/user/stats', {
+        credentials: 'include'
+      })
 
-    try {
-      setLoading(true)
-      const response = await fetch('/api/user/stats')
-      
       if (!response.ok) {
         throw new Error('Failed to fetch user stats')
       }
-      
-      const data = await response.json()
-      setStats(data)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch stats')
-    } finally {
-      setLoading(false)
-    }
-  }, [session])
+
+      return await response.json()
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
 
   useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
+    if (!session) {
+      queryClient.removeQueries({ queryKey: ['user-stats'] })
+    }
+  }, [queryClient, session])
+
+  const loading = statsQuery.isPending || (statsQuery.isFetching && !statsQuery.data)
+  const errorMessage = statsQuery.error instanceof Error ? statsQuery.error.message : null
 
   return {
-    stats,
+    stats: statsQuery.data ?? null,
     loading,
-    error,
-    refetch: fetchStats
+    error: errorMessage,
+    refetch: statsQuery.refetch
   }
 }

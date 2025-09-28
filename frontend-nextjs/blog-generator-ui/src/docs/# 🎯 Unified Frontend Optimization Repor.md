@@ -47,10 +47,10 @@ The frontend codebase demonstrates **solid architectural foundations** with mode
 
 | Task | Current Issue | Solution | Impact | Effort | Status |
 |------|--------------|----------|--------|--------|--------|
-| **9. State Management** | Prop drilling, manual state sync | Implement Zustand for global state | High - 50% less boilerplate | 2 days | 🕒 Pending |
-| **10. Component Decomposition** | `TabbedPromptInterface` is 500+ lines | Extract into 5-6 focused components | Medium - Better testability | 1 day | 🕒 Pending |
-| **11. Centralize Token Management** | Token fetched repeatedly | Create singleton token manager with caching | Low - Fewer API calls | 4 hours | 🕒 Pending |
-| **12. React Query Integration** | Manual fetch + state management | Use React Query for all data fetching | High - Automatic caching/invalidation | 2 days | 🕒 Pending |
+| **9. State Management** | Prop drilling, manual state sync | Implement Zustand for global state | High - 50% less boilerplate | 2 days | ✅ Completed (Sep 28, 2025) |
+| **10. Component Decomposition** | `TabbedPromptInterface` is 500+ lines | Extract into 5-6 focused components | Medium - Better testability | 1 day | ✅ Completed (Sep 28, 2025) |
+| **11. Centralize Token Management** | Token fetched repeatedly | Create singleton token manager with caching | Low - Fewer API calls | 4 hours | ✅ Completed (Sep 28, 2025) |
+| **12. React Query Integration** | Manual fetch + state management | Use React Query for all data fetching | High - Automatic caching/invalidation | 2 days | ✅ Completed (Sep 28, 2025) |
 
 ---
 
@@ -314,10 +314,10 @@ The total effort estimate is **4-6 weeks** for complete implementation, with mea
 | 2 | Implement React.memo | ✅ Completed | `BlogTile` wrapped with `React.memo` + comparator to minimize re-renders. |
 | 2 | Virtual scrolling | ✅ Completed | Blog grid/list powered by `react-window` with responsive virtualization. |
 | 2 | Optimize typewriter effect | ✅ Completed | Typewriter now uses `requestAnimationFrame` batching to stream without blocking the main thread. |
-| 3 | State management overhaul | 🕒 Pending | Evaluate Zustand adoption and migration plan. |
-| 3 | Component decomposition | 🕒 Pending | Break `TabbedPromptInterface` into focused child components. |
-| 3 | Centralize token management | 🕒 Pending | Implement cached singleton to avoid redundant fetches. |
-| 3 | React Query integration | 🕒 Pending | Gradually migrate data fetching to React Query with caching policies. |
+| 3 | State management overhaul | ✅ Completed | Zustand store in `useGenerationStore` now powers generation flow. |
+| 3 | Component decomposition | ✅ Completed | `TabbedPromptInterface` split into modular panels with console bridge. |
+| 3 | Centralize token management | ✅ Completed | `authTokenManager` caches JWT with expiry-aware refresh. |
+| 3 | React Query integration | ✅ Completed | Blog/user data hooks migrated to React Query cache. |
 
 ---
 
