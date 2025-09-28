@@ -53,9 +53,15 @@ export function PromptInstructionsPanel({
 
   return (
     <Card
-      className={`p-6 transition-all duration-300 ${
-        isFocused ? 'ring-2 ring-blue-500 shadow-lg' : 'shadow-md'
-      } ${isGenerating ? 'ring-2 ring-blue-400 animate-pulse' : ''}`}
+      className={`p-6 transition-comfortable ${
+        isFocused
+          ? 'ring-2 ring-blue-500/80 surface-elevated animate-soft-pop'
+          : 'shadow-md'
+      } ${
+        isGenerating
+          ? 'ring-2 ring-blue-400/70 animate-glow-pulse'
+          : ''
+      }`}
     >
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="relative">
@@ -67,7 +73,7 @@ export function PromptInstructionsPanel({
             onFocus={() => onFocusChange(true)}
             onBlur={() => onFocusChange(false)}
             placeholder="Describe the blog topic you'd like to generate... (e.g., 'Latest trends in sustainable technology', 'How to build a productive morning routine', 'The future of remote work')"
-            className="min-h-[120px] text-base resize-none pr-16 leading-relaxed"
+            className="min-h-[120px] text-base resize-none pr-16 leading-relaxed transition-comfortable focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900"
             disabled={disabled || isGenerating || isAtLimit}
           />
 
@@ -77,7 +83,7 @@ export function PromptInstructionsPanel({
               type="submit"
               size="sm"
               disabled={isSubmitDisabled}
-              className="h-8 w-8 p-0 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+              className="h-8 w-8 p-0 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-comfortable"
             >
               {isGenerating ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -96,11 +102,17 @@ export function PromptInstructionsPanel({
               type="button"
               onClick={() => handleSuggestionClick(suggestion)}
               disabled={isGenerating || disabled || isAtLimit}
-              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full transition-comfortable disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {suggestion}
             </button>
           ))}
+          {typeof remainingGenerations === 'number' && !isAtLimit && (
+            <div className="ml-auto flex items-center gap-1 text-xs text-gray-400 transition-comfortable">
+              <Clock className="w-3 h-3" />
+              <span>{remainingGenerations} left this month</span>
+            </div>
+          )}
         </div>
 
         {isAtLimit && (

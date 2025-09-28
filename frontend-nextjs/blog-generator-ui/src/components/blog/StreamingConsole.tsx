@@ -68,17 +68,17 @@ export function StreamingConsole({
   };
 
   return (
-    <Card className={`p-6 ${className}`}>
-      <div className="space-y-4">
+    <Card className={`p-6 transition-emphasized ${className}`}>
+      <div className="space-y-4 animate-lift-up">
         {/* Console Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-gray-700 transition-comfortable">
           <div className="flex items-center gap-2">
             <Terminal className="w-5 h-5 text-gray-600 dark:text-gray-400" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Real-time Generation Console
             </h3>
             {isGenerating && (
-              <Badge variant="secondary" className="animate-pulse bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+              <Badge variant="secondary" className="animate-glow-pulse bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
                 ● Live
               </Badge>
             )}
@@ -96,7 +96,7 @@ export function StreamingConsole({
               size="sm"
               onClick={copyToClipboard}
               disabled={messages.length === 0}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 transition-comfortable"
               title="Copy to clipboard"
             >
               <Copy className="w-4 h-4" />
@@ -106,7 +106,7 @@ export function StreamingConsole({
               size="sm"
               onClick={downloadLog}
               disabled={messages.length === 0}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 transition-comfortable"
               title="Download log"
             >
               <Download className="w-4 h-4" />
@@ -116,7 +116,7 @@ export function StreamingConsole({
               size="sm"
               onClick={onClearMessages}
               disabled={messages.length === 0 || isGenerating}
-              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950"
+              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950 transition-comfortable"
               title="Clear console"
             >
               <Trash2 className="w-4 h-4" />
@@ -127,7 +127,7 @@ export function StreamingConsole({
         {/* Console Content Area */}
         <div 
           ref={consoleContainerRef}
-          className="bg-gray-900 dark:bg-gray-950 rounded-lg p-4 min-h-[400px] max-h-[500px] overflow-y-auto border-2 border-gray-800 dark:border-gray-700"
+          className="bg-gray-900 dark:bg-gray-950 rounded-lg p-4 min-h-[400px] max-h-[500px] overflow-y-auto border-2 border-gray-800 dark:border-gray-700 transition-comfortable"
         >
           {messages.length === 0 ? (
             <div className="text-gray-500 text-center py-8 space-y-2">
@@ -144,9 +144,10 @@ export function StreamingConsole({
               {messages.map((msg, index) => {
                 const isRecentMessage = index >= messages.length - 10; // Apply typewriter to last 10 messages
                 const shouldTypewrite = isRecentMessage && isGenerating;
+                const rowAnimationClass = isRecentMessage ? 'animate-fade-in' : '';
                 
                 return (
-                  <div key={msg.id} className="flex gap-3 leading-relaxed hover:bg-gray-800 dark:hover:bg-gray-900 px-2 py-1 rounded transition-colors">
+                  <div key={msg.id} className={`flex gap-3 leading-relaxed hover:bg-gray-800 dark:hover:bg-gray-900 px-2 py-1 rounded transition-comfortable ${rowAnimationClass}`}>
                     {/* Timestamp */}
                     <span className="text-gray-500 text-xs min-w-[65px] mt-0.5 font-normal">
                       {formatTimestamp(msg.timestamp)}

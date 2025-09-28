@@ -3,7 +3,6 @@
 import { useMemo } from 'react';
 import {
   useGenerationStore,
-  type GenerationState,
   type GenerationStateActions,
 } from '@/store/useGenerationStore';
 
@@ -46,7 +45,7 @@ export function useGenerationStateManager() {
       isGenerating,
       selectedBlog,
       showDeleteDialog,
-  showBlogModal,
+      showBlogModal,
       taskLogs,
     ]
   );

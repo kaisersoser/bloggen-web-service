@@ -23,6 +23,13 @@
   --input: 214.3 31.8% 91.4%;
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
+  --motion-duration-min: 120ms;
+  --motion-duration-short: 180ms;
+  --motion-duration-medium: 260ms;
+  --motion-duration-long: 420ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0.0, 0.38, 0.9);
+  --motion-ease-emphasized: cubic-bezier(0.2, 0.0, 0, 1);
+  --glow-color: 200 98% 48%;
 }
 
 .dark {
@@ -45,6 +52,7 @@
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 212.7 26.8% 83.9%;
+  --glow-color: 210 94% 76%;
 }
 
 @layer base {
@@ -302,4 +310,89 @@
 
 .animate-fade-in {
   animation: fade-in 0.3s ease-out forwards;
+}
+
+@keyframes soft-pop {
+  0% {
+    transform: scale(0.96) translateY(6px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.02) translateY(-2px);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes lift-up {
+  0% {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  70% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes glow-pulse {
+  0% {
+    box-shadow: 0 0 0 0 hsla(var(--glow-color) / 0.28);
+  }
+  50% {
+    box-shadow: 0 0 0 12px hsla(var(--glow-color) / 0.05);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsla(var(--glow-color) / 0.0);
+  }
+}
+
+@layer utilities {
+  .transition-comfortable {
+    transition: all var(--motion-duration-medium) var(--motion-ease-standard);
+  }
+
+  .transition-emphasized {
+    transition: all var(--motion-duration-long) var(--motion-ease-emphasized);
+  }
+
+  .animate-soft-pop {
+    animation: soft-pop var(--motion-duration-long) var(--motion-ease-emphasized) forwards;
+  }
+
+  .animate-lift-up {
+    animation: lift-up var(--motion-duration-long) var(--motion-ease-standard) forwards;
+  }
+
+  .animate-glow-pulse {
+    animation: glow-pulse 2.8s var(--motion-ease-standard) infinite;
+  }
+
+  .surface-elevated {
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  }
+
+  .surface-elevated:hover {
+    box-shadow: 0 24px 55px rgba(15, 23, 42, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transition-comfortable,
+  .transition-emphasized,
+  .animate-soft-pop,
+  .animate-lift-up,
+  .animate-glow-pulse,
+  .animate-fade-in {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }

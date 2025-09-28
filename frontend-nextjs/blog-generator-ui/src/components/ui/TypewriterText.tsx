@@ -15,7 +15,6 @@ export function TypewriterText({
   onComplete 
 }: TypewriterTextProps) {
   const [displayedText, setDisplayedText] = useState('');
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
   const indexRef = useRef(0);
 
@@ -43,8 +42,7 @@ export function TypewriterText({
       if (projectedAdvance >= 1) {
         const charactersToAdvance = Math.floor(projectedAdvance);
         accumulator -= charactersToAdvance / charsPerMillisecond;
-        indexRef.current = Math.min(indexRef.current + charactersToAdvance, text.length);
-        setCurrentIndex(indexRef.current);
+  indexRef.current = Math.min(indexRef.current + charactersToAdvance, text.length);
         setDisplayedText(text.slice(0, indexRef.current));
 
         if (indexRef.current >= text.length) {
@@ -69,7 +67,6 @@ export function TypewriterText({
   // Reset when text changes
   useEffect(() => {
     setDisplayedText('');
-    setCurrentIndex(0);
     setIsComplete(false);
     indexRef.current = 0;
   }, [text]);

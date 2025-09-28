@@ -66,7 +66,7 @@ export function ConsoleTabPanel({
           updatedAt={connectionStatus.updatedAt ?? undefined}
         />
       )}
-      <Card className="p-6">
+      <Card className="p-6 transition-emphasized surface-elevated animate-soft-pop">
         <StreamingConsole
           messages={messages}
           isGenerating={isGenerating}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FormEvent, KeyboardEvent, useEffect, useState } from "react";
+import React, { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ConsoleTabPanel } from "@/components/blog/tabbed/ConsoleTabPanel";
@@ -44,6 +44,11 @@ export const TabbedPromptInterface = ({
   const [activeTab, setActiveTab] = useState("instructions");
   const [isFocused, setIsFocused] = useState(false);
   const [isDraftModalOpen, setIsDraftModalOpen] = useState(false);
+
+  const containerClasses = useMemo(
+    () => `w-full max-w-4xl mx-auto space-y-6 ${className}`.trim(),
+    [className]
+  );
 
   const {
     messages,
@@ -110,7 +115,7 @@ export const TabbedPromptInterface = ({
     userRole !== "ADMIN";
 
   return (
-    <div className={`w-full max-w-4xl mx-auto ${className}`}>
+    <div className={containerClasses}>
       <TabbedPromptHeader
         remainingGenerations={remainingGenerations}
         userRole={userRole}
@@ -126,24 +131,24 @@ export const TabbedPromptInterface = ({
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-2 rounded-xl bg-gradient-to-r from-slate-900/5 via-white to-slate-900/5 dark:from-slate-500/10 dark:via-slate-900 dark:to-slate-500/10 p-1 shadow-sm transition-comfortable">
           <TabsTrigger
             value="instructions"
-            className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-gray-900"
+            className="group flex items-center gap-2 rounded-lg transition-comfortable focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800/80"
           >
             <FileText className="h-4 w-4" />
             Instructions
           </TabsTrigger>
           <TabsTrigger
             value="console"
-            className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-gray-900"
+            className="group flex items-center gap-2 rounded-lg transition-comfortable focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800/80"
           >
             <Terminal className="h-4 w-4" />
             Console
             {messages.length > 0 && (
               <Badge
                 variant="secondary"
-                className="ml-1 text-xs bg-blue-100 text-blue-800"
+                className="ml-1 text-xs bg-blue-100 text-blue-800 animate-soft-pop"
               >
                 {messages.length}
               </Badge>
@@ -151,7 +156,7 @@ export const TabbedPromptInterface = ({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="instructions" className="space-y-4">
+        <TabsContent value="instructions" className="space-y-4 animate-lift-up">
           <PromptInstructionsPanel
             prompt={prompt}
             onPromptChange={handlePromptChange}
@@ -167,7 +172,7 @@ export const TabbedPromptInterface = ({
           />
         </TabsContent>
 
-        <TabsContent value="console" className="space-y-4">
+        <TabsContent value="console" className="space-y-4 animate-lift-up">
           <ConsoleTabPanel
             messages={messages}
             isGenerating={isGenerating}

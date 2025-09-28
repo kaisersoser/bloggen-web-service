@@ -88,6 +88,12 @@ export function useGenerationLifecycle({
       resetActiveConnection();
     }
 
+    try {
+      await blogService.updateBlogCompletion(taskId, 'completed', content, undefined, heroImageUrl);
+    } catch (error) {
+      logger.error('Failed to persist completion state', error);
+    }
+
     const matchingJob = jobs.find((job) => job.id === taskId);
     if (matchingJob) {
       const blogData: BlogData = {
