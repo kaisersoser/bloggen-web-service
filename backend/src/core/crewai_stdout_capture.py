@@ -198,14 +198,22 @@ class LoggingCapture(logging.Handler):
     def __init__(self, parser: CrewAIOutputParser):
         super().__init__()
         self.parser = parser
+        self._in_handler = False  # Re-entrancy guard to prevent infinite recursion
         
     def emit(self, record: logging.LogRecord) -> None:
         """Process logging records and parse them for image events"""
+        # CRITICAL FIX: Prevent recursion when status updates trigger logging
+        if self._in_handler:
+            return
+        
+        self._in_handler = True
         try:
             message = self.format(record)
             self.parser.parse_line(message)
         except Exception:
             pass  # Silently ignore logging capture errors
+        finally:
+            self._in_handler = False
 
 
 class EnhancedOutputCapture:
@@ -219,17 +227,23 @@ class EnhancedOutputCapture:
         self._stop_capture = threading.Event()
         self.logging_handler = LoggingCapture(parser)
         self.original_loggers = []
+        self._lock = threading.Lock()  # Thread safety for stdout access
+        self._thread_id = None  # Track which thread owns this capture
     
     def __enter__(self):
-        # Capture stdout
-        self.original_stdout = sys.stdout
-        sys.stdout = self
+        self._thread_id = threading.get_ident()
         
-        # Capture logging from image tools
+        # Capture stdout (thread-safe)
+        with self._lock:
+            self.original_stdout = sys.stdout
+            sys.stdout = self
+        
+        # CRITICAL FIX: Capture only specific tool loggers, NOT root logger
+        # This prevents infinite recursion when status updates trigger logging
         tool_loggers = [
             'bloggen.tools.unsplash_tool',
             'bloggen.tools.openai_image_tool',
-            'root'  # Fallback for any other logging
+            'crewai',  # CrewAI namespace only, not root
         ]
         
         for logger_name in tool_loggers:
@@ -240,25 +254,44 @@ class EnhancedOutputCapture:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Restore stdout
-        sys.stdout = self.original_stdout
+        # Restore stdout (thread-safe)
+        with self._lock:
+            if self.original_stdout is not None:
+                sys.stdout = self.original_stdout
+                self.original_stdout = None
+        
         self._stop_capture.set()
         
         # Remove logging handlers
         for tool_logger in self.original_loggers:
-            tool_logger.removeHandler(self.logging_handler)
+            try:
+                tool_logger.removeHandler(self.logging_handler)
+            except:
+                pass  # Handler may have already been removed
     
     def write(self, text: str) -> int:
-        """Intercept stdout writes and parse them"""
+        """Intercept stdout writes and parse them (thread-safe)"""
         # Write to original stdout for normal logging
-        if self.original_stdout:
-            self.original_stdout.write(text)
-            self.original_stdout.flush()
+        original = None
+        with self._lock:
+            original = self.original_stdout
+        
+        if original:
+            try:
+                original.write(text)
+                original.flush()
+            except:
+                pass  # Ignore write errors during shutdown
         
         # Parse each line for CrewAI events
         for line in text.split('\n'):
             if line.strip():
-                self.parser.parse_line(line)
+                try:
+                    self.parser.parse_line(line)
+                except:
+                    pass  # Ignore parsing errors
+        
+        return len(text)
         
         return len(text)
     
