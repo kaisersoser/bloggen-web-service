@@ -1,71 +1,53 @@
 """
 Database Connection Manager for Audit Tracking
 
-Handles PostgreSQL connection pooling and basic database operations.
-Follows Single Responsibility Principle - only manages database connectivity.
+DEPRECATED: This module is now a thin wrapper around the centralized DatabaseService.
+Use `from core.database_service import database_service` directly instead.
+
+Migration: Phase 3.1 - Unified Database Service
 """
 
 import asyncpg
-import os
 import logging
 from typing import Optional
+from core.database_service import database_service
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseConnectionManager:
-    """Manages PostgreSQL connection pools for audit tracking."""
+    """
+    DEPRECATED: Wrapper around centralized DatabaseService.
+    
+    This class now delegates to the shared database_service instance.
+    Direct usage of database_service is preferred for new code.
+    """
 
     def __init__(self):
-        self.pool: Optional[asyncpg.Pool] = None
-        self.database_enabled = False
+        self.database_enabled = database_service.is_initialized()
 
     async def get_connection_pool(self) -> Optional[asyncpg.Pool]:
-        """Get or create database connection pool."""
-        if self.pool:
-            return self.pool
-
-        return await self._create_connection_pool()
-
-    async def _create_connection_pool(self) -> Optional[asyncpg.Pool]:
-        """Create new database connection pool."""
+        """Get the centralized connection pool."""
         try:
-            database_url = os.getenv("DATABASE_URL")
-            if not database_url:
-                logger.warning("No DATABASE_URL found - database audit disabled")
-                return None
-
-            self.pool = await asyncpg.create_pool(
-                database_url,
-                min_size=0,  # No minimum connections
-                max_size=1,  # Single connection for pgbouncer
-                command_timeout=30,
-                max_inactive_connection_lifetime=60,
-                statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
-                server_settings={"application_name": "bloggen_database_manager"},
-            )
-
-            # Test connection
-            async with self.pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-
-            self.database_enabled = True
-            logger.info("✅ Database connection established")
-            return self.pool
-
-        except Exception as e:
-            logger.error(f"❌ Database connection failed: {e}")
-            self.database_enabled = False
+            return await database_service.ensure_pool()
+        except RuntimeError:
+            logger.warning("DatabaseService not initialized - database audit disabled")
             return None
 
+    async def _create_connection_pool(self) -> Optional[asyncpg.Pool]:
+        """DEPRECATED: Connection pool is now managed centrally."""
+        return await self.get_connection_pool()
+
+    @property
+    def pool(self) -> Optional[asyncpg.Pool]:
+        """Access the centralized pool (synchronous property)."""
+        if database_service.is_initialized():
+            return database_service._pool
+        return None
+
     async def close(self):
-        """Close database connection pool."""
-        if self.pool:
-            try:
-                await self.pool.close()
-                logger.info("📥 Database connection pool closed")
-            except Exception as e:
-                logger.error(f"❌ Error closing database pool: {e}")
+        """DEPRECATED: Pool lifecycle managed by FastAPI lifespan."""
+        logger.debug("DatabaseConnectionManager.close() called - pool managed centrally")
 
     async def ensure_tables_exist(self, conn):
         """Ensure required audit tables exist."""

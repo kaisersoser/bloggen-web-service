@@ -151,9 +151,12 @@ class RedisSubscriber:
 
 class RedisManager:
     """
-    Manages Redis connections and pub/sub for real-time task updates.
+    Manages Redis connections and pub/sub for real-time task updates with resilience.
 
-    This replaces database polling with instant Redis notifications.
+    Phase 3.4 Enhancement: Added exponential backoff retry, graceful degradation,
+    memory monitoring, and enhanced TTL management.
+    
+    Source: OpenAI GPT-5 Codex + Claude Sonnet 4.5 recommendations
     """
 
     def __init__(self, redis_url: str = "redis://localhost:6379"):
@@ -161,26 +164,80 @@ class RedisManager:
         self.redis_client: Optional[aioredis.Redis] = None
         self.subscribers: Dict[str, RedisSubscriber] = {}
         self.connection_pool = None
+        self._is_connected = False
+        self._reconnect_attempts = 0
+        self._max_reconnect_attempts = 5
+        self._graceful_degradation = True  # Continue without Redis if it fails
 
     async def connect(self):
-        """Establish Redis connection"""
-        try:
-            self.connection_pool = aioredis.ConnectionPool.from_url(
-                self.redis_url,
-                max_connections=50,  # Increased from 20 to handle SSE connections
-                retry_on_timeout=True,
-                socket_timeout=5,  # 5 second socket timeout
-                socket_connect_timeout=5,  # 5 second connect timeout
-            )
-            self.redis_client = aioredis.Redis(connection_pool=self.connection_pool)
+        """
+        Establish Redis connection with exponential backoff retry.
+        
+        Phase 3.4: Enhanced with retry logic and graceful degradation.
+        """
+        return await self._connect_with_backoff()
 
-            # Test the connection
-            await self.redis_client.ping()
-            logger.info("✅ Redis connection established")
+    async def _connect_with_backoff(self) -> bool:
+        """
+        Connect to Redis with exponential backoff retry.
+        
+        Source: OpenAI GPT-5 Codex recommendation
+        Returns: True if connected, False if all retries exhausted
+        """
+        for attempt in range(self._max_reconnect_attempts):
+            try:
+                self.connection_pool = aioredis.ConnectionPool.from_url(
+                    self.redis_url,
+                    max_connections=50,  # Handle SSE connections
+                    retry_on_timeout=True,
+                    socket_timeout=5,
+                    socket_connect_timeout=5,
+                    retry_on_error=[ConnectionError, TimeoutError],  # Auto-retry on errors
+                )
+                self.redis_client = aioredis.Redis(
+                    connection_pool=self.connection_pool,
+                    decode_responses=False  # Handle binary data
+                )
 
-        except Exception as e:
-            logger.error(f"❌ Failed to connect to Redis: {e}")
-            raise
+                # Test the connection
+                await asyncio.wait_for(self.redis_client.ping(), timeout=5.0)
+                
+                self._is_connected = True
+                self._reconnect_attempts = 0
+                logger.info(f"✅ Redis connection established (attempt {attempt + 1})")
+                return True
+
+            except (ConnectionError, TimeoutError, asyncio.TimeoutError) as e:
+                self._reconnect_attempts = attempt + 1
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                
+                logger.warning(
+                    f"⚠️ Redis connection attempt {attempt + 1}/{self._max_reconnect_attempts} failed: {e}"
+                )
+                
+                if attempt < self._max_reconnect_attempts - 1:
+                    logger.info(f"⏳ Retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(
+                        f"❌ Redis connection failed after {self._max_reconnect_attempts} attempts"
+                    )
+                    
+                    if self._graceful_degradation:
+                        logger.warning(
+                            "⚠️ Continuing without Redis - falling back to database polling"
+                        )
+                        self._is_connected = False
+                        return False
+                    else:
+                        raise
+            except Exception as e:
+                logger.error(f"❌ Unexpected error connecting to Redis: {e}")
+                if not self._graceful_degradation:
+                    raise
+                return False
+
+        return False
 
     async def disconnect(self):
         """Close Redis connection"""
@@ -204,16 +261,17 @@ class RedisManager:
 
     async def publish_task_update(self, task_update: TaskUpdateMessage):
         """
-        Publish a task update to Redis channels.
+        Publish a task update to Redis channels with graceful degradation.
 
-        Publishes to both task-specific and user-specific channels
-        for maximum flexibility.
+        Phase 3.4: Enhanced with connection checking and graceful error handling.
         """
-        try:
-            if not self.redis_client:
-                logger.error("❌ Redis client not connected")
-                return
+        if not await self.is_healthy():
+            logger.warning(
+                f"⚠️ Redis unavailable, skipping publish for task {task_update.task_id}"
+            )
+            return  # Graceful degradation - don't crash
 
+        try:
             message_data = task_update.to_redis_message()
 
             # Publish to task-specific channel with timeout
@@ -234,23 +292,28 @@ class RedisManager:
 
         except asyncio.TimeoutError:
             logger.error(f"❌ Timeout publishing task update: {task_update.task_id}")
+            # Don't raise - graceful degradation
         except Exception as e:
             logger.error(f"❌ Failed to publish task update: {e}")
+            # Don't raise - graceful degradation
 
     async def publish_immediate_message(
         self, task_id: str, message_data: Dict[str, Any]
     ):
         """
-        Publish immediate SSE message for instant user feedback (Phase 1 Foundation).
+        Publish immediate SSE message for instant user feedback.
 
+        Phase 3.4: Enhanced with graceful degradation and health checking.
         Sends structured SSE messages directly to task channels for real-time updates
         including agent decisions, tool usage, and content streaming.
         """
-        try:
-            if not self.redis_client:
-                logger.error("❌ Redis client not connected for immediate message")
-                return
+        if not await self.is_healthy():
+            logger.warning(
+                f"⚠️ Redis unavailable, skipping immediate message for task {task_id}"
+            )
+            return  # Graceful degradation
 
+        try:
             # REDIS PUBLISHING TRACKING - Detailed message analysis
             import time
 
@@ -461,17 +524,131 @@ class RedisManager:
             logger.error(f"❌ Failed to cache task status: {e}")
 
     async def health_check(self) -> bool:
-        """Check Redis connection health"""
-        try:
-            if not self.redis_client:
-                return False
+        """
+        Check Redis connection health.
+        
+        Phase 3.4: Enhanced with connection state tracking.
+        """
+        return await self.is_healthy()
 
-            await self.redis_client.ping()
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ Redis health check failed: {e}")
+    async def is_healthy(self) -> bool:
+        """
+        Check if Redis is connected and responsive.
+        
+        Returns: True if healthy, False otherwise
+        """
+        if not self._is_connected or not self.redis_client:
             return False
+
+        try:
+            await asyncio.wait_for(self.redis_client.ping(), timeout=2.0)
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Redis health check failed: {e}")
+            self._is_connected = False
+            return False
+
+    async def get_memory_stats(self) -> Dict[str, Any]:
+        """
+        Get Redis memory usage statistics.
+        
+        Phase 3.4: Added memory monitoring (Claude Sonnet 4.5 recommendation)
+        Returns: Memory statistics or empty dict if unavailable
+        """
+        if not await self.is_healthy():
+            return {}
+
+        try:
+            info = await self.redis_client.info('memory')
+            return {
+                'used_memory': info.get('used_memory_human', 'N/A'),
+                'used_memory_rss': info.get('used_memory_rss_human', 'N/A'),
+                'mem_fragmentation_ratio': info.get('mem_fragmentation_ratio', 0.0),
+                'maxmemory': info.get('maxmemory_human', 'No limit'),
+                'maxmemory_policy': info.get('maxmemory_policy', 'noeviction'),
+                'connected_clients': info.get('connected_clients', 0)
+            }
+        except Exception as e:
+            logger.error(f"❌ Failed to get Redis memory stats: {e}")
+            return {}
+
+    async def cleanup_expired_keys(self, pattern: str = "task_status:*") -> int:
+        """
+        Clean up keys without TTL and add default expiration.
+        
+        Phase 3.4: Added TTL management (Claude Sonnet 4.5 recommendation)
+        Returns: Number of keys that had TTL added
+        """
+        if not await self.is_healthy():
+            logger.warning("⚠️ Redis unavailable, skipping cleanup")
+            return 0
+
+        try:
+            keys = await self.redis_client.keys(pattern)
+            expired_count = 0
+            
+            for key in keys:
+                ttl = await self.redis_client.ttl(key)
+                if ttl == -1:  # No expiration set
+                    await self.redis_client.expire(key, 3600)  # Set 1 hour default
+                    expired_count += 1
+            
+            if expired_count > 0:
+                logger.info(f"🧹 Added TTL to {expired_count} keys without expiration")
+            
+            return expired_count
+        except Exception as e:
+            logger.error(f"❌ Cleanup failed: {e}")
+            return 0
+
+    async def publish_with_ttl(
+        self, key: str, channel: str, data: Dict[str, Any], ttl: int = 3600
+    ):
+        """
+        Publish message and store with TTL for reliability.
+        
+        Phase 3.4: Combined publish + persistence (Claude Sonnet 4.5 recommendation)
+        """
+        if not await self.is_healthy():
+            logger.warning(f"⚠️ Redis unavailable, skipping publish_with_ttl for {key}")
+            return
+
+        try:
+            message_json = json.dumps(data)
+            
+            # Store in Redis with TTL
+            await asyncio.wait_for(
+                self.redis_client.setex(key, ttl, message_json), 
+                timeout=3.0
+            )
+            
+            # Also publish to channel
+            await asyncio.wait_for(
+                self.redis_client.publish(channel, message_json),
+                timeout=3.0
+            )
+            
+            logger.debug(f"📡 Published with TTL: {key} (expires in {ttl}s)")
+        except asyncio.TimeoutError:
+            logger.error(f"❌ Timeout publishing with TTL: {key}")
+        except Exception as e:
+            logger.error(f"❌ Failed to publish with TTL: {e}")
+
+    async def get_connection_info(self) -> Dict[str, Any]:
+        """
+        Get connection status and statistics.
+        
+        Phase 3.4: Added for monitoring and debugging
+        """
+        return {
+            'connected': self._is_connected,
+            'redis_url': self.redis_url,
+            'reconnect_attempts': self._reconnect_attempts,
+            'max_reconnect_attempts': self._max_reconnect_attempts,
+            'graceful_degradation': self._graceful_degradation,
+            'active_subscribers': len(self.subscribers),
+            'health': await self.is_healthy()
+        }
 
 
 # Global Redis manager instance

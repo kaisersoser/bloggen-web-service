@@ -18,6 +18,7 @@ import asyncio
 import gc
 import json
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -53,6 +54,7 @@ from core.error_responses import (
 from core.logging_utils import setup_api_logger
 from core.llm_interceptor import setup_llm_interceptor
 from core.message_buffer import RedisMessageBuffer
+from core.monitoring_service import monitoring_service, monitor_performance
 from core.redis_manager import redis_manager
 from core.resource_cleanup import (
     CleanupReason,
@@ -60,6 +62,7 @@ from core.resource_cleanup import (
     register_database_transaction,
 )
 from core.s3_cleanup_queue import cleanup_queue_shutdown, get_cleanup_queue
+from core.sse_handler import SSEHandler
 from core.sse_message_types import (
     create_completed_message,
     create_error_message,
@@ -269,6 +272,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Metrics tracking middleware
+@app.middleware("http")
+async def metrics_middleware(request, call_next):
+    """Track request metrics for monitoring."""
+    start_time = time.time()
+    
+    # Process request
+    response = await call_next(request)
+    
+    # Record metrics
+    duration = time.time() - start_time
+    endpoint = request.url.path
+    
+    # Don't track metrics for metrics endpoints (avoid recursion)
+    if not endpoint.startswith("/metrics") and not endpoint.startswith("/health"):
+        monitoring_service.record_request(endpoint, response.status_code, duration)
+    
+    # Add response time header
+    response.headers["X-Response-Time"] = f"{duration:.3f}s"
+    
+    return response
+
 # Global message buffer for early message capture
 message_buffer: Optional[RedisMessageBuffer] = None
 
@@ -467,16 +493,182 @@ async def get_current_user_from_query_token(token: str) -> User:
 # =============================================================================
 
 
+# =============================================================================
+# Health Check & Monitoring Endpoints
+# =============================================================================
+
+
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    import time
-
-    return {
-        "status": "healthy",
+    """
+    Comprehensive health check endpoint.
+    
+    Returns detailed status for all services:
+    - Database (connection pool, query test)
+    - Redis (pub/sub, memory stats)
+    - SSE (streaming capability)
+    - System (CPU, memory, disk)
+    
+    Returns:
+        200: All systems healthy
+        503: One or more systems degraded
+    """
+    health_results = await monitoring_service.check_health()
+    
+    # Determine overall status
+    all_healthy = all(result.healthy for result in health_results.values())
+    status_code = 200 if all_healthy else 503
+    
+    response = {
+        "status": "healthy" if all_healthy else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
-        "epoch": int(time.time()),
+        "services": {
+            service: {
+                "healthy": result.healthy,
+                "response_time_ms": result.response_time_ms,
+                "details": result.details,
+                "error": result.error
+            }
+            for service, result in health_results.items()
+        }
     }
+    
+    return response
+
+
+@app.get("/health/database")
+async def health_check_database():
+    """Database-specific health check."""
+    result = await monitoring_service._check_database_health()
+    
+    return {
+        "service": "database",
+        "healthy": result.healthy,
+        "response_time_ms": result.response_time_ms,
+        "details": result.details,
+        "error": result.error,
+        "timestamp": result.timestamp.isoformat()
+    }
+
+
+@app.get("/health/redis")
+async def health_check_redis():
+    """Redis-specific health check."""
+    result = await monitoring_service._check_redis_health()
+    
+    return {
+        "service": "redis",
+        "healthy": result.healthy,
+        "response_time_ms": result.response_time_ms,
+        "details": result.details,
+        "error": result.error,
+        "timestamp": result.timestamp.isoformat()
+    }
+
+
+@app.get("/health/sse")
+async def health_check_sse():
+    """SSE streaming health check."""
+    result = await monitoring_service._check_sse_health()
+    
+    return {
+        "service": "sse",
+        "healthy": result.healthy,
+        "response_time_ms": result.response_time_ms,
+        "details": result.details,
+        "error": result.error,
+        "timestamp": result.timestamp.isoformat()
+    }
+
+
+@app.get("/health/system")
+async def health_check_system():
+    """System resources health check."""
+    result = monitoring_service._check_system_health()
+    
+    return {
+        "service": "system",
+        "healthy": result.healthy,
+        "response_time_ms": result.response_time_ms,
+        "details": result.details,
+        "error": result.error,
+        "timestamp": result.timestamp.isoformat()
+    }
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """
+    Get comprehensive application metrics.
+    
+    Returns:
+    - Request counts (total, success, errors)
+    - Response times (avg, per endpoint)
+    - Performance metrics (operation timings)
+    - System resources (CPU, memory, disk)
+    - Error rates
+    """
+    return await monitoring_service.get_full_status()
+
+
+@app.get("/metrics/summary")
+async def get_metrics_summary():
+    """Get quick metrics summary without full health checks."""
+    return monitoring_service.get_summary()
+
+
+@app.get("/metrics/performance")
+async def get_performance_metrics():
+    """Get performance metrics for all monitored operations."""
+    metrics = monitoring_service.get_performance_metrics()
+    
+    return {
+        "operations": {
+            name: {
+                "execution_count": metric.execution_count,
+                "avg_duration": metric.avg_duration,
+                "min_duration": metric.min_duration,
+                "max_duration": metric.max_duration,
+                "total_duration": metric.total_duration,
+                "last_execution": metric.last_execution.isoformat() if metric.last_execution else None
+            }
+            for name, metric in metrics.items()
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/metrics/system")
+async def get_system_metrics():
+    """Get current system resource metrics."""
+    current = monitoring_service.collect_system_metrics()
+    history = monitoring_service.get_system_metrics_history(minutes=10)
+    
+    return {
+        "current": {
+            "cpu_percent": current.cpu_percent,
+            "memory_percent": current.memory_percent,
+            "memory_used_mb": current.memory_used_mb,
+            "memory_available_mb": current.memory_available_mb,
+            "disk_usage_percent": current.disk_usage_percent,
+            "open_connections": current.open_connections,
+            "thread_count": current.thread_count,
+            "timestamp": current.timestamp.isoformat()
+        },
+        "history": [
+            {
+                "cpu_percent": m.cpu_percent,
+                "memory_percent": m.memory_percent,
+                "timestamp": m.timestamp.isoformat()
+            }
+            for m in history
+        ]
+    }
+
+
+# =============================================================================
+# Task Management Endpoints
+# =============================================================================
 
 
 @app.post("/generate-task-id")
@@ -767,500 +959,57 @@ async def get_task_status(
 
 @app.get("/stream/{task_id}")
 async def stream_task(task_id: str, token: str):
-    """SSE stream for a specific task with Redis pub/sub support."""
+    """
+    SSE stream for a specific task with Redis pub/sub support.
+    
+    Phase 3.3: Refactored to use dedicated SSEHandler service for maintainability.
+    Reduced from 511 lines to ~50 lines by extracting streaming logic.
+    """
     # Authenticate via query token
     user = await get_current_user_from_query_token(token)
-
-    # SOLUTION 1 & 2: Support pre-generated task IDs with message buffering
-    # Check if this is a pre-generated task ID with active message buffering
-    buffer_exists = False
-    if message_buffer:
-        buffer_exists = await message_buffer._check_buffer_exists(task_id)
-
-    # Handle race condition: task might not exist yet if SSE connection is made immediately after creation
+    
+    # Check user permissions for existing tasks
     task = await task_manager.get_task(task_id)
-    retry_count = 0
-    max_retries = 5
-
-    # For pre-generated task IDs, allow SSE connection even if task doesn't exist yet
-    while not task and not buffer_exists and retry_count < max_retries:
-        logger.info(
-            f"Task {task_id} not found, retrying in 0.5s (attempt {retry_count + 1}/{max_retries})"
-        )
-        await asyncio.sleep(0.5)
-        task = await task_manager.get_task(task_id)
-        # Also check for buffer existence on each retry
-        if message_buffer:
-            buffer_exists = await message_buffer._check_buffer_exists(task_id)
-        retry_count += 1
-
-    # Allow connection if either task exists OR buffer exists (pre-generated task ID)
-    if not task and not buffer_exists:
-        raise HTTPException(
-            status_code=404, detail="Task not found and no buffer exists"
-        )
-
-    # For existing tasks, check user permissions
     if task and task["user_id"] != user.id and user.role != "ADMIN":
         raise HTTPException(status_code=403, detail="Access denied")
-
+    
+    # Initialize SSE handler with dependencies
+    sse_handler = SSEHandler(
+        redis_manager=redis_manager if redis_manager else None,
+        task_manager=task_manager,
+        message_buffer=message_buffer if message_buffer else None,
+        heartbeat_interval=15,  # seconds
+        timeout_seconds=420,  # 7 minutes for complex blog generation
+    )
+    
     async def event_generator():
-        last_sent_status = None
-        last_sent_step = None
-        last_sent_progress = None
-        last_sent_hero = None
-        sent_initialization = False
-        redis_pubsub = None
-
+        """
+        Generator function for SSE events.
+        Delegates to SSEHandler for all streaming logic.
+        """
         try:
-            # Immediately send connection acknowledgment
-            connection_message = {
-                "type": "connected",
-                "message_type": "connected",
-                "task_id": task_id,
-                "message": "SSE connection established",
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-            yield f"data: {json.dumps(connection_message)}\n\n"
-
-            # Try to set up Redis pub/sub subscription
-            redis_pubsub = None
-            if (
-                task_manager._redis_manager
-                and hasattr(task_manager._redis_manager, "redis_client")
-                and task_manager._redis_manager.redis_client
+            # Stream events from SSEHandler with proper error handling
+            async for event in sse_handler.stream_events(
+                task_id=task_id,
+                user_id=user.id,
+                retry_count=5,
             ):
-                try:
-                    redis_pubsub = task_manager._redis_manager.redis_client.pubsub()
-
-                    # Subscribe to BOTH channels for complete message coverage
-                    task_updates_channel = f"task_updates:{task_id}"
-                    sse_immediate_channel = f"sse_immediate:{task_id}"
-
-                    # Set timeout for Redis operations
-                    await asyncio.wait_for(
-                        redis_pubsub.subscribe(task_updates_channel), timeout=5.0
-                    )
-                    await asyncio.wait_for(
-                        redis_pubsub.subscribe(sse_immediate_channel), timeout=5.0
-                    )
-                    logger.info(
-                        f"📡 SSE subscribed to Redis channels: {task_updates_channel}, {sse_immediate_channel}"
-                    )
-
-                    # SOLUTION 2: Wait for flow to start before flushing buffer
-                    if message_buffer:
-                        try:
-                            # Wait for flow to start (with timeout) before flushing buffer
-                            flow_started = False
-                            timeout_seconds = 5.0
-                            check_interval = 0.2
-                            elapsed = 0.0
-
-                            logger.info(
-                                "⏳ Waiting for CrewAI flow to start before flushing buffer..."
-                            )
-                            while not flow_started and elapsed < timeout_seconds:
-                                # Check if flow has started by looking for flow status marker
-                                flow_status_key = f"flow_status:{task_id}"
-                                redis_manager = task_manager._redis_manager
-                                if redis_manager and redis_manager.redis_client:
-                                    flow_status = await redis_manager.redis_client.get(
-                                        flow_status_key
-                                    )
-                                    if flow_status == "started":
-                                        flow_started = True
-                                        logger.info(
-                                            "✅ Flow started, flushing buffer now..."
-                                        )
-                                        break
-
-                                await asyncio.sleep(check_interval)
-                                elapsed += check_interval
-
-                            if not flow_started:
-                                logger.info(
-                                    "⏰ Timeout waiting for flow start, flushing buffer anyway..."
-                                )
-
-                            # Flush buffer now that flow has started (or timeout reached)
-                            buffered_messages = (
-                                await message_buffer.flush_buffered_messages(task_id)
-                            )
-                            if buffered_messages:
-                                logger.info(
-                                    f"📤 Replaying {len(buffered_messages)} buffered messages for task {task_id}"
-                                )
-                                for buffered_msg in buffered_messages:
-                                    # Send each buffered message to the SSE stream
-                                    replay_data = buffered_msg.message_data.copy()
-                                    replay_data["replayed"] = True
-                                    replay_data["buffer_timestamp"] = (
-                                        buffered_msg.timestamp
-                                    )
-                                    yield f"data: {json.dumps(replay_data)}\n\n"
-                                    logger.info(
-                                        f"📤 Replayed {buffered_msg.message_type} message (buffered at {buffered_msg.timestamp})"
-                                    )
-                            else:
-                                logger.info(
-                                    f"📦 No buffered messages found for task {task_id}"
-                                )
-                        except Exception as buffer_err:
-                            logger.error(
-                                f"❌ Failed to flush buffered messages for task {task_id}: {buffer_err}"
-                            )
-
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"Redis subscription timeout for task {task_id}, falling back to database polling"
-                    )
-                    if redis_pubsub:
-                        try:
-                            await redis_pubsub.close()
-                        except Exception as close_error:
-                            logger.error(
-                                f"Error closing failed Redis pubsub: {close_error}"
-                            )
-                    redis_pubsub = None
-                except Exception as e:
-                    logger.warning(
-                        f"Redis subscription failed, falling back to database polling: {e}"
-                    )
-                    if redis_pubsub:
-                        try:
-                            await redis_pubsub.close()
-                        except Exception as close_error:
-                            logger.error(
-                                f"Error closing failed Redis pubsub: {close_error}"
-                            )
-                    redis_pubsub = None
-
-            # Send initial task state
-            current_task = await task_manager.get_task(task_id)
-            if not current_task:
-                logger.error(f"Task {task_id} not found for SSE stream")
-                return
-
-            # Helper function to send task updates
-            def send_update(task_data):
-                nonlocal last_sent_status, last_sent_step, last_sent_progress, last_sent_hero, sent_initialization
-
-                status = task_data.get("status", "").lower()
-                step = task_data.get("current_step")
-                # Ensure progress is a number (handle both string and number from Redis)
-                progress_raw = task_data.get("progress", 0)
-                progress = float(progress_raw) if progress_raw is not None else 0
-                hero_url = task_data.get("hero_image_url")
-
-                # Debug logging for SSE progress values
-                logger.info(
-                    f"📡 SSE {task_id}: Sending progress {progress}% (raw: {progress_raw}, step: {step})"
-                )
-
-                # Send initialization message once when task starts
-                if not sent_initialization and status in ["started", "in_progress"]:
-                    sent_initialization = True  # Mark initialization as sent
-                    init_message = create_initializing_message(
-                        task_id=task_id,
-                        phase="Blog Generation",
-                        message="Initializing AI blog generation workflow...",
-                        progress=0.0,
-                    )
-                    return f"data: {json.dumps(init_message.to_dict())}\n\n"
-
-                # Create appropriate message type based on status
-                if status == "completed":
-                    final_content = task_data.get("content")
-                    generation_time = task_data.get("generation_time")
-                    message = create_completed_message(
-                        task_id=task_id,
-                        final_content=final_content,
-                        generation_time=generation_time,
-                    )
-                elif status == "failed":
-                    error_details = task_data.get("error", "Unknown error occurred")
-                    message = create_error_message(
-                        task_id=task_id, error_msg=error_details, recoverable=False
-                    )
-                else:
-                    # Regular status update
-                    message = create_status_message(
-                        task_id=task_id,
-                        status=status,
-                        message=task_data.get("message", f"Status: {status}"),
-                        step=step,
-                        progress=progress,
-                    )
-
-                # Add hero image information if available
-                payload = message.to_dict()
-                if hero_url:
-                    payload["hero_image_url"] = hero_url
-
-                # Update tracking variables
-                last_sent_status = status
-                last_sent_step = step
-                last_sent_progress = progress
-                last_sent_hero = hero_url
-
-                return f"data: {json.dumps(payload)}\n\n"
-
-            # Send current task status immediately
-            update = send_update(current_task)
-            if update:
-                yield update
-
-            # Main update loop - Redis if available, otherwise database polling
-            if redis_pubsub:
-                logger.info("📡 Using Redis pub/sub for real-time updates")
-                # Redis listening loop with reasonable timeout for complex blog generation
-                keepalive_counter = 0
-                timeout_seconds = (
-                    420  # 7 minutes - reasonable for complex blogs with fact-checking
-                )
-                start_time = datetime.utcnow()
-                logger.info(
-                    f"🕐 Redis listener started with {timeout_seconds}s timeout for task {task_id}"
-                )
-
-                async for message in redis_pubsub.listen():
-                    # Check timeout with better logging
-                    elapsed_seconds = (datetime.utcnow() - start_time).total_seconds()
-                    if elapsed_seconds > timeout_seconds:
-                        logger.warning(
-                            f"⏰ Redis listener timeout for task {task_id} after {elapsed_seconds:.1f}s (limit: {timeout_seconds}s)"
-                        )
-                        break
-
-                    if message["type"] == "message":
-                        try:
-                            # Parse Redis message
-                            redis_data = json.loads(message["data"].decode("utf-8"))
-                            message_type = redis_data.get(
-                                "message_type", redis_data.get("type", "unknown")
-                            )
-                            logger.info(
-                                f"📨 Redis update for {task_id}: {message_type} (elapsed: {elapsed_seconds:.1f}s)"
-                            )
-
-                            # CRITICAL FIX: Handle ALL message types from Redis, not just completion/error
-                            # Forward Redis messages directly to frontend SSE with minimal processing
-
-                            if message_type == "completed":
-                                # Handle completion messages with special processing
-                                logger.info("🔍 RAW REDIS COMPLETION MESSAGE:")
-                                logger.info(
-                                    f"   redis_data keys: {list(redis_data.keys())}"
-                                )
-                                logger.info(
-                                    f"   final_content: {redis_data.get('final_content', 'MISSING')[:100] if redis_data.get('final_content') else 'EMPTY'}"
-                                )
-                                logger.info(
-                                    f"   content: {redis_data.get('content', 'MISSING')[:100] if redis_data.get('content') else 'EMPTY'}"
-                                )
-
-                                # Use the Redis message content directly - no database query needed
-                                final_content = redis_data.get("final_content", "")
-                                hero_image_url = redis_data.get("hero_image_url")
-
-                                logger.info(
-                                    f"🔍 EXTRACTED CONTENT LENGTH: {len(final_content)}"
-                                )
-
-                                # Create completion message with Redis data
-                                completion_task_data = {
-                                    "status": "completed",
-                                    "current_step": "Blog generation completed successfully!",
-                                    "progress": 100,
-                                    "message": f"Blog generation completed ({len(final_content)} words)",
-                                    "task_id": task_id,
-                                    "content": final_content,
-                                    "hero_image_url": hero_image_url,
-                                }
-
-                                # Send the completion message immediately
-                                final_update = send_update(completion_task_data)
-                                if final_update:
-                                    logger.info(
-                                        f"🔍 EXACT SSE COMPLETION MESSAGE: {final_update[:500]}..."
-                                    )
-                                    yield final_update
-                                logger.info(
-                                    f"✅ Sent completion with content ({len(final_content)} chars) for {task_id}"
-                                )
-
-                                # Add a small delay to ensure frontend receives the completion message
-                                logger.info(
-                                    f"⏳ Waiting 5 seconds for completion message delivery for {task_id}"
-                                )
-                                await asyncio.sleep(5)
-                                logger.info(
-                                    f"✅ Completion message delivery delay completed for {task_id}"
-                                )
-                                break
-
-                            elif message_type == "error":
-                                # Handle error completion
-                                error_task_data = {
-                                    "status": "failed",
-                                    "current_step": "Generation failed",
-                                    "progress": 0,
-                                    "message": redis_data.get(
-                                        "error_msg", "Unknown error"
-                                    ),
-                                    "task_id": task_id,
-                                    "error": redis_data.get(
-                                        "error_msg", "Unknown error"
-                                    ),
-                                }
-
-                                final_update = send_update(error_task_data)
-                                if final_update:
-                                    yield final_update
-
-                                logger.info(
-                                    f"⏳ Waiting 5 seconds for error message delivery for {task_id}"
-                                )
-                                await asyncio.sleep(5)
-                                logger.info(
-                                    f"✅ Error message delivery delay completed for {task_id}"
-                                )
-                                break
-
-                            else:
-                                # CRITICAL FIX: Forward ALL other Redis messages directly to frontend
-                                # This includes: taskcreated, initializing, status, agent_thinking, tool_usage, etc.
-
-                                # Preserve the original Redis message structure and add SSE formatting
-                                sse_message = dict(redis_data)  # Copy all Redis data
-
-                                # Ensure required SSE fields are present
-                                if (
-                                    "message_type" not in sse_message
-                                    and "type" in sse_message
-                                ):
-                                    sse_message["message_type"] = sse_message["type"]
-                                if "task_id" not in sse_message:
-                                    sse_message["task_id"] = task_id
-                                if "timestamp" not in sse_message:
-                                    sse_message["timestamp"] = (
-                                        datetime.utcnow().isoformat()
-                                    )
-
-                                # Forward the complete Redis message to frontend
-                                sse_output = f"data: {json.dumps(sse_message)}\n\n"
-                                logger.info(
-                                    f"📤 Forwarding {message_type} message to SSE: {str(sse_message)[:200]}..."
-                                )
-                                yield sse_output
-
-                        except Exception as e:
-                            logger.error(f"❌ Error processing Redis message: {e}")
-                    else:
-                        # Send periodic keepalives
-                        keepalive_counter += 1
-                        if keepalive_counter % 100 == 0:  # Every ~20-30 seconds
-                            keepalive_message = {
-                                "type": "keepalive",
-                                "message_type": "keepalive",
-                                "task_id": task_id,
-                                "message": "Connection active (Redis mode)",
-                                "timestamp": datetime.utcnow().isoformat(),
-                            }
-                            yield f"data: {json.dumps(keepalive_message)}\n\n"
-            else:
-                logger.info("📊 Using database polling")
-                # Database polling loop
-                poll_count = 0
-                max_polls = 1500  # ~5 minutes at 0.2s intervals
-
-                while poll_count < max_polls:
-                    poll_count += 1
-
-                    try:
-                        current_task = await task_manager.get_task(task_id)
-                        if not current_task:
-                            break
-
-                        status = current_task.get("status", "").lower()
-                        step = current_task.get("current_step")
-                        progress = current_task.get("progress", 0)
-                        hero_url = current_task.get("hero_image_url")
-
-                        # Check for changes
-                        has_changes = (
-                            status != last_sent_status
-                            or step != last_sent_step
-                            or progress != last_sent_progress
-                            or hero_url != last_sent_hero
-                        )
-
-                        if has_changes:
-                            update = send_update(current_task)
-                            if update:
-                                yield update
-
-                        # Exit if complete
-                        if status in ["completed", "failed"]:
-                            break
-
-                        # Periodic keepalive
-                        if poll_count % 50 == 0:  # Every ~10 seconds
-                            keepalive_message = {
-                                "type": "keepalive",
-                                "message_type": "keepalive",
-                                "task_id": task_id,
-                                "message": "Connection active (polling mode)",
-                                "timestamp": datetime.utcnow().isoformat(),
-                            }
-                            yield f"data: {json.dumps(keepalive_message)}\n\n"
-
-                    except Exception as e:
-                        logger.error(f"❌ Database polling error: {e}")
-
-                    # Wait before next poll
-                    await asyncio.sleep(0.2)
-
-                # Timeout reached
-                timeout_message = {
-                    "type": "timeout",
-                    "task_id": task_id,
-                    "message": "Stream timeout reached - refresh page to reconnect",
-                    "timestamp": datetime.utcnow().isoformat(),
-                }
-                yield f"data: {json.dumps(timeout_message)}\n\n"
-
-        except asyncio.CancelledError:
-            logger.info(f"SSE stream cancelled for task {task_id}")
+                yield event
+        
         except Exception as e:
-            logger.error(f"Error in SSE stream for task {task_id}: {e}")
-            error_message = {
+            logger.error(
+                f"❌ Error in SSE event generator for task {task_id}: {e}",
+                exc_info=True,
+            )
+            # Send error event to client
+            error_event = {
                 "type": "error",
                 "task_id": task_id,
                 "message": f"Stream error: {str(e)}",
                 "timestamp": datetime.utcnow().isoformat(),
             }
-            yield f"data: {json.dumps(error_message)}\n\n"
-        finally:
-            # Clean up Redis subscription properly
-            if redis_pubsub:
-                try:
-                    logger.info(f"🔌 Closing Redis pubsub for task {task_id}")
-                    await asyncio.wait_for(
-                        redis_pubsub.unsubscribe(f"task_updates:{task_id}"), timeout=2.0
-                    )
-                    await asyncio.wait_for(redis_pubsub.close(), timeout=2.0)
-                    logger.info(f"✅ Redis pubsub closed for task {task_id}")
-                except asyncio.TimeoutError:
-                    logger.error(f"❌ Timeout closing Redis pubsub for task {task_id}")
-                except Exception as cleanup_error:
-                    logger.error(
-                        f"❌ Error closing Redis pubsub for task {task_id}: {cleanup_error}"
-                    )
-                finally:
-                    redis_pubsub = None
-
+            yield f"data: {json.dumps(error_event)}\n\n"
+    
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -1388,6 +1137,7 @@ async def generate_title(
 # =============================================================================
 
 
+@monitor_performance("blog_generation")
 async def async_blog_generation(
     task_id: str, topic: Optional[str], user_id: str, instructions: Optional[str] = None
 ):

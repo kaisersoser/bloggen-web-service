@@ -2,6 +2,7 @@
 # flake8: noqa
 """
 Test database connectivity for the blog generation system.
+Updated to use Phase 3.1 DatabaseService instead of legacy methods.
 """
 import asyncio
 import sys
@@ -9,30 +10,36 @@ import os
 
 sys.path.append("/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src")
 
-from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
+from core.database_service import database_service
 
 
 async def test_database_connection():
-    print("🔍 Testing Database Connection")
-    print("=" * 40)
+    print("🔍 Testing Database Connection (Phase 3.1 DatabaseService)")
+    print("=" * 60)
 
     try:
-        # Test database connection using the same method as task manager
-        print("\n1. Testing audit tracker database connection...")
-        tracker = EnhancedDatabaseAuditTracker(
-            session_type="diagnostic_test", user_id="test_user", blog_id=None
+        # Test database connection using new DatabaseService
+        print("\n1. Initializing DatabaseService (shared pool)...")
+        database_url = os.getenv(
+            'DATABASE_URL',
+            'postgresql://postgres:postgres@localhost:5432/bloggen'
         )
-
-        pool = await tracker._get_database_connection()
+        
+        pool = await database_service.initialize(
+            database_url,
+            min_size=1,
+            max_size=10
+        )
+        
         if not pool:
-            print("   ❌ Failed to get database connection pool")
+            print("   ❌ Failed to initialize database service")
             return
 
-        print("   ✅ Database connection pool obtained")
+        print("   ✅ DatabaseService initialized with shared pool")
 
         # Test a simple query
         print("\n2. Testing simple database query...")
-        async with pool.acquire() as conn:
+        async with database_service.acquire() as conn:
             result = await conn.fetchval("SELECT version()")
             print(f"   ✅ Database version: {result}")
 
@@ -72,12 +79,26 @@ async def test_database_connection():
                     )
             else:
                 print("   ❌ Blogs table does not exist")
+        
+        # Test pool statistics
+        print("\n4. Testing pool statistics...")
+        pool_size = pool.get_size()
+        idle_size = pool.get_idle_size()
+        print(f"   📊 Pool size: {pool_size}")
+        print(f"   📊 Idle connections: {idle_size}")
+        print(f"   ✅ Pool statistics accessible")
 
     except Exception as e:
         print(f"   ❌ Database test failed: {e}")
         import traceback
 
         traceback.print_exc()
+    
+    finally:
+        # Clean up
+        print("\n5. Closing database service...")
+        await database_service.close()
+        print("   ✅ Database service closed")
 
 
 if __name__ == "__main__":

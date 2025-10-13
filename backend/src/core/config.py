@@ -14,8 +14,18 @@ import logging
 # Load environment variables from .env file
 from dotenv import load_dotenv
 backend_dir = Path(__file__).parent.parent.parent  # Go up to backend/ directory
+
+# Priority: .env.local (development) > .env (production/default)
+# This follows the standard practice of using .env.local for local overrides
+env_local = backend_dir / ".env.local"
 env_file = backend_dir / ".env"
-load_dotenv(env_file)
+
+if env_local.exists():
+    load_dotenv(env_local)
+    print(f"✅ Loaded environment from: .env.local (development)")
+else:
+    load_dotenv(env_file)
+    print(f"✅ Loaded environment from: .env (default)")
 
 
 @dataclass

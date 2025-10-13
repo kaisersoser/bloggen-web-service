@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Activity } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
 
 interface AuditAnalytics {
@@ -159,23 +159,36 @@ export default function AdminAuditPage() {
             </div>
           </div>
           
-          {/* Date Range Selector */}
-          <div className="flex gap-2">
-            {[7, 30, 90].map((days) => (
-              <Button
-                key={days}
-                variant={dateRange === days ? "default" : "outline"}
-                size="sm"
-                onClick={() => setDateRange(days)}
-              >
-                {days} days
-              </Button>
-            ))}
+          {/* Action Buttons */}
+          <div className="flex items-center gap-4">
+            {/* System Monitoring Button */}
+            <Button
+              onClick={() => router.push('/admin/monitoring')}
+              variant="default"
+              className="flex items-center gap-2"
+            >
+              <Activity className="w-4 h-4" />
+              System Health
+            </Button>
+            
+            {/* Date Range Selector */}
+            <div className="flex gap-2">
+              {[7, 30, 90].map((days) => (
+                <Button
+                  key={days}
+                  variant={dateRange === days ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setDateRange(days)}
+                >
+                  {days} days
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
 
-  {/* Summary Cards */}
-  <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>

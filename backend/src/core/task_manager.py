@@ -459,44 +459,26 @@ class TaskManager:
             logger.error(f"Failed to send immediate message for task {task_id}: {e}")
 
     async def _get_db_connection(self):
-        """Get database connection with proper pool management for task operations."""
-        import os
-        import asyncpg
+        """
+        Get database connection using centralized DatabaseService.
+        
+        Phase 3.1 Migration: Now uses shared connection pool instead of
+        creating a separate task_manager-specific pool.
+        """
+        from core.database_service import database_service
 
-        # Use a class-level connection pool to avoid connection conflicts
-        if (
-            not hasattr(self.__class__, "_connection_pool")
-            or self.__class__._connection_pool is None
-        ):
-            try:
-                database_url = os.getenv("DATABASE_URL")
-                if not database_url:
-                    raise Exception("No DATABASE_URL found in environment")
+        try:
+            # Use centralized database service
+            pool = await database_service.ensure_pool()
+            logger.debug("✅ Task manager using centralized database pool")
+            return pool
 
-                # Create connection pool optimized for task management operations
-                self.__class__._connection_pool = await asyncpg.create_pool(
-                    database_url,
-                    min_size=1,
-                    max_size=3,
-                    command_timeout=30,
-                    max_inactive_connection_lifetime=60,
-                    max_queries=1000,
-                    statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
-                    server_settings={"application_name": "bloggen_task_manager"},
-                )
-
-                # Test connection
-                async with self.__class__._connection_pool.acquire() as conn:
-                    await conn.execute("SELECT 1")
-
-                logger.info("✅ Task manager database connection pool established")
-
-            except Exception as e:
-                logger.error(f"❌ Failed to create task manager database pool: {e}")
-                self.__class__._connection_pool = None
-                raise Exception(f"Failed to get database connection: {e}")
-
-        return self.__class__._connection_pool
+        except RuntimeError as e:
+            logger.error(f"❌ DatabaseService not initialized: {e}")
+            raise Exception("Database connection not available") from e
+        except Exception as e:
+            logger.error(f"❌ Failed to get database connection: {e}")
+            raise Exception(f"Failed to get database connection: {e}") from e
 
     async def create_task(
         self, task_id: str, user_id: str, topic: str, instructions: Optional[str] = None

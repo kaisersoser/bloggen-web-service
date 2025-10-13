@@ -236,37 +236,29 @@ class EnhancedDatabaseAuditTracker:
         logger.debug(f"📥 Queued {operation_type} operation")
 
     async def _get_database_connection(self) -> Optional[asyncpg.Pool]:
-        """Get or create database connection pool."""
+        """
+        Get database connection using centralized DatabaseService.
+        
+        Phase 3.1 Migration: Now uses shared connection pool instead of
+        creating a separate audit tracker-specific pool.
+        """
+        from core.database_service import database_service
+
+        # Return cached pool reference if already obtained
         if self.pool:
             return self.pool
 
         try:
-            # Try to get DATABASE_URL from environment
-            database_url = os.getenv("DATABASE_URL")
-            if not database_url:
-                logger.warning("No DATABASE_URL found - database audit disabled")
-                return None
-
-            # Create minimal connection pool for pgbouncer compatibility
-            self.pool = await asyncpg.create_pool(
-                database_url,
-                min_size=0,  # No minimum connections
-                max_size=1,  # Single connection for pgbouncer
-                command_timeout=30,
-                max_inactive_connection_lifetime=60,  # Shorter lifetime
-                max_queries=1000,
-                statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
-                server_settings={"application_name": "bloggen_audit_tracker"},
-            )
-
-            # Test connection
-            async with self.pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-
+            # Use centralized database service
+            self.pool = await database_service.ensure_pool()
             self.database_enabled = True
-            logger.info("✅ Direct database connection established")
+            logger.info("✅ Audit tracker using centralized database pool")
             return self.pool
 
+        except RuntimeError:
+            logger.warning("DatabaseService not initialized - database audit disabled")
+            self.database_enabled = False
+            return None
         except Exception as e:
             logger.error(f"❌ Database connection failed: {e}")
             self.database_enabled = False

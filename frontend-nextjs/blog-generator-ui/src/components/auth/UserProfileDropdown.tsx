@@ -5,7 +5,7 @@ import { useSession, signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Crown, User, LogOut, Sun, Moon, Monitor, BarChart3 } from "lucide-react"
+import { Crown, User, LogOut, Sun, Moon, Monitor, BarChart3, Activity } from "lucide-react"
 import { useUserStats } from "@/hooks/useUserStats"
 
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -181,17 +181,30 @@ export function UserProfileDropdown({ themeMode = 'light', onThemeChange }: User
 
               {/* Admin Dashboard Link - Only for ADMIN users */}
               {session.user.role === 'ADMIN' && (
-                <Button 
-                  onClick={() => {
-                    setIsOpen(false)
-                    window.open('/admin/audit', '_blank')
-                  }} 
-                  variant="outline" 
-                  className="w-full mb-2"
-                >
-                  <BarChart3 className="w-4 h-4 mr-2" />
-                  Admin Dashboard
-                </Button>
+                <>
+                  <Button 
+                    onClick={() => {
+                      setIsOpen(false)
+                      window.open('/admin/audit', '_blank')
+                    }} 
+                    variant="outline" 
+                    className="w-full mb-2"
+                  >
+                    <BarChart3 className="w-4 h-4 mr-2" />
+                    Cost Analytics
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setIsOpen(false)
+                      window.open('/admin/monitoring', '_blank')
+                    }} 
+                    variant="outline" 
+                    className="w-full mb-2"
+                  >
+                    <Activity className="w-4 h-4 mr-2" />
+                    System Health
+                  </Button>
+                </>
               )}
 
               {/* Sign Out Button */}

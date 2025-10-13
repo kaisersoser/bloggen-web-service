@@ -1,9 +1,8 @@
 """
 Direct Supabase Database Integration for Audit Logging
 
-This module provides direct database access for audit logging without
-requiring the Next.js frontend API to be running. This ensures that
-audit logging works reliably even when the backend runs independently.
+Phase 3.1 Migration: This module now uses the centralized DatabaseService
+instead of creating its own connection pool.
 """
 
 import asyncpg
@@ -12,6 +11,7 @@ from typing import Optional, Dict, Any
 import uuid
 
 from core.common import get_logger, config
+from core.database_service import database_service
 
 logger = get_logger(__name__)
 
@@ -20,8 +20,7 @@ class DirectSupabaseAuditManager:
     """
     Direct PostgreSQL connection to Supabase for audit logging.
 
-    This bypasses the Next.js API and connects directly to the database,
-    ensuring audit logging works even when the frontend is not running.
+    Phase 3.1: Now uses centralized DatabaseService for connection pooling.
     """
 
     def __init__(self):
@@ -31,33 +30,25 @@ class DirectSupabaseAuditManager:
         self.enabled = True
 
     async def initialize(self):
-        """Initialize the database connection pool"""
+        """
+        Initialize database connection using centralized DatabaseService.
+        
+        Phase 3.1 Migration: Delegates to shared pool instead of creating
+        a separate direct_audit-specific pool.
+        """
         try:
-            # Get database URL from environment
-            database_url = config.database.url
-            if not database_url:
-                self.logger.warning(
-                    "No database URL configured - audit logging disabled"
-                )
-                self.enabled = False
-                return
-
-            # Create minimal connection pool for pgbouncer compatibility
-            self.pool = await asyncpg.create_pool(
-                database_url,
-                min_size=0,  # No minimum connections
-                max_size=1,  # Single connection for pgbouncer
-                command_timeout=30,
-                max_inactive_connection_lifetime=60,
-                statement_cache_size=0,  # Disable prepared statements for pgbouncer compatibility
-                server_settings={"application_name": "bloggen_direct_audit"},
-            )
+            # Use centralized database service
+            self.pool = await database_service.ensure_pool()
+            self.enabled = True
 
             # Test connection and ensure tables exist
             await self._ensure_tables_exist()
 
-            self.logger.info("✅ Direct Supabase audit system initialized")
+            self.logger.info("✅ Direct Supabase audit system initialized (using centralized pool)")
 
+        except RuntimeError:
+            self.logger.warning("DatabaseService not initialized - audit logging disabled")
+            self.enabled = False
         except Exception as e:
             self.logger.error(
                 f"❌ Failed to initialize direct database connection: {e}"
