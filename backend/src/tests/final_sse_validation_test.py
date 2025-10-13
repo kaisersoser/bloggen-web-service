@@ -13,6 +13,7 @@ import json
 import jwt
 import time
 import os
+import pytest
 from datetime import datetime
 
 BACKEND_URL = "https://localhost:5000"
@@ -36,6 +37,7 @@ def generate_valid_jwt() -> str:
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
+@pytest.mark.asyncio
 async def test_complete_blog_generation_flow():
     """Test the complete blog generation flow with real user ID"""
     print("🎯 Testing Complete Blog Generation Flow with Real User")
