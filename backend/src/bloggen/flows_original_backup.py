@@ -24,7 +24,7 @@ import time
 import os
 
 # Database audit tracking import - full database persistence
-from core import DatabaseAuditTracker as DatabaseCostTracker
+from core import EnhancedDatabaseAuditTracker as EnhancedDatabaseAuditTracker
 
 # Context variables for request isolation (NEW)
 from core.context_vars import (

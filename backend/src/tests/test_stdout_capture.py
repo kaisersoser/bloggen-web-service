@@ -142,83 +142,14 @@ def test_crewai_notifications():
     return collector.notifications
 
 
-async def test_simple_crew_execution():
-    """Test a simple CrewAI execution to see stdout capture in action"""
-    
-    print("\n🧪 Testing Simple CrewAI Execution")
-    print("-" * 50)
-    
-    # Import CrewAI components
-    from crewai import Agent, Task, Crew
-    from core.crewai_stdout_capture import capture_crewai_output
-    
-    # Create notification collector
-    collector = TestNotificationCollector()
-    
-    def event_callback(event):
-        """Handle CrewAI stdout events"""
-        collector.collect_notification({
-            'message_type': 'crewai_event',
-            'event_type': event.get('type'),
-            'data': event.get('data'),
-            'timestamp': datetime.now().isoformat()
-        })
-    
-    # Create a simple agent and task
-    agent = Agent(
-        role='Test Agent',
-        goal='Generate a simple test response',
-        backstory='You are a test agent for verification purposes.',
-        verbose=True,  # Enable verbose output for capture
-        allow_delegation=False
-    )
-    
-    task = Task(
-        description='Write a brief 2-sentence summary about the benefits of AI.',
-        agent=agent,
-        expected_output='A 2-sentence summary about AI benefits.'
-    )
-    
-    crew = Crew(
-        agents=[agent],
-        tasks=[task],
-        verbose=True  # Enable verbose output
-    )
-    
-    logger.info("🔄 Starting simple CrewAI execution with stdout capture...")
-    
-    try:
-        # Execute with stdout capture
-        with capture_crewai_output(event_callback):
-            result = crew.kickoff()
-        
-        logger.info("✅ Simple CrewAI execution completed!")
-        print(f"\nResult: {result}")
-        
-    except Exception as e:
-        logger.error(f"❌ Error during simple execution: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Print summary
-    collector.print_summary()
-    
-    return collector.notifications
-
-
 if __name__ == "__main__":
     print("🔍 Backend Notification Testing Script")
     print("=" * 60)
     
-    # First test simple CrewAI execution to verify stdout capture
-    print("\n1️⃣ Testing stdout capture with simple CrewAI execution...")
-    simple_results = asyncio.run(test_simple_crew_execution())
-    
-    # Then test full blog generation flow
+    # Test full blog generation flow
     print("\n2️⃣ Testing full blog generation flow...")
     flow_results = test_crewai_notifications()
     
     print("\n🎯 TEST COMPLETE")
-    print(f"Simple execution captured: {len(simple_results)} notifications")
     print(f"Full flow captured: {len(flow_results)} notifications")
     print("\nCheck 'test_notifications.log' for detailed logs.")

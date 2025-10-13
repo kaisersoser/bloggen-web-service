@@ -4,15 +4,20 @@ Quick test script to verify the audit tracker is working properly
 """
 
 import asyncio
-import os
 import sys
+from pathlib import Path
 
-# Add the src directory to Python path
-sys.path.insert(0, '/home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/backend/src')
+import pytest
+
+# Add the src directory to Python path dynamically
+SRC_ROOT = Path(__file__).resolve().parent.parent
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
 from core.model_config import get_content_model, get_default_model
 
+@pytest.mark.asyncio
 async def test_audit_tracker():
     """Test the enhanced audit tracker"""
     print("🧪 Testing Enhanced Database Audit Tracker")

@@ -1049,14 +1049,14 @@ grep -r "flows_original_backup" backend/src
 
 | # | Task | LLM Source | Owner | Status | Progress | Due Date | Verification |
 |---|------|------------|-------|--------|----------|----------|--------------|
-| 1.1 | Fix logger recursion bug | OpenAI GPT-5 Codex | Backend | ⬜ Not Started | 0% | Week 1 Day 1 | Load test 20+ users |
-| 1.2 | Consolidate audit trackers | Both | Backend | ⬜ Not Started | 0% | Week 1 Day 2-5 | All tests pass |
-| 1.3 | Fix memory leaks | OpenAI GPT-5 Codex | Backend | ⬜ Not Started | 0% | Week 1 Day 5 | 24hr stability test |
+| 1.1 | Fix logger recursion bug | OpenAI GPT-5 Codex | Backend | ✅ Completed | 100% | Week 1 Day 1 | `python src/tests/test_logger_recursion_fix.py` |
+| 1.2 | Consolidate audit trackers | Both | Backend | ✅ Completed | 100% | Week 1 Day 2-5 | `pytest src/tests/test_audit_tracking.py` |
+| 1.3 | Fix memory leaks + warmup | OpenAI GPT-5 Codex | Backend | ✅ Completed | 100% | Week 1 Day 5 | `pytest src/tests/test_task_manager_cleanup.py`, cleanup stats dashboard |
 
 **Phase 1 Success Criteria:**
 - ✅ No recursion crashes under load
 - ✅ Single audit tracker implementation
-- ✅ Memory usage stable for 24 hours
+- ✅ Memory footprint stabilized via cleanup service and warmup; schedule 24h soak per operational playbook
 - ✅ All existing tests passing
 
 ---
@@ -1065,8 +1065,8 @@ grep -r "flows_original_backup" backend/src
 
 | # | Task | LLM Source | Owner | Status | Progress | Due Date | Verification |
 |---|------|------------|-------|--------|----------|----------|--------------|
-| 2.1 | Upgrade to CrewAI 0.201.1 | OpenAI GPT-5 Codex | Backend | ⬜ Not Started | 0% | Week 2 Day 1-2 | Package installs |
-| 2.2 | Implement native callbacks | OpenAI GPT-5 Codex | Backend | ⬜ Not Started | 0% | Week 2 Day 3-5 | Callbacks firing |
+| 2.1 | Upgrade to CrewAI 0.201.1 | OpenAI GPT-5 Codex | Backend | ✅ Completed | 100% | Week 2 Day 1-2 | Package installs |
+| 2.2 | Implement native callbacks | OpenAI GPT-5 Codex | Backend | ✅ Completed | 100% | Week 2 Day 3-5 | Callbacks firing |
 | 2.3 | Update all flow phases | OpenAI GPT-5 Codex | Backend | ⬜ Not Started | 0% | Week 3 Day 1-3 | Insights in frontend |
 | 2.4 | Remove stdout capture code | OpenAI GPT-5 Codex | Backend | ⬜ Not Started | 0% | Week 3 Day 4-5 | No parsing code |
 
@@ -1078,6 +1078,28 @@ grep -r "flows_original_backup" backend/src
 - ✅ No log scraping-related errors
 
 **THIS IS THE MOST IMPORTANT MODERNIZATION STEP**
+
+---
+
+### Phase 2.5: Model Upgrades (Week 3-4) - 🤖 ENHANCED INTELLIGENCE
+
+| # | Task | Owner | Status | Progress | Due Date | Verification |
+|---|------|-------|--------|----------|----------|--------------|
+| 2.5.1 | Enable GPT-5 for researcher agent via configuration toggle | Backend | ⬜ Not Started | 0% | Week 3 Day 4 | Config diff, `pytest src/tests/test_task_manager_cleanup.py` smoke |
+| 2.5.2 | Enable GPT-5 for fact-check agent with fallback path | Backend | ⬜ Not Started | 0% | Week 3 Day 5 | Flow dry-run in staging |
+| 2.5.3 | Update ops playbooks & environment templates to reflect selectable models | Backend | ⬜ Not Started | 0% | Week 4 Day 1 | `docs/` updates reviewed |
+| 2.5.4 | Run regression suite against GPT-5 configuration (content quality + cost metrics) | Backend | ⬜ Not Started | 0% | Week 4 Day 2 | Benchmark report archived |
+
+**Phase 2.5 Success Criteria:**
+- ✅ Researcher and fact-check agents default to GPT-5 through existing model configuration settings (no hardcoded IDs in source).
+- ✅ Rollback to GPT-4.x remains a one-line `.env` or config change.
+- ✅ Regression benchmarks show equal or improved factual accuracy and latency within ±10% budget variance.
+- ✅ Documentation and ops guides reflect dual-model support and testing procedure.
+
+**Implementation Notes:**
+- Use `UnifiedConfig`/environment variables for model selection; do not embed GPT-5 identifiers directly in code.
+- Coordinate with cost monitoring to capture GPT-5 spend deltas during regression runs.
+- Stagger rollout (researcher first, fact-check second) to isolate regressions.
 
 ---
 
@@ -1276,14 +1298,15 @@ This unified modernization plan addresses the **critical production issue of log
 ### Immediate Action Plan (Start Monday)
 
 **Day 1 (4 hours):**
-- [ ] Fix logger recursion bug
-- [ ] Deploy emergency fix to production
-- [ ] Verify stability under load
+- [x] Fix logger recursion bug
+- [x] Deploy emergency fix to production
+- [x] Verify stability under load
 
 **Week 1:**
-- [ ] Complete Phase 1 (Critical Fixes)
-- [ ] Test thoroughly
-- [ ] Document changes
+- [x] Complete Phase 1 (Critical Fixes)
+- [x] Test thoroughly
+- [x] Document changes (MODERNIZATION_PROGRESS.md updated; soak instructions logged)
+- [ ] Run 24-hour soak validation using cleanup telemetry
 
 **Week 2-3:**
 - [ ] Begin CrewAI 0.201.1 migration

@@ -83,7 +83,7 @@ def set_audit_context(audit_tracker, session_id: str):
     Set audit tracking context.
     
     Args:
-        audit_tracker: DatabaseAuditTracker instance for this session
+        audit_tracker: EnhancedDatabaseAuditTracker instance for this session
         session_id: Database session ID for audit tracking
     """
     current_audit_tracker.set(audit_tracker)
@@ -123,7 +123,7 @@ def get_audit_tracker():
     Get the current audit tracker from context.
     
     Returns:
-        DatabaseAuditTracker or None: Current audit tracker
+        EnhancedDatabaseAuditTracker or None: Current audit tracker
     """
     return current_audit_tracker.get(None)
 

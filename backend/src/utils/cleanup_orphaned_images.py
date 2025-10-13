@@ -24,7 +24,7 @@ import logging
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from core.s3_storage import get_s3_storage
-from core.audit_tracker import DatabaseAuditTracker
+from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
 
 # Configure logging
 logging.basicConfig(
@@ -307,7 +307,7 @@ class OrphanedImageCleaner:
         """Run the complete orphaned image cleanup process"""
         try:
             # Start audit session for tracking
-            async with DatabaseAuditTracker('quarterly_cleanup', user_id='system') as tracker:
+            async with EnhancedDatabaseAuditTracker('quarterly_cleanup', user_id='system') as tracker:
                 
                 # Identify orphaned images
                 orphaned_images, analysis = await self.identify_orphaned_images()

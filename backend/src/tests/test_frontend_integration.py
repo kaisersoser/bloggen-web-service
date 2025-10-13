@@ -137,10 +137,10 @@ def test_direct_flow_call():
     
     try:
         from bloggen.flows import BlogGenerationFlow
-        from core.audit_tracker import DatabaseAuditTracker
+        from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
         
         # Create audit tracker like main.py does
-        audit_tracker = DatabaseAuditTracker(
+        audit_tracker = EnhancedDatabaseAuditTracker(
             session_type="blog_generation",
             user_id="test_frontend_user",
             blog_id="test_frontend_blog"

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Optional, Type, List
 
 
 try:
@@ -15,7 +15,7 @@ except ImportError:
     FieldCondition = Any
     MatchValue = Any
 
-from crewai.tools import BaseTool
+from crewai.tools import BaseTool, EnvVar
 from pydantic import BaseModel, Field
 
 
@@ -74,6 +74,10 @@ class QdrantVectorSearchTool(BaseTool):
         default=None,
         description="A custom embedding function to use for vectorization. If not provided, the default model will be used.",
     )
+    package_dependencies: List[str] = ["qdrant-client"]
+    env_vars: List[EnvVar] = [
+        EnvVar(name="OPENAI_API_KEY", description="API key for OpenAI", required=True)
+    ]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

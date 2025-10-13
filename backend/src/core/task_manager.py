@@ -8,12 +8,13 @@ Enhanced with immediate SSE message broadcasting for Phase 1 Foundation.
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Callable
 from enum import Enum
 
 # Import enhanced SSE message types for immediate feedback
-from core.sse_message_types import create_task_created_message, create_status_message, create_completed_message
+from core.sse_message_types import create_task_created_message
+from core.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,24 @@ class TaskManager:
         self._subscribers: Dict[str, List[Callable]] = {}
         self._redis_manager = None
         self._content_streaming_manager = None
+        self._message_buffer = None
+
+        tm_config = config.task_manager
+        self._cleanup_interval_seconds = tm_config.cleanup_interval_seconds
+        self._stale_incomplete_delta = timedelta(minutes=tm_config.stale_incomplete_minutes)
+        self._stale_completed_delta = timedelta(minutes=tm_config.stale_completed_minutes)
+        self._redis_status_ttl = tm_config.redis_status_ttl_seconds
+        self._max_cleanup_batch = max(1, tm_config.max_cleanup_batch)
+        self._redis_scan_count = max(1, tm_config.redis_scan_count)
+
+        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_stop_event: Optional[asyncio.Event] = None
+        self._cleanup_stats = {
+            "cycles": 0,
+            "expired_tasks": 0,
+            "redis_keys_removed": 0,
+            "buffers_pruned": 0,
+        }
     
     def set_redis_manager(self, redis_manager):
         """Set the Redis manager for pub/sub updates."""
@@ -52,6 +71,300 @@ class TaskManager:
     def set_content_streaming_manager(self, content_streaming_manager):
         """Set the content streaming manager for progressive content updates."""
         self._content_streaming_manager = content_streaming_manager
+
+    def set_message_buffer(self, message_buffer):
+        """Set the Redis-backed message buffer for cleanup coordination."""
+        self._message_buffer = message_buffer
+
+    def configure_cleanup(
+        self,
+        *,
+        cleanup_interval_seconds: Optional[int] = None,
+        stale_incomplete_minutes: Optional[int] = None,
+        stale_completed_minutes: Optional[int] = None,
+        redis_status_ttl_seconds: Optional[int] = None,
+        max_cleanup_batch: Optional[int] = None,
+        redis_scan_count: Optional[int] = None,
+    ) -> None:
+        """Adjust cleanup settings at runtime (primarily for testing)."""
+        if cleanup_interval_seconds is not None and cleanup_interval_seconds > 0:
+            self._cleanup_interval_seconds = cleanup_interval_seconds
+        if stale_incomplete_minutes is not None and stale_incomplete_minutes > 0:
+            self._stale_incomplete_delta = timedelta(minutes=stale_incomplete_minutes)
+        if stale_completed_minutes is not None and stale_completed_minutes > 0:
+            self._stale_completed_delta = timedelta(minutes=stale_completed_minutes)
+        if redis_status_ttl_seconds is not None and redis_status_ttl_seconds > 0:
+            self._redis_status_ttl = redis_status_ttl_seconds
+        if max_cleanup_batch is not None and max_cleanup_batch > 0:
+            self._max_cleanup_batch = max_cleanup_batch
+        if redis_scan_count is not None and redis_scan_count > 0:
+            self._redis_scan_count = redis_scan_count
+
+    async def start_cleanup_service(self) -> None:
+        """Start background cleanup loop if not already running."""
+        if self._cleanup_task and not self._cleanup_task.done():
+            return
+
+        if self._cleanup_stop_event is None:
+            self._cleanup_stop_event = asyncio.Event()
+        else:
+            self._cleanup_stop_event.clear()
+
+        loop = asyncio.get_running_loop()
+        self._cleanup_task = loop.create_task(self._cleanup_loop(), name="task-manager-cleanup")
+        logger.info(
+            "🧹 TaskManager cleanup service started (interval: %ss, stale incomplete: %s min)",
+            self._cleanup_interval_seconds,
+            int(self._stale_incomplete_delta.total_seconds() / 60),
+        )
+
+    async def stop_cleanup_service(self) -> None:
+        """Stop background cleanup loop gracefully."""
+        if self._cleanup_stop_event:
+            self._cleanup_stop_event.set()
+
+        if self._cleanup_task:
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._cleanup_task = None
+
+        self._cleanup_stop_event = None
+        logger.info("🧹 TaskManager cleanup service stopped")
+
+    async def run_cleanup_cycle(self) -> None:
+        """Run a single cleanup cycle (useful for tests)."""
+        await self._cleanup_stale_tasks_once()
+
+    async def _cleanup_loop(self) -> None:
+        """Background loop that periodically prunes stale resources."""
+        try:
+            while True:
+                await self._cleanup_stale_tasks_once()
+                if not self._cleanup_stop_event:
+                    break
+
+                try:
+                    await asyncio.wait_for(
+                        self._cleanup_stop_event.wait(),
+                        timeout=self._cleanup_interval_seconds,
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            raise
+
+    async def _cleanup_stale_tasks_once(self) -> None:
+        """Perform a single pass of cleanup operations."""
+        cycle_expired = 0
+        cycle_redis = 0
+        cycle_buffers = 0
+
+        try:
+            cycle_expired = await self._expire_stale_incomplete_tasks()
+        except Exception as e:
+            logger.error(f"Task cleanup failed while expiring incomplete tasks: {e}")
+
+        cycle_expired = int(cycle_expired or 0)
+
+        try:
+            cycle_redis = await self._cleanup_redis_status_cache()
+            if cycle_redis:
+                logger.debug(f"🧹 Removed {cycle_redis} stale Redis status cache entries")
+        except Exception as e:
+            logger.error(f"Task cleanup failed while pruning Redis cache: {e}")
+
+        cycle_redis = int(cycle_redis or 0)
+
+        try:
+            cycle_buffers = await self._cleanup_message_buffers()
+        except Exception as e:
+            logger.error(f"Task cleanup failed while pruning message buffers: {e}")
+
+        cycle_buffers = int(cycle_buffers or 0)
+
+        self._cleanup_stats["cycles"] += 1
+        self._cleanup_stats["expired_tasks"] += cycle_expired
+        self._cleanup_stats["redis_keys_removed"] += cycle_redis
+        self._cleanup_stats["buffers_pruned"] += cycle_buffers
+
+        logger.debug(
+            "🧮 Cleanup cycle stats -> expired=%s redis=%s buffers=%s cumulative=%s",
+            cycle_expired,
+            cycle_redis,
+            cycle_buffers,
+            self._cleanup_stats,
+        )
+
+    async def _expire_stale_incomplete_tasks(self) -> int:
+        """Mark queued or in-progress tasks that exceeded TTL as failed."""
+        cutoff = datetime.utcnow() - self._stale_incomplete_delta
+        statuses = [BlogStatus.QUEUED.value, BlogStatus.IN_PROGRESS.value]
+        expired_task_ids: List[str] = []
+
+        pool = await self._get_db_connection()
+        async with pool.acquire() as conn:
+            stale_rows = await conn.fetch(
+                """
+                SELECT id, user_id, status, updated_at
+                FROM blogs
+                WHERE status = ANY($1::text[])
+                  AND updated_at < $2
+                ORDER BY updated_at ASC
+                LIMIT $3
+                """,
+                statuses,
+                cutoff,
+                self._max_cleanup_batch,
+            )
+
+        if not stale_rows:
+            return 0
+
+        from core.resource_cleanup import cleanup_manager, CleanupReason
+
+        for row in stale_rows:
+            task_id = row["id"]
+            try:
+                await self.fail_task(task_id, "Task expired due to inactivity")
+                expired_task_ids.append(task_id)
+
+                if self._message_buffer:
+                    try:
+                        await self._message_buffer.stop_buffering(task_id)
+                    except Exception as buffer_err:
+                        logger.warning(f"Failed to stop buffering for {task_id}: {buffer_err}")
+
+                try:
+                    await cleanup_manager.cleanup_task(task_id, CleanupReason.TIMEOUT)
+                except Exception as cleanup_err:
+                    logger.debug(f"Cleanup context release failed for {task_id}: {cleanup_err}")
+            except Exception as task_err:
+                logger.error(f"Failed to expire stale task {task_id}: {task_err}")
+
+        if expired_task_ids:
+            logger.warning(
+                "🧹 Marked %d stale task(s) as failed due to TTL: %s",
+                len(expired_task_ids),
+                ", ".join(expired_task_ids),
+            )
+        return len(expired_task_ids)
+
+    async def _cleanup_redis_status_cache(self) -> int:
+        """Remove expired task_status cache entries."""
+        redis_client = getattr(self._redis_manager, "redis_client", None)
+        if not redis_client:
+            return 0
+
+        keys_to_delete: List[str] = []
+        cutoff = datetime.utcnow() - self._stale_completed_delta
+
+        async for key in redis_client.scan_iter(match="task_status:*", count=self._redis_scan_count):
+            key_str = key.decode("utf-8") if isinstance(key, (bytes, bytearray)) else str(key)
+            status_json = await redis_client.get(key)
+            if not status_json:
+                continue
+
+            if isinstance(status_json, bytes):
+                status_json = status_json.decode("utf-8")
+
+            try:
+                status_data = json.loads(status_json)
+            except json.JSONDecodeError:
+                keys_to_delete.append(key_str)
+                if len(keys_to_delete) >= self._max_cleanup_batch:
+                    break
+                continue
+
+            updated_at_raw = status_data.get("updated_at")
+            if not updated_at_raw:
+                continue
+
+            try:
+                updated_at = datetime.fromisoformat(updated_at_raw)
+            except ValueError:
+                continue
+
+            if updated_at < cutoff:
+                keys_to_delete.append(key_str)
+                if len(keys_to_delete) >= self._max_cleanup_batch:
+                    break
+
+        if keys_to_delete:
+            await redis_client.delete(*keys_to_delete)
+
+        return len(keys_to_delete)
+
+    async def _cleanup_message_buffers(self) -> int:
+        """Prune any in-memory/Redis message buffers that expired."""
+        if not self._message_buffer:
+            return 0
+
+        cleaned = await self._message_buffer.cleanup_expired_buffers()
+        if cleaned:
+            logger.debug(f"🧹 Cleaned up {cleaned} expired message buffers")
+        return cleaned
+
+    async def warm_cache_from_database(self) -> Dict[str, int]:
+        """Populate Redis task_status cache for active tasks on startup."""
+        redis_manager = self._redis_manager
+        if not redis_manager or not getattr(redis_manager, "redis_client", None):
+            logger.info("Redis manager unavailable; skipping task cache warmup")
+            return {"total": 0, "queued": 0, "in_progress": 0}
+
+        pool = await self._get_db_connection()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, user_id, topic, instructions, status, progress, current_step,
+                       error, content, hero_image_url, created_at, updated_at
+                FROM blogs
+                WHERE status = ANY($1::"BlogStatus"[])
+                ORDER BY updated_at DESC
+                LIMIT $2
+                """,
+                [BlogStatus.QUEUED.value, BlogStatus.IN_PROGRESS.value],
+                self._max_cleanup_batch * 5,
+            )
+
+        restored_counts = {"total": 0, "queued": 0, "in_progress": 0}
+
+        for row in rows:
+            task_state = dict(row)
+            try:
+                await redis_manager.cache_task_status(task_state["id"], task_state, ttl=self._redis_status_ttl)
+                restored_counts["total"] += 1
+                status = task_state.get("status", "").upper()
+                if status == BlogStatus.QUEUED.value:
+                    restored_counts["queued"] += 1
+                elif status == BlogStatus.IN_PROGRESS.value:
+                    restored_counts["in_progress"] += 1
+            except Exception as err:
+                logger.error(f"Failed to warm cache for task {task_state.get('id')}: {err}")
+
+        if restored_counts["total"]:
+            logger.info(
+                "🔥 Restored %s active task caches (queued=%s, in_progress=%s)",
+                restored_counts["total"],
+                restored_counts["queued"],
+                restored_counts["in_progress"],
+            )
+        else:
+            logger.info("No active tasks detected for cache warmup")
+
+        return restored_counts
+
+    def get_cleanup_stats(self) -> Dict[str, int]:
+        """Return aggregate cleanup statistics (cycles, expired tasks, redis prunes, buffer prunes)."""
+        return dict(self._cleanup_stats)
+
+    def reset_cleanup_stats(self) -> None:
+        """Reset cleanup statistics (primarily for testing/monitoring reset)."""
+        for key in self._cleanup_stats:
+            self._cleanup_stats[key] = 0
     
     async def _broadcast_task_update(self, task_id: str, task_data: Dict[str, Any]):
         """Broadcast task update via Redis pub/sub."""
@@ -76,7 +389,7 @@ class TaskManager:
                 await self._redis_manager.publish_task_update(redis_message)
                 
                 # Cache task status in Redis
-                await self._redis_manager.cache_task_status(task_id, task_data)
+                await self._redis_manager.cache_task_status(task_id, task_data, ttl=self._redis_status_ttl)
                 
                 logger.debug(f"Published Redis update for task {task_id}")
                 
@@ -361,7 +674,7 @@ class TaskManager:
                 }
                 
                 # Store as JSON string to match redis_manager.py pattern
-                sync_redis.setex(status_key, 86400, json.dumps(status_data))
+                sync_redis.setex(status_key, self._redis_status_ttl, json.dumps(status_data))
                 
                 logger.info(f"✅ Redis-only update for task {task_id}: {message} ({progress:.1f}%)")
                 

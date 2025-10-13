@@ -65,7 +65,7 @@ class EnhancedDatabaseAuditTracker:
         # Ensure database worker is running
         self._ensure_db_worker()
         
-        logger.info(f"🔍 Enhanced DatabaseAuditTracker initialized for {self.session_type}")
+        logger.info(f"🔍 Enhanced EnhancedDatabaseAuditTracker initialized for {self.session_type}")
         logger.info(f"   User: {self.user_id}")
         logger.info(f"   Blog: {self.blog_id}")
         logger.info(f"   Session: {self.session_id}")

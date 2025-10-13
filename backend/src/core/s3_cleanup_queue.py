@@ -280,10 +280,10 @@ class S3CleanupQueue:
             
             # Track in audit system using a storage cleanup audit session
             try:
-                from .audit_tracker import DatabaseAuditTracker
+                from .audit_tracker import EnhancedDatabaseAuditTracker
                 
                 # Create a dedicated audit session for storage cleanup
-                async with DatabaseAuditTracker('storage_cleanup', user_id=task.user_id, blog_id=task.blog_id) as tracker:
+                async with EnhancedDatabaseAuditTracker('storage_cleanup', user_id=task.user_id, blog_id=task.blog_id) as tracker:
                     tracker.track_storage_cleanup(
                         blog_id=task.blog_id,
                         images_deleted=task.successful_deletions,

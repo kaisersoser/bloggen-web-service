@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Optional, Any
 from .flows import BlogGenerationFlow
-from .simple_audit_tracker import SimpleCostTracker as DatabaseCostTracker
+from .simple_audit_tracker import SimpleCostTracker as EnhancedDatabaseAuditTracker
 
 class AuditTrackingFlowWrapper:
     """
@@ -34,7 +34,7 @@ class AuditTrackingFlowWrapper:
         )
         
         # Audit tracker will be set up during execution
-        self.audit_tracker: Optional[DatabaseCostTracker] = None
+        self.audit_tracker: Optional[EnhancedDatabaseAuditTracker] = None
     
     async def execute_flow_with_audit(self, topic: str, instructions: str = "", current_year: int = 2024):
         """
@@ -49,7 +49,7 @@ class AuditTrackingFlowWrapper:
             str: Generated blog content
         """
         # Set up database audit tracking
-        self.audit_tracker = DatabaseCostTracker(
+        self.audit_tracker = EnhancedDatabaseAuditTracker(
             session_type="blog_generation",
             user_id=self.user_id,
             blog_id=self.blog_id
@@ -128,7 +128,7 @@ async def create_title_audit_session(user_id: str, instructions: str):
     Returns:
         str: Generated title (placeholder for now)
     """
-    audit_tracker = DatabaseCostTracker(
+    audit_tracker = EnhancedDatabaseAuditTracker(
         session_type="title_generation",
         user_id=user_id,
         blog_id=None

@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from core.s3_storage import get_s3_storage
 from core.s3_cleanup_queue import get_cleanup_queue, CleanupTask, CleanupStatus
-from core.audit_tracker import DatabaseAuditTracker
+from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
 
 # Configure logging
 logging.basicConfig(
@@ -329,7 +329,7 @@ class S3CleanupValidator:
         
         try:
             # Create test audit session
-            async with DatabaseAuditTracker('s3_cleanup_test', user_id='test-user') as tracker:
+            async with EnhancedDatabaseAuditTracker('s3_cleanup_test', user_id='test-user') as tracker:
                 
                 # Test storage cleanup tracking
                 tracker.track_storage_cleanup(

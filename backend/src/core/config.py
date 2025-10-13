@@ -92,6 +92,17 @@ class FeatureConfig:
 
 
 @dataclass
+class TaskManagerConfig:
+    """Task manager retention and cleanup configuration"""
+    cleanup_interval_seconds: int = 300
+    stale_incomplete_minutes: int = 90
+    stale_completed_minutes: int = 4320  # 3 days
+    redis_status_ttl_seconds: int = 3600
+    max_cleanup_batch: int = 100
+    redis_scan_count: int = 200
+
+
+@dataclass
 class PathConfig:
     """File system paths configuration"""
     base_dir: Path
@@ -166,6 +177,7 @@ class UnifiedConfig:
         self.security = self._init_security()
         self.rate_limit = self._init_rate_limit()
         self.features = self._init_features()
+        self.task_manager = self._init_task_manager()
         
         self.logger.info(f"Configuration initialized for environment: {self.server.environment}")
     
@@ -253,6 +265,17 @@ class UnifiedConfig:
             enable_ai_image_generation=self.env.get_bool("ENABLE_AI_IMAGE_GENERATION", False),
             enable_hero_image_generation=self.env.get_bool("ENABLE_HERO_IMAGE_GENERATION", False),
             enable_content_image_injection=self.env.get_bool("ENABLE_CONTENT_IMAGE_INJECTION", False)
+        )
+
+    def _init_task_manager(self) -> TaskManagerConfig:
+        """Initialize task manager cleanup configuration"""
+        return TaskManagerConfig(
+            cleanup_interval_seconds=self.env.get_int("TASK_CLEANUP_INTERVAL_SECONDS", 300),
+            stale_incomplete_minutes=self.env.get_int("TASK_STALE_INCOMPLETE_MINUTES", 90),
+            stale_completed_minutes=self.env.get_int("TASK_STALE_COMPLETED_MINUTES", 4320),
+            redis_status_ttl_seconds=self.env.get_int("TASK_REDIS_STATUS_TTL_SECONDS", 3600),
+            max_cleanup_batch=self.env.get_int("TASK_CLEANUP_BATCH_LIMIT", 100),
+            redis_scan_count=self.env.get_int("TASK_REDIS_SCAN_COUNT", 200)
         )
     
     def get_cors_origins(self) -> List[str]:

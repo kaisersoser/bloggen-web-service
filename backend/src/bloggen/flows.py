@@ -25,7 +25,7 @@ from crewai.flow.flow import Flow, start, listen
 from crewai import Crew
 
 # CrewAI stdout capture for real-time agent visibility
-from core.crewai_stdout_capture import capture_crewai_output
+from .callbacks import get_event_listener
 
 from .status_manager import StatusUpdateManager
 from .agent_factory import AgentFactory
@@ -174,6 +174,20 @@ class BlogGenerationFlow(Flow):
     def _status(self, message: str, step: int, detail: str = "") -> None:
         self.status_manager.send_status_update(message, step=step, detail=detail)
 
+    def _begin_phase(
+        self,
+        phase_name: str,
+        *,
+        step: int,
+        status_message: str,
+        detail: str = "",
+    ) -> None:
+        """Common phase entry point to sync audit tracking and status updates."""
+        self.flow_state.current_phase = phase_name
+        self._update_audit_phase(phase_name)
+        logger.info("Starting %s phase", phase_name)
+        self._status(status_message, step=step, detail=detail)
+
     def _error(self, message: str) -> None:
         self.status_manager.send_error_update(message)
 
@@ -183,139 +197,98 @@ class BlogGenerationFlow(Flow):
     def _execute(self, agent, task, phase_name: str = "unknown") -> Any:
         """Execute crew with optional rate limiting and error handling"""
         crew = Crew(agents=[agent], tasks=[task], verbose=True)
-        
-        # If rate limiting is disabled, use direct execution
-        if not self.rate_limiter:
-            logger.info(f"Executing {phase_name} without rate limiting")
-            return self._execute_with_streaming(crew, phase_name)
-        
-        # Use asyncio to run the rate-limited execution
-        import asyncio
-        
-        async def execute_with_rate_limiting():
-            if self.rate_limiter is None:
-                raise RuntimeError("Rate limiter not initialized")
-            return await self.rate_limiter.execute_crew_with_rate_limiting(
-                crew=crew,
-                inputs={
-                    'topic': self.flow_state.topic or '',
-                    'current_year': self.flow_state.current_year or datetime.now().year
-                },
-                phase_name=phase_name,
-                max_retries=config.rate_limit.max_retries
-            )
-        
-        # Run the async function
+        event_listener = get_event_listener()
+        event_listener.register_run(crew, phase_name, self.status_manager)
+
+        result: Any = None
+
         try:
-            # Check if we can get the current event loop
-            try:
-                loop = asyncio.get_event_loop()
-                # If we're in a thread pool executor context, we don't have a running loop
-                # even though get_event_loop() succeeds
-                if loop.is_running():
-                    # This means we're truly in an async context, not a thread pool
-                    # Create a new event loop in a thread
-                    import concurrent.futures
-                    import threading
-                    
-                    result_container = []
-                    exception_container = []
-                    
-                    def run_in_new_loop():
-                        try:
-                            new_loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(new_loop)
-                            result = new_loop.run_until_complete(execute_with_rate_limiting())
-                            result_container.append(result)
-                        except Exception as e:
-                            exception_container.append(e)
-                        finally:
-                            new_loop.close()
-                    
-                    thread = threading.Thread(target=run_in_new_loop)
-                    thread.start()
-                    thread.join(timeout=300)  # 5 minute timeout
-                    
-                    if exception_container:
-                        raise exception_container[0]
-                    if result_container:
-                        return result_container[0]
-                    else:
-                        raise TimeoutError(f"Rate-limited execution timed out for {phase_name}")
-                else:
-                    return asyncio.run(execute_with_rate_limiting())
-            except RuntimeError:
-                # No event loop in current thread, safe to use asyncio.run
-                return asyncio.run(execute_with_rate_limiting())
-        except Exception as e:
-            logger.error(f"Rate-limited execution failed for {phase_name}: {e}")
-            # Fallback to direct execution if rate limiting fails
-            logger.warning(f"Falling back to direct execution for {phase_name}")
-            return self._execute_with_streaming(crew, phase_name)
+            # If rate limiting is disabled, use direct execution
+            if not self.rate_limiter:
+                logger.info(f"Executing {phase_name} without rate limiting")
+                result = self._execute_with_streaming(crew, phase_name)
+            else:
+                # Use asyncio to run the rate-limited execution
+                import asyncio
+
+                async def execute_with_rate_limiting():
+                    if self.rate_limiter is None:
+                        raise RuntimeError("Rate limiter not initialized")
+                    return await self.rate_limiter.execute_crew_with_rate_limiting(
+                        crew=crew,
+                        inputs={
+                            'topic': self.flow_state.topic or '',
+                            'current_year': self.flow_state.current_year or datetime.now().year
+                        },
+                        phase_name=phase_name,
+                        max_retries=config.rate_limit.max_retries
+                    )
+
+                # Run the async function
+                try:
+                    # Check if we can get the current event loop
+                    try:
+                        loop = asyncio.get_event_loop()
+                        # If we're in a thread pool executor context, we don't have a running loop
+                        # even though get_event_loop() succeeds
+                        if loop.is_running():
+                            # This means we're truly in an async context, not a thread pool
+                            # Create a new event loop in a thread
+                            import concurrent.futures
+                            import threading
+
+                            result_container = []
+                            exception_container = []
+
+                            def run_in_new_loop():
+                                try:
+                                    new_loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(new_loop)
+                                    result_val = new_loop.run_until_complete(execute_with_rate_limiting())
+                                    result_container.append(result_val)
+                                except Exception as exc:
+                                    exception_container.append(exc)
+                                finally:
+                                    new_loop.close()
+
+                            thread = threading.Thread(target=run_in_new_loop)
+                            thread.start()
+                            thread.join(timeout=300)  # 5 minute timeout
+
+                            if exception_container:
+                                raise exception_container[0]
+                            if result_container:
+                                result = result_container[0]
+                            else:
+                                raise TimeoutError(f"Rate-limited execution timed out for {phase_name}")
+                        else:
+                            result = asyncio.run(execute_with_rate_limiting())
+                    except RuntimeError:
+                        # No event loop in current thread, safe to use asyncio.run
+                        result = asyncio.run(execute_with_rate_limiting())
+                except Exception as exc:
+                    logger.error(f"Rate-limited execution failed for {phase_name}: {exc}")
+                    # Fallback to direct execution if rate limiting fails
+                    logger.warning(f"Falling back to direct execution for {phase_name}")
+                    result = self._execute_with_streaming(crew, phase_name)
+        finally:
+            event_listener.unregister_run(crew)
+
+        return result
     
     def _execute_with_streaming(self, crew, phase_name: str) -> Any:
-        """Execute crew with content streaming support and CrewAI stdout capture"""
+        """Execute crew with content streaming support alongside event callbacks."""
         import threading
-        import time
         
         try:
             # Get the task manager for streaming
             from core.task_manager import task_manager
-            
+
             # Set up content streaming for this task
             if hasattr(self, 'blog_id') and self.blog_id:
                 asyncio.create_task(task_manager.setup_content_streaming(self.blog_id))
-            
-            # Define CrewAI event callback for stdout capture
-            def crewai_event_callback(event):
-                """Handle parsed CrewAI stdout events"""
-                try:
-                    event_type = event.get('type')
-                    data = event.get('data', {})
-                    
-                    if event_type == 'agent_thinking':
-                        agent_name = data.get('agent_name', f"{phase_name.title()} Agent")
-                        thought = data.get('thought', 'Processing...')
-                        logger.info(f"🧠 Captured agent thinking: {agent_name} - {thought}")
-                        self.status_manager.send_agent_thinking(agent_name, thought)
-                        
-                    elif event_type == 'tool_usage':
-                        tool_name = data.get('tool_name', 'Unknown Tool')
-                        agent_name = f"{phase_name.title()} Agent"
-                        logger.info(f"🔧 Captured tool usage: {tool_name}")
-                        self.status_manager.send_tool_usage(agent_name, tool_name, "")
-                        
-                    elif event_type == 'tool_input':
-                        tool_input = data.get('input', '')
-                        logger.info(f"📥 Captured tool input: {tool_input}")
-                        
-                    elif event_type == 'observation':
-                        result = data.get('result', '')
-                        agent_name = f"{phase_name.title()} Agent"
-                        logger.info(f"👁️ Captured observation: {result[:100]}...")
-                        self.status_manager.send_agent_thinking(agent_name, f"Received: {result[:100]}...")
-                        
-                    elif event_type == 'final_answer':
-                        answer = data.get('answer', '')
-                        agent_name = f"{phase_name.title()} Agent"
-                        logger.info(f"✅ Captured final answer: {answer[:100]}...")
-                        self.status_manager.send_agent_thinking(agent_name, f"Completed: {answer[:50]}...")
-                        
-                    elif event_type == 'delegation':
-                        delegate_to = data.get('delegate_to', '')
-                        agent_name = f"{phase_name.title()} Agent"
-                        logger.info(f"👥 Captured delegation: {delegate_to}")
-                        self.status_manager.send_agent_thinking(agent_name, f"Delegating to: {delegate_to}")
-                        
-                    elif event_type == 'error':
-                        error = data.get('error', '')
-                        agent_name = f"{phase_name.title()} Agent"
-                        logger.error(f"❌ Captured error: {error}")
-                        
-                except Exception as e:
-                    logger.error(f"Error processing CrewAI event: {e}")
-            
-            # Start periodic updates in a background thread
+
+            # Start periodic updates in a background thread to complement event callbacks
             execution_complete = threading.Event()
             update_thread = threading.Thread(
                 target=self._send_periodic_updates_during_execution,
@@ -323,24 +296,22 @@ class BlogGenerationFlow(Flow):
             )
             update_thread.daemon = True
             update_thread.start()
-            
-            # Execute the crew with stdout capture for real-time visibility
-            logger.info(f"🚀 Starting CrewAI execution with stdout capture for {phase_name}")
+
+            logger.info(f"🚀 Starting CrewAI execution for {phase_name}")
             try:
-                with capture_crewai_output(crewai_event_callback):
-                    result = crew.kickoff()
+                result = crew.kickoff()
             finally:
                 # Signal completion to stop updates
                 execution_complete.set()
-                update_thread.join(timeout=1)  # Wait briefly for update thread to finish
-            
+                update_thread.join(timeout=1)
+
             # Stream the result based on phase
             if hasattr(self, 'blog_id') and self.blog_id:
                 self._stream_phase_result(phase_name, result)
-            
+
             logger.info(f"✅ CrewAI execution completed for {phase_name}")
             return result
-            
+
         except Exception as e:
             logger.error(f"Error in crew execution for {phase_name}: {e}")
             # Fallback to basic execution
@@ -373,7 +344,6 @@ class BlogGenerationFlow(Flow):
     def _send_periodic_updates_during_execution(self, phase_name: str, execution_complete):
         """Send realistic updates while crew is executing"""
         import threading
-        import time
         
         logger.info(f"🔄 Starting periodic updates for phase: {phase_name}")
         
@@ -810,14 +780,17 @@ class BlogGenerationFlow(Flow):
     # Phases -----------------------------------------------------------
     @start()
     def initialize_flow(self) -> Dict[str, Any]:  # Phase 0
-        self.flow_state.current_phase = "initialization"
-        self._update_audit_phase("initialization")
+        self._begin_phase(
+            "initialization",
+            step=1,
+            status_message="Initializing blog generation...",
+            detail="Preparing context",
+        )
         if not self.flow_state.current_year:
             self.flow_state.current_year = datetime.now().year
         # Auto-generate topic if missing
         if not self.flow_state.topic:
             self._auto_generate_topic()
-        self._status("Initializing blog generation...", step=1, detail="Preparing context")
         return {
             "topic": self.flow_state.topic,
             "current_year": self.flow_state.current_year,
@@ -828,11 +801,10 @@ class BlogGenerationFlow(Flow):
     @listen(initialize_flow)
     def research_phase(self, init_data: Dict[str, Any]) -> Dict[str, Any]:  # Phase 1
         self._require_topic()
-        self.flow_state.current_phase = "research"
-        self._update_audit_phase("research")
-        self._status(
-            f"Researching '{self.flow_state.topic}'...",
+        self._begin_phase(
+            "research",
             step=2,
+            status_message=f"Researching '{self.flow_state.topic}'...",
             detail="Collecting sources",
         )
         
@@ -928,9 +900,12 @@ class BlogGenerationFlow(Flow):
     @listen(research_phase)
     def content_generation_phase(self, research_data: Dict[str, Any]) -> Dict[str, Any]:  # Phase 2
         self._require_topic()
-        self.flow_state.current_phase = "content_generation"
-        self._update_audit_phase("content_generation")
-        self._status("Generating draft content...", step=3, detail="Authoring with images")
+        self._begin_phase(
+            "content_generation",
+            step=3,
+            status_message="Generating draft content...",
+            detail="Authoring with images",
+        )
         
         # Enhanced content generation messaging - Strategic Planning
         self.status_manager.send_agent_thinking(
@@ -1049,8 +1024,17 @@ class BlogGenerationFlow(Flow):
     def content_validation_phase(self, content_data: Dict[str, Any]) -> Dict[str, Any]:  # Phase 2.5
         """Validate and clean content to ensure proper image tool usage."""
         self._require_topic()
-        self._status("Validating content...", step=3, detail="Checking image sources")
-        self._update_audit_phase("content_validation")
+        self._begin_phase(
+            "content_validation",
+            step=3,
+            status_message="Validating content...",
+            detail="Checking image sources",
+        )
+
+        self.status_manager.send_agent_thinking(
+            agent_name="Content Validation Specialist",
+            thought="Evaluating draft for deprecated image links, markdown integrity, and tool compliance before fact-checking.",
+        )
         
         try:
             initial_content = content_data.get("initial_content", "")
@@ -1112,9 +1096,12 @@ class BlogGenerationFlow(Flow):
     @listen(content_validation_phase)
     def fact_checking_phase(self, content_data: Dict[str, Any]) -> Dict[str, Any]:  # Phase 3
         self._require_topic()
-        self.flow_state.current_phase = "fact_checking"
-        self._update_audit_phase("fact_checking")
-        self._status("Fact-checking content...", step=4, detail="Verifying claims")
+        self._begin_phase(
+            "fact_checking",
+            step=4,
+            status_message="Fact-checking content...",
+            detail="Verifying claims",
+        )
         
         # Enhanced fact-checking initialization
         self.status_manager.send_agent_thinking(
@@ -1332,9 +1319,12 @@ ENHANCED ENFORCEMENT MEASURES:
     @listen(fact_checking_phase)
     def finalization_phase(self, verified_content: Dict[str, Any]) -> Dict[str, Any]:  # Phase 4
         self._require_topic()
-        self.flow_state.current_phase = "finalization"
-        self._update_audit_phase("finalization")
-        self._status("Finalizing blog post...", step=5, detail="Polishing output")
+        self._begin_phase(
+            "finalization",
+            step=5,
+            status_message="Finalizing blog post...",
+            detail="Polishing output",
+        )
         
         # Phase 1 Foundation: Enhanced real-time messaging - Agent Planning
         self.status_manager.send_agent_thinking(

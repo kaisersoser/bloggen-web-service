@@ -202,10 +202,36 @@ class ContextAwareAuditCallbackHandler(CustomLogger):
             model = kwargs.get('model', 'unknown')
             phase = current_phase.get("unknown")
             request_id = current_request_id.get("unknown")
-            
+            user_id = current_user_id.get("unknown")
+
+            # Fallback to global registry when context vars are missing (thread pool execution)
+            if request_id == "unknown" or phase == "unknown":
+                registry_data = _get_audit_tracker_from_registry()
+                if registry_data:
+                    phase = registry_data.get('phase', phase)
+                    request_id = registry_data.get('request_id', request_id)
+                    user_id = registry_data.get('user_id', user_id)
+
             self.logger.warning(
-                f"LLM API call failed: {model} in phase {phase} for request {request_id}"
+                f"LLM API call failed: {model} in phase {phase} for request {request_id} (user {user_id})"
             )
+            
+            # Optional: track failure if audit tracker available
+            registry_data = _get_audit_tracker_from_registry()
+            audit_tracker = current_audit_tracker.get(None)
+            if not audit_tracker and registry_data:
+                audit_tracker = registry_data.get('audit_tracker')
+            if audit_tracker and hasattr(audit_tracker, 'log_error'):
+                try:
+                    error_payload = getattr(getattr(response_obj, 'error', None), 'message', None)
+                    error_message = error_payload or getattr(response_obj, 'error', 'unknown')
+                    audit_tracker.log_error(  # type: ignore
+                        model=model,
+                        phase=phase,
+                        error=str(error_message)
+                    )
+                except Exception as track_err:
+                    self.logger.debug(f"Failed to record API error in audit tracker: {track_err}")
         except LookupError:
             self.logger.warning("API call failed but no context available")
 

@@ -168,7 +168,26 @@ async def lifespan(app: FastAPI):
     # Connect managers to TaskManager for real-time updates
     task_manager.set_redis_manager(redis_manager)
     task_manager.set_content_streaming_manager(content_streaming_manager)
+    task_manager.set_message_buffer(message_buffer)
     logger.info("✅ Redis and Content Streaming managers connected to TaskManager")
+
+    # Start TaskManager cleanup service
+    try:
+        await task_manager.start_cleanup_service()
+    except Exception as cleanup_err:
+        logger.error(f"❌ Failed to start TaskManager cleanup service: {cleanup_err}")
+
+    # Warm Redis cache with active task state
+    try:
+        restored = await task_manager.warm_cache_from_database()
+        logger.info(
+            "🔥 Task cache warmup complete: total=%s queued=%s in_progress=%s",
+            restored.get("total", 0),
+            restored.get("queued", 0),
+            restored.get("in_progress", 0),
+        )
+    except Exception as warm_err:
+        logger.warning(f"Task cache warmup skipped due to error: {warm_err}")
 
     # Initialize S3 cleanup queue
     try:
@@ -192,6 +211,20 @@ async def lifespan(app: FastAPI):
         logger.info("✅ S3 cleanup queue shutdown complete")
     except Exception as e:
         logger.warning(f"S3 cleanup queue shutdown error: {e}")
+
+    # Stop TaskManager cleanup service
+    try:
+        stats = task_manager.get_cleanup_stats()
+        await task_manager.stop_cleanup_service()
+        logger.info(
+            "🧮 TaskManager cleanup summary: cycles=%s expired=%s redis=%s buffers=%s",
+            stats.get("cycles", 0),
+            stats.get("expired_tasks", 0),
+            stats.get("redis_keys_removed", 0),
+            stats.get("buffers_pruned", 0),
+        )
+    except Exception as cleanup_err:
+        logger.warning(f"TaskManager cleanup service shutdown error: {cleanup_err}")
     
     # Disconnect Redis
     try:
@@ -1519,7 +1552,8 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                 logger.info(f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars")
 
         # End the audit session AFTER hero image to include its cost
-        await audit_tracker.end_session()
+        if audit_tracker:
+            await audit_tracker.end_session()
         
         logger.info(f"✅ Blog generation completed for task {task_id}")
         
