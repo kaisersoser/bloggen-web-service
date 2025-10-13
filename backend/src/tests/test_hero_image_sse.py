@@ -1,3 +1,4 @@
+# flake8: noqa
 import json
 import os
 from datetime import datetime
@@ -16,6 +17,7 @@ class DummyCreds:
 def _make_jwt(user_id: str = "user_test"):
     import jwt
     import time
+
     secret = os.getenv("NEXTAUTH_SECRET")
     if not secret:
         raise ValueError("NEXTAUTH_SECRET environment variable is required")
@@ -23,7 +25,9 @@ def _make_jwt(user_id: str = "user_test"):
         "sub": user_id,
         "email": f"{user_id}@example.com",
         "role": "PREMIUM",
-        "iat": int(time.time())  # Use time.time() instead of datetime.utcnow().timestamp()
+        "iat": int(
+            time.time()
+        ),  # Use time.time() instead of datetime.utcnow().timestamp()
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -45,7 +49,7 @@ def test_hero_image_stream_early(monkeypatch):
     resp = client.post(
         "/generate-blog",
         headers={"Authorization": f"Bearer {token}"},
-        json={"instructions": "Write a brief tech blog about async Python."}
+        json={"instructions": "Write a brief tech blog about async Python."},
     )
     assert resp.status_code == 200, resp.text
     task_id = resp.json()["task_id"]
@@ -56,10 +60,10 @@ def test_hero_image_stream_early(monkeypatch):
         for line in stream.iter_lines():
             if not line.startswith("data: "):
                 continue
-            payload = json.loads(line[len("data: "):])
-            if 'hero_image_url' in payload and not hero_seen:
+            payload = json.loads(line[len("data: ") :])
+            if "hero_image_url" in payload and not hero_seen:
                 hero_seen = True
-            if payload.get('status') == 'completed':
+            if payload.get("status") == "completed":
                 completion_seen = True
                 break
         assert hero_seen, "Expected hero_image_url before completion"

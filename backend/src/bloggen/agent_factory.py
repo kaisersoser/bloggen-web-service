@@ -17,35 +17,41 @@ logger = logging.getLogger(__name__)
 
 class AgentFactory:
     """Factory for creating specialized AI agents for blog generation."""
-    
+
     @staticmethod
     def _create_llm(model_name: str) -> LLM:
         """Create an LLM object with proper configuration for any model provider.
-        
+
         The model_name should include the provider prefix (e.g., 'gemini/model', 'openai/model')
         as specified in the environment configuration.
         """
         # Extract provider from model name to determine which API key to use
-        if '/' in model_name:
-            provider = model_name.split('/')[0].lower()
+        if "/" in model_name:
+            provider = model_name.split("/")[0].lower()
         else:
-            provider = 'openai'  # Default to OpenAI for backwards compatibility
-            
-        if provider == 'gemini':
+            provider = "openai"  # Default to OpenAI for backwards compatibility
+
+        if provider == "gemini":
             return LLM(model=model_name, api_key=config.api.google_key)
-        elif provider in ['openai', 'gpt']:
+        elif provider in ["openai", "gpt"]:
             return LLM(model=model_name, api_key=config.api.openai_key)
         else:
             # For other providers, rely on environment variables or default configuration
             return LLM(model=model_name)
-    
+
     @staticmethod
-    def create_researcher(tools: List[Any], current_year: Optional[int] = None) -> Agent:
+    def create_researcher(
+        tools: List[Any], current_year: Optional[int] = None
+    ) -> Agent:
         """Create a research agent for gathering information."""
-        year_context = f" It is currently {current_year}, and you must focus on the most current developments and trends as of this year." if current_year else ""
+        year_context = (
+            f" It is currently {current_year}, and you must focus on the most current developments and trends as of this year."
+            if current_year
+            else ""
+        )
         return Agent(
-            role='Senior Researcher',
-            goal='Uncover cutting-edge developments and insights in the given topic',
+            role="Senior Researcher",
+            goal="Uncover cutting-edge developments and insights in the given topic",
             verbose=True,
             backstory=f"""You work at a leading tech think tank.
             Your expertise lies in identifying emerging trends and analyzing complex topics.
@@ -53,16 +59,22 @@ class AgentFactory:
             into valuable insights that drive strategic decisions.{year_context}""",
             tools=tools,
             allow_delegation=False,
-            llm=AgentFactory._create_llm(config.models.research_model)
+            llm=AgentFactory._create_llm(config.models.research_model),
         )
-    
+
     @staticmethod
-    def create_content_creator(tools: List[Any], current_year: Optional[int] = None) -> Agent:
+    def create_content_creator(
+        tools: List[Any], current_year: Optional[int] = None
+    ) -> Agent:
         """Create a content creation agent for writing blog posts."""
-        year_context = f" It is currently {current_year}, and you should write content that reflects the current state of technology and industry trends as of this year." if current_year else ""
+        year_context = (
+            f" It is currently {current_year}, and you should write content that reflects the current state of technology and industry trends as of this year."
+            if current_year
+            else ""
+        )
         return Agent(
-            role='Tech Content Creator & Visual Storyteller',
-            goal='Transform research insights into compelling, visually-rich blog content with 2-3 strategically placed, highly relevant images using intelligent tool selection',
+            role="Tech Content Creator & Visual Storyteller",
+            goal="Transform research insights into compelling, visually-rich blog content with 2-3 strategically placed, highly relevant images using intelligent tool selection",
             verbose=True,
             backstory=f"""You are a seasoned tech content creator who understands that great blog posts 
             combine excellent writing with HIGHLY RELEVANT visuals. Your expertise lies in creating content 
@@ -116,16 +128,22 @@ class AgentFactory:
             the most relevant images whether from Unsplash's photo collection or AI generation.""",
             tools=tools,
             allow_delegation=False,
-            llm=AgentFactory._create_llm(config.models.content_model)
+            llm=AgentFactory._create_llm(config.models.content_model),
         )
-    
+
     @staticmethod
-    def create_fact_checker(tools: List[Any], current_year: Optional[int] = None) -> Agent:
+    def create_fact_checker(
+        tools: List[Any], current_year: Optional[int] = None
+    ) -> Agent:
         """Create a fact-checking agent for verifying content accuracy with live web validation."""
-        year_context = f" It is currently {current_year}, and you must ensure all information is up-to-date and relevant to this year." if current_year else ""
+        year_context = (
+            f" It is currently {current_year}, and you must ensure all information is up-to-date and relevant to this year."
+            if current_year
+            else ""
+        )
         return Agent(
-            role='Senior Fact Checker',
-            goal='Verify the accuracy of claims and ensure content credibility',
+            role="Senior Fact Checker",
+            goal="Verify the accuracy of claims and ensure content credibility",
             verbose=True,
             backstory=f"""You are a meticulous fact-checker with years of experience in
             journalism and content verification. Your sharp eye for detail and commitment to
@@ -133,16 +151,20 @@ class AgentFactory:
             credibility and reliability.{year_context}""",
             tools=tools,  # Provide web search tools for live source re-validation
             allow_delegation=False,
-            llm=AgentFactory._create_llm(config.models.fact_check_model)
+            llm=AgentFactory._create_llm(config.models.fact_check_model),
         )
-    
+
     @staticmethod
     def create_finalizer(current_year: Optional[int] = None) -> Agent:
         """Create a finalization agent for polishing content."""
-        year_context = f" It is currently {current_year}, and you should ensure the final content reflects current industry standards and trends." if current_year else ""
+        year_context = (
+            f" It is currently {current_year}, and you should ensure the final content reflects current industry standards and trends."
+            if current_year
+            else ""
+        )
         return Agent(
-            role='Editorial Finalizer',
-            goal='Polish content to publication standards with perfect formatting',
+            role="Editorial Finalizer",
+            goal="Polish content to publication standards with perfect formatting",
             verbose=True,
             backstory=f"""You are an experienced editor who specializes in preparing content
             for publication. Your expertise lies in refining structure, improving readability,
@@ -150,5 +172,5 @@ class AgentFactory:
             deliver content that engages readers from start to finish.{year_context}""",
             tools=[],
             allow_delegation=False,
-            llm=AgentFactory._create_llm(config.models.finalization_model)
+            llm=AgentFactory._create_llm(config.models.finalization_model),
         )

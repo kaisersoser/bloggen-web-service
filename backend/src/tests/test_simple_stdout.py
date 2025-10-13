@@ -1,3 +1,4 @@
+# flake8: noqa
 """Legacy stdout capture tests retired in favor of native CrewAI callbacks."""
 
 import pytest

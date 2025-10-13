@@ -1,4 +1,6 @@
+# flake8: noqa
 """Tests for topic generation utility."""
+
 from bloggen.topic_utils import generate_concise_topic
 
 

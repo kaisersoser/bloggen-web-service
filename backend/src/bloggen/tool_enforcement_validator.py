@@ -7,7 +7,7 @@ for generating images, preventing hallucination of fake Unsplash URLs.
 
 import re
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ImageValidationResult:
     """Result of image URL validation"""
+
     is_valid: bool
     total_images: int
     valid_images: int
@@ -28,116 +29,130 @@ class ToolEnforcementValidator:
     Validates that all images in content come from actual tool calls,
     preventing agent hallucination of fake URLs.
     """
-    
+
     def __init__(self):
         # Track actual tool calls made during execution
         self.tool_calls_made: List[Dict[str, Any]] = []
         self.generated_image_urls: List[str] = []
-    
+
     def register_tool_call(self, tool_name: str, result: str, **kwargs) -> None:
         """Register an actual tool call and its result"""
-        self.tool_calls_made.append({
-            'tool_name': tool_name,
-            'result': result,
-            'kwargs': kwargs,
-            'timestamp': __import__('time').time()
-        })
-        
+        self.tool_calls_made.append(
+            {
+                "tool_name": tool_name,
+                "result": result,
+                "kwargs": kwargs,
+                "timestamp": __import__("time").time(),
+            }
+        )
+
         # Extract image URLs from tool results
-        if tool_name in ['unsplash_image_search', 'openai_image_generate']:
+        if tool_name in ["unsplash_image_search", "openai_image_generate"]:
             image_urls = self._extract_image_urls_from_result(result)
             self.generated_image_urls.extend(image_urls)
             logger.info(f"✅ Registered {len(image_urls)} images from {tool_name}")
-    
+
     def validate_content_images(self, content: str) -> ImageValidationResult:
         """
         Validate that all images in content come from actual tool calls
-        
+
         Args:
             content: The generated blog content to validate
-            
+
         Returns:
             ImageValidationResult with validation details
         """
         # Extract all image URLs from content
         content_images = self._extract_image_urls_from_content(content)
-        
+
         # Check minimum image count requirement (2-3 images)
         errors = []
         if len(content_images) < 2:
-            errors.append(f"Insufficient images: {len(content_images)} found, minimum 2 required")
+            errors.append(
+                f"Insufficient images: {len(content_images)} found, minimum 2 required"
+            )
         elif len(content_images) > 3:
-            errors.append(f"Too many images: {len(content_images)} found, maximum 3 recommended")
-        
+            errors.append(
+                f"Too many images: {len(content_images)} found, maximum 3 recommended"
+            )
+
         if not content_images:
             return ImageValidationResult(
                 is_valid=False,
                 total_images=0,
                 valid_images=0,
                 invalid_images=[],
-                errors=errors
+                errors=errors,
             )
-        
+
         # Check each image URL against registered tool calls
         invalid_images = []
-        
+
         for image_url in content_images:
             if not self._is_url_from_tool_call(image_url):
                 invalid_images.append(image_url)
                 errors.append(f"Image URL not from tool call: {image_url[:100]}...")
-        
+
         valid_count = len(content_images) - len(invalid_images)
-        is_valid = len(invalid_images) == 0 and len(content_images) >= 2 and len(content_images) <= 3
-        
+        is_valid = (
+            len(invalid_images) == 0
+            and len(content_images) >= 2
+            and len(content_images) <= 3
+        )
+
         result = ImageValidationResult(
             is_valid=is_valid,
             total_images=len(content_images),
             valid_images=valid_count,
             invalid_images=invalid_images,
-            errors=errors
+            errors=errors,
         )
-        
+
         if not is_valid:
-            logger.warning(f"❌ Content validation failed: {len(invalid_images)} invalid images")
+            logger.warning(
+                f"❌ Content validation failed: {len(invalid_images)} invalid images"
+            )
             for error in errors:
                 logger.warning(f"   - {error}")
         else:
-            logger.info(f"✅ Content validation passed: {len(content_images)} valid images")
-        
+            logger.info(
+                f"✅ Content validation passed: {len(content_images)} valid images"
+            )
+
         return result
-    
+
     def _extract_image_urls_from_content(self, content: str) -> List[str]:
         """Extract all image URLs from markdown content"""
         # Pattern for markdown images: ![alt](url "optional title")
         pattern = r'!\[([^\]]*)\]\(([^)]+)(?:\s+"([^"]*)")?\)'
         matches = re.findall(pattern, content)
         return [url.split()[0] for alt, url, title in matches]  # Split to handle titles
-    
+
     def _extract_image_urls_from_result(self, result: str) -> List[str]:
         """Extract image URLs from tool call result"""
         return self._extract_image_urls_from_content(result)
-    
+
     def _is_url_from_tool_call(self, url: str) -> bool:
         """Check if URL was generated by an actual tool call"""
         # Clean URLs for comparison (remove query parameters for basic match)
-        clean_url = url.split('?')[0]
-        
+        clean_url = url.split("?")[0]
+
         for generated_url in self.generated_image_urls:
-            clean_generated = generated_url.split('?')[0]
+            clean_generated = generated_url.split("?")[0]
             if clean_url == clean_generated or url == generated_url:
                 return True
-        
+
         return False
-    
+
     def get_enforcement_summary(self) -> Dict[str, Any]:
         """Get summary of tool enforcement for debugging"""
         return {
-            'tool_calls_made': len(self.tool_calls_made),
-            'tools_used': [call['tool_name'] for call in self.tool_calls_made],
-            'images_generated': len(self.generated_image_urls),
-            'generated_urls': self.generated_image_urls[:3]  # First 3 for logging
+            "tool_calls_made": len(self.tool_calls_made),
+            "tools_used": [call["tool_name"] for call in self.tool_calls_made],
+            "images_generated": len(self.generated_image_urls),
+            "generated_urls": self.generated_image_urls[:3],  # First 3 for logging
         }
-    
+
     def create_enforcement_prompt_addition(self) -> str:
         """Create additional prompt text to strongly enforce tool usage"""
         return """

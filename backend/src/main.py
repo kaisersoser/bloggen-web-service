@@ -15,91 +15,60 @@ Key Features:
 """
 
 import asyncio
-import uuid
+import gc
 import json
 import os
-from datetime import datetime
-from typing import Optional, Dict, Any
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any, Dict, Optional
 
-# Load environment variables first
-from dotenv import load_dotenv
-import os
-# Load .env from the backend directory (one level up from src/)
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
-
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
-import uvicorn
-
-# OpenAI for title generation
 import openai
+import uvicorn
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 
-# Context variables for request isolation
+from config.protocol_config import get_protocol_config
+from core.config import config, get_cors_origins
+from core.content_streaming_manager import content_streaming_manager
 from core.context_vars import (
-    set_request_context,
+    current_audit_tracker,
     set_audit_context,
+    set_request_context,
     update_phase,
-    get_request_context,
-    current_request_id,
-    current_user_id,
-    current_audit_tracker
 )
-
-# Enhanced SSE message types for real-time AI workflow visualization
+from core.database_service import database_service
+from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
+from core.error_responses import (
+    create_auth_error,
+    create_error_response,
+    create_system_error,
+    create_validation_error,
+    error_response_to_http_exception,
+    handle_database_error,
+)
+from core.logging_utils import setup_api_logger
+from core.llm_interceptor import setup_llm_interceptor
+from core.message_buffer import RedisMessageBuffer
+from core.redis_manager import redis_manager
+from core.resource_cleanup import (
+    CleanupReason,
+    cleanup_manager,
+    register_database_transaction,
+)
+from core.s3_cleanup_queue import cleanup_queue_shutdown, get_cleanup_queue
 from core.sse_message_types import (
-    BaseSSEMessage,
+    create_completed_message,
+    create_error_message,
+    create_initializing_message,
     create_status_message,
     create_task_created_message,
-    create_initializing_message,
-    create_agent_thinking_message,
-    create_tool_call_message,
-    create_content_stream_message,
-    create_research_finding_message,
-    create_completed_message,
-    create_error_message
 )
+from core.task_manager import task_manager
 
-# Core imports
-from core.config import config, get_cors_origins
-from core.llm_interceptor import setup_llm_interceptor
-from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker  # unified import
-from core.logging_utils import setup_api_logger
-
-from core.redis_manager import redis_manager
-from core.message_buffer import RedisMessageBuffer
-from core.content_streaming_manager import content_streaming_manager
-from config.protocol_config import get_protocol_config, is_https_mode
-
-# Error management and cleanup
-from core.error_responses import (
-    ErrorResponse,
-    ERROR_CATALOG,
-    create_error_response,
-    create_auth_error,
-    create_validation_error,
-    create_rate_limit_error,
-    create_openai_error,
-    create_database_error,
-    create_system_error,
-    error_response_to_http_exception,
-    handle_openai_error,
-    handle_database_error,
-    handle_validation_error
-)
-from core.resource_cleanup import (
-    cleanup_manager,
-    register_redis_subscription,
-    register_crewai_flow,
-    register_database_transaction,
-    register_temp_file,
-    CleanupReason
-)
-
-# Blog generation
 from bloggen.flows import BlogGenerationFlow
 from bloggen.topic_utils import generate_concise_topic
 
@@ -110,6 +79,7 @@ from bloggen.topic_utils import generate_concise_topic
 # FastAPI Application Setup with Lifespan Events
 # =============================================================================
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -118,36 +88,58 @@ async def lifespan(app: FastAPI):
     # Startup
     # Ensure logger initialized (may not yet be assigned at import time in some execution orders)
     global logger
-    if 'logger' not in globals() or logger is None:
+    if "logger" not in globals() or logger is None:
         try:
             from core.logging_utils import setup_api_logger as _setup_logger
+
             logger = _setup_logger("main")  # type: ignore
         except Exception:
             # Fallback basic logger
             import logging as _logging
+
             logger = _logging.getLogger("main")  # type: ignore
             if not logger.handlers:
                 _handler = _logging.StreamHandler()
-                _handler.setFormatter(_logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+                _handler.setFormatter(
+                    _logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+                )
                 logger.addHandler(_handler)
             logger.setLevel(_logging.INFO)
 
     logger.info("🚀 Starting FastAPI Blog Generation Service")
-    
+
     # Set up LLM interceptor with context variables
     setup_llm_interceptor()
     logger.info("✅ Context-aware LLM interceptor initialized")
-    
+
+    # Initialize shared database service pool
+    try:
+        await database_service.initialize(config.database.url)
+        logger.info("✅ Database service connection pool initialized")
+    except Exception as db_err:
+        logger.error(f"❌ Failed to initialize database service: {db_err}")
+        raise
+
     # Patch historical serper_api zero-cost entries (best-effort)
     try:
+
         async def _pool_provider():
-            tracker = EnhancedDatabaseAuditTracker(session_type="startup_patch", user_id="system", blog_id=None)
+            tracker = EnhancedDatabaseAuditTracker(
+                session_type="startup_patch", user_id="system", blog_id=None
+            )
             return await tracker._get_database_connection()  # type: ignore
-        updated = await EnhancedDatabaseAuditTracker.patch_serper_api_costs(_pool_provider)
+
+        updated = await EnhancedDatabaseAuditTracker.patch_serper_api_costs(
+            _pool_provider
+        )
         if updated:
-            logger.info(f"🔧 Patched {updated} historical serper_api call(s) to cost 0.001")
+            logger.info(
+                f"🔧 Patched {updated} historical serper_api call(s) to cost 0.001"
+            )
         # Normalize legacy phase names to current canonical phases
-        phase_updates = await EnhancedDatabaseAuditTracker.normalize_phase_names(_pool_provider)
+        phase_updates = await EnhancedDatabaseAuditTracker.normalize_phase_names(
+            _pool_provider
+        )
         if phase_updates:
             logger.info(f"🔧 Normalized legacy phase names: {phase_updates}")
     except Exception as e:
@@ -191,22 +183,20 @@ async def lifespan(app: FastAPI):
 
     # Initialize S3 cleanup queue
     try:
-        from core.s3_cleanup_queue import get_cleanup_queue
-        cleanup_queue = await get_cleanup_queue()
+        await get_cleanup_queue()
         logger.info("✅ S3 cleanup queue initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize S3 cleanup queue: {e}")
 
     logger.info("✅ FastAPI application startup complete")
-    
+
     yield  # Application runs here
-    
+
     # Shutdown
     logger.info("🛑 Shutting down FastAPI Blog Generation Service")
-    
+
     # Shutdown S3 cleanup queue
     try:
-        from core.s3_cleanup_queue import cleanup_queue_shutdown
         await cleanup_queue_shutdown()
         logger.info("✅ S3 cleanup queue shutdown complete")
     except Exception as e:
@@ -225,33 +215,40 @@ async def lifespan(app: FastAPI):
         )
     except Exception as cleanup_err:
         logger.warning(f"TaskManager cleanup service shutdown error: {cleanup_err}")
-    
+
     # Disconnect Redis
     try:
         await redis_manager.disconnect()
         logger.info("✅ Redis connection closed")
     except Exception as e:
         logger.warning(f"Redis shutdown error: {e}")
-    
+
+    # Close database service pool before tearing down other resources
+    try:
+        await database_service.close()
+        logger.info("✅ Database service connection pool closed")
+    except Exception as db_close_err:
+        logger.warning(f"Database service shutdown error: {db_close_err}")
+
         # Close database connection pools
     try:
         # Close all active database connections
-        from core.database_manager import DatabaseConnectionManager
-        from core.direct_audit_database import DirectSupabaseAuditManager
-        
         # Force close any remaining database pools (best effort)
-        import gc
         for obj in gc.get_objects():
-            if hasattr(obj, 'pool') and obj.pool and hasattr(obj.pool, 'close'):
+            if hasattr(obj, "pool") and obj.pool and hasattr(obj.pool, "close"):
                 try:
                     await obj.pool.close()
                     logger.info(f"✅ Closed database pool from {type(obj).__name__}")
-                except:
-                    pass
-        
+                except Exception:
+                    logger.debug(
+                        "Database pool cleanup failed for %s", type(obj).__name__,
+                        exc_info=True,
+                    )
+
         logger.info("✅ Database connections cleanup completed")
     except Exception as e:
         logger.warning(f"Database cleanup error: {e}")
+
 
 app = FastAPI(
     title="CrewAI Blog Generation Service",
@@ -259,7 +256,7 @@ app = FastAPI(
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # CORS configuration
@@ -271,12 +268,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
-
-# Global state for task tracking (will be replaced with Redis later)
-# active_tasks: Dict[str, Dict[str, Any]] = {}  # DEPRECATED: Using database-backed task manager
-
-# Import task manager for database-backed state
-from core.task_manager import task_manager
 
 # Global message buffer for early message capture
 message_buffer: Optional[RedisMessageBuffer] = None
@@ -291,33 +282,51 @@ security = HTTPBearer()
 # Pydantic Models
 # =============================================================================
 
+
 class BlogGenerationRequest(BaseModel):
     """Request model for blog generation.
 
     topic becomes optional; if absent/blank, the backend will auto-generate
     a topic from provided instructions (leveraging flow auto-topic logic).
     """
-    topic: Optional[str] = Field(None, max_length=200, description="Blog topic (optional; auto-generated if omitted)")
-    instructions: Optional[str] = Field(None, max_length=2000, description="Full user + config built instructions")
+
+    topic: Optional[str] = Field(
+        None,
+        max_length=200,
+        description="Blog topic (optional; auto-generated if omitted)",
+    )
+    instructions: Optional[str] = Field(
+        None, max_length=2000, description="Full user + config built instructions"
+    )
     task_id: Optional[str] = Field(None, description="Optional task ID")
+
 
 class BlogGenerationResponse(BaseModel):
     """Response model for blog generation."""
+
     task_id: str
     status: str
     message: str
 
+
 class TitleGenerationRequest(BaseModel):
     """Request model for title generation."""
-    instructions: str = Field(..., min_length=3, max_length=500, description="Blog instructions")
+
+    instructions: str = Field(
+        ..., min_length=3, max_length=500, description="Blog instructions"
+    )
+
 
 class TitleGenerationResponse(BaseModel):
     """Response model for title generation."""
+
     title: str
     success: bool = True
 
+
 class TaskStatus(BaseModel):
     """Task status model."""
+
     id: str
     topic: str
     status: str
@@ -329,17 +338,23 @@ class TaskStatus(BaseModel):
     user_email: str
     user_role: str
 
+
 class User(BaseModel):
     """User model for authentication."""
+
     id: str
     email: str
     role: str
+
 
 # =============================================================================
 # Authentication Dependencies (Simplified for now)
 # =============================================================================
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> User:
     """
     Get current authenticated user from JWT token.
     Validates JWT tokens using the NEXTAUTH_SECRET.
@@ -347,29 +362,31 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     try:
         import jwt
         import os
-        
+
         # Get the secret key (same as used by NextAuth.js)
         secret = os.getenv("NEXTAUTH_SECRET")
         if not secret:
             raise error_response_to_http_exception(
-                create_system_error("auth_config", "NEXTAUTH_SECRET environment variable is required")
+                create_system_error(
+                    "auth_config", "NEXTAUTH_SECRET environment variable is required"
+                )
             )
-        
+
         # Decode and validate the JWT token
         payload = jwt.decode(credentials.credentials, secret, algorithms=["HS256"])
-        
+
         # Extract user information from the token
         user_id = payload.get("sub")
         email = payload.get("email", "unknown@example.com")
         role = payload.get("role", "FREE")
-        
+
         if not user_id:
             raise error_response_to_http_exception(
                 create_auth_error("AUTH_INVALID", "Missing user ID in token")
             )
-        
+
         return User(id=user_id, email=email, role=role)
-        
+
     except jwt.ExpiredSignatureError:
         raise error_response_to_http_exception(
             create_auth_error("AUTH_EXPIRED", "JWT token has expired")
@@ -387,6 +404,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             create_auth_error("AUTH_REQUIRED", f"Authentication failed: {str(e)}")
         )
 
+
 async def get_current_user_from_query_token(token: str) -> User:
     """
     Get current authenticated user from JWT token passed as query parameter.
@@ -395,29 +413,31 @@ async def get_current_user_from_query_token(token: str) -> User:
     try:
         import jwt
         import os
-        
+
         # Get the secret key (same as used by NextAuth.js)
         secret = os.getenv("NEXTAUTH_SECRET")
         if not secret:
             raise error_response_to_http_exception(
-                create_system_error("auth_config", "NEXTAUTH_SECRET environment variable is required")
+                create_system_error(
+                    "auth_config", "NEXTAUTH_SECRET environment variable is required"
+                )
             )
-        
+
         # Decode and validate the JWT token
         payload = jwt.decode(token, secret, algorithms=["HS256"])
-        
+
         # Extract user information from the token
         user_id = payload.get("sub")
         email = payload.get("email", "unknown@example.com")
         role = payload.get("role", "FREE")
-        
+
         if not user_id:
             raise error_response_to_http_exception(
                 create_auth_error("AUTH_INVALID", "Missing user ID in token")
             )
-        
+
         return User(id=user_id, email=email, role=role)
-        
+
     except jwt.ExpiredSignatureError:
         raise error_response_to_http_exception(
             create_auth_error("AUTH_EXPIRED", "JWT token has expired")
@@ -435,6 +455,7 @@ async def get_current_user_from_query_token(token: str) -> User:
             create_auth_error("AUTH_REQUIRED", f"Authentication failed: {str(e)}")
         )
 
+
 # =============================================================================
 # Startup and Shutdown Events - REMOVED (using lifespan instead)
 # =============================================================================
@@ -445,50 +466,60 @@ async def get_current_user_from_query_token(token: str) -> User:
 # API Endpoints
 # =============================================================================
 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     import time
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "epoch": int(time.time())}
+
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "epoch": int(time.time()),
+    }
+
 
 @app.post("/generate-task-id")
-async def generate_task_id(
-    user: User = Depends(get_current_user)
-) -> dict:
+async def generate_task_id(user: User = Depends(get_current_user)) -> dict:
     """
     Generate a unique task ID for pre-establishing SSE connections.
-    
+
     This endpoint allows the frontend to get a task ID before starting
     blog generation, enabling early SSE connection establishment to
     capture all notification messages including early ones.
     """
     task_id = str(uuid.uuid4())
-    
+
     # SOLUTION 2: Start message buffering immediately for this task
     if message_buffer:
         await message_buffer.start_buffering(task_id)
-        logger.info(f"🆔 Generated pre-task ID {task_id} for user {user.email} with message buffering enabled")
+        logger.info(
+            f"🆔 Generated pre-task ID {task_id} for user {user.email} with message buffering enabled"
+        )
     else:
-        logger.info(f"🆔 Generated pre-task ID {task_id} for user {user.email} (buffering unavailable)")
-    
+        logger.info(
+            f"🆔 Generated pre-task ID {task_id} for user {user.email} (buffering unavailable)"
+        )
+
     return {"task_id": task_id}
+
 
 @app.post("/generate-blog", response_model=BlogGenerationResponse)
 async def generate_blog(
     request: BlogGenerationRequest,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ) -> BlogGenerationResponse:
     """
     Start async blog generation with perfect request isolation and comprehensive error handling.
-    
+
     This endpoint:
     1. Creates isolated context for this request
     2. Validates input parameters with structured error responses
     3. Registers resources for cleanup management
     4. Starts background blog generation task
     5. Returns task ID for tracking
-    
+
     The context variables ensure that all OpenAI API calls made during
     blog generation are correctly attributed to this user and session.
     """
@@ -496,42 +527,44 @@ async def generate_blog(
     task_id = request.task_id or str(uuid.uuid4())
     request_id = str(uuid.uuid4())
     correlation_id = str(uuid.uuid4())[:8]
-    
+
     # DEBUG: Log task ID handling
-    logger.info(f"🆔 Task ID handling: request.task_id={request.task_id}, final task_id={task_id}")
+    logger.info(
+        f"🆔 Task ID handling: request.task_id={request.task_id}, final task_id={task_id}"
+    )
     if request.task_id:
         logger.info(f"✅ Using provided task ID: {request.task_id}")
     else:
         logger.info(f"🆔 Generated new task ID: {task_id}")
-    
+
     try:
         # Register task for cleanup management
-        cleanup_context = await cleanup_manager.register_task(task_id)
-        
+        await cleanup_manager.register_task(task_id)
+
         # Validate input parameters
         normalized_topic = (request.topic or "").strip() or None
         normalized_instructions = (request.instructions or "").strip() or None
-        
+
         # Topic length validation (if provided)
         if normalized_topic and len(normalized_topic) > 200:
             raise error_response_to_http_exception(
                 create_validation_error(
-                    "topic", 
+                    "topic",
                     f"Topic too long ({len(normalized_topic)}/200 characters)",
-                    correlation_id
+                    correlation_id,
                 )
             )
-        
+
         # Instructions validation
         if normalized_instructions and len(normalized_instructions) > 2000:
             raise error_response_to_http_exception(
                 create_validation_error(
                     "instructions",
                     f"Instructions too long ({len(normalized_instructions)}/2000 characters)",
-                    correlation_id
+                    correlation_id,
                 )
             )
-        
+
         # Set request context for this async task tree
         set_request_context(
             request_id=request_id,
@@ -540,76 +573,90 @@ async def generate_blog(
             user_email=user.email,
             user_role=user.role,
             blog_id=task_id,  # Use task_id as blog_id
-            topic=normalized_topic or "<auto>"
+            topic=normalized_topic or "<auto>",
         )
-        
+
         # Create task record in database instead of memory
         try:
             await task_manager.create_task(
-                task_id, 
-                user.id, 
-                normalized_topic or '<auto-generating>', 
-                normalized_instructions
+                task_id,
+                user.id,
+                normalized_topic or "<auto-generating>",
+                normalized_instructions,
             )
         except Exception as e:
             logger.error(f"Failed to create task in database: {e}")
             raise handle_database_error(e, "create_task", correlation_id)
-        
+
         # Send immediate initialization status for SSE streams
         if task_manager._redis_manager:
             try:
                 # Send task creation notification
                 task_created_message = create_task_created_message(
                     task_id=task_id,
-                    message=f"Blog generation task created for topic: {normalized_topic or 'auto-generating'}"
+                    message=f"Blog generation task created for topic: {normalized_topic or 'auto-generating'}",
                 )
-                
+
                 # SOLUTION 2: Buffer message if SSE not connected yet
                 if message_buffer and await message_buffer.is_buffering(task_id):
-                    await message_buffer.buffer_message(task_id, f"sse_immediate:{task_id}", task_created_message.to_dict())
-                
-                await task_manager._redis_manager.publish_immediate_message(task_id, task_created_message.to_dict())
-                
+                    await message_buffer.buffer_message(
+                        task_id,
+                        f"sse_immediate:{task_id}",
+                        task_created_message.to_dict(),
+                    )
+
+                await task_manager._redis_manager.publish_immediate_message(
+                    task_id, task_created_message.to_dict()
+                )
+
                 # Send immediate initialization status update with 10% progress
                 init_status_message = {
-                    'message_type': 'status',
-                    'task_id': task_id,
-                    'status': 'in_progress',
-                    'message': 'Initializing blog generation...',
-                    'progress': 10,  # 10% as per user's request
-                    'current_step': 'Step 1/5: Initialization',
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'correlation_id': correlation_id
+                    "message_type": "status",
+                    "task_id": task_id,
+                    "status": "in_progress",
+                    "message": "Initializing blog generation...",
+                    "progress": 10,  # 10% as per user's request
+                    "current_step": "Step 1/5: Initialization",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "correlation_id": correlation_id,
                 }
-                
+
                 # SOLUTION 2: Buffer initialization message if SSE not connected yet
                 if message_buffer and await message_buffer.is_buffering(task_id):
-                    await message_buffer.buffer_message(task_id, f"sse_immediate:{task_id}", init_status_message)
-                
-                await task_manager._redis_manager.publish_immediate_message(task_id, init_status_message)
-                logger.info(f"🚀 Sent immediate init status with 10% progress for task {task_id}")
-                
+                    await message_buffer.buffer_message(
+                        task_id, f"sse_immediate:{task_id}", init_status_message
+                    )
+
+                await task_manager._redis_manager.publish_immediate_message(
+                    task_id, init_status_message
+                )
+                logger.info(
+                    f"🚀 Sent immediate init status with 10% progress for task {task_id}"
+                )
+
             except Exception as e:
                 logger.warning(f"Failed to send initial SSE messages: {e}")
                 # Don't fail the request for SSE issues - continue without real-time updates
-        
+
         # Start background blog generation
         background_tasks.add_task(
             async_blog_generation,
             task_id=task_id,
             topic=normalized_topic,  # may be None for auto-generation
             user_id=user.id,
-            instructions=normalized_instructions
+            instructions=normalized_instructions,
         )
-        
-        logger.info(f"🚀 Blog generation started: {task_id} for user {user.id} (correlation: {correlation_id})")
-        
+
+        logger.info(
+            f"🚀 Blog generation started: {task_id} for user {user.id} (correlation: {correlation_id})"
+        )
+
         return BlogGenerationResponse(
             task_id=task_id,
             status="queued",
-            message="Blog generation started. Connect to SSE stream for real-time updates."
+            message="Blog generation started. Connect to SSE stream for real-time updates.",
         )
-        
+
     except HTTPException:
         # Clean up resources if initialization failed
         await cleanup_manager.cleanup_task(task_id, CleanupReason.ERROR)
@@ -622,42 +669,53 @@ async def generate_blog(
             create_system_error("blog_generation_init", str(e), correlation_id)
         )
 
+
 @app.get("/tasks/active")
 async def get_active_tasks(user: User = Depends(get_current_user)) -> Dict[str, Any]:
     """Get all active tasks for the current user."""
     from core.task_manager import TaskStatus
-    
+
     # Get in-progress tasks from database
-    in_progress_tasks = await task_manager.get_user_tasks(user.id, TaskStatus.IN_PROGRESS)
+    in_progress_tasks = await task_manager.get_user_tasks(
+        user.id, TaskStatus.IN_PROGRESS
+    )
     queued_tasks = await task_manager.get_user_tasks(user.id, TaskStatus.QUEUED)
-    
+
     user_tasks = []
     all_active_tasks = in_progress_tasks + queued_tasks
-    
+
     for task_data in all_active_tasks:
-        user_tasks.append({
-            "id": task_data.get('id', ''),
-            "topic": task_data.get('topic', ''),
-            "status": task_data.get('status', '').lower(),  # Convert ENUM to lowercase
-            "created_at": task_data.get('created_at', '').isoformat() if task_data.get('created_at') else '',
-            "current_step": task_data.get('current_step', ''),
-            "result": task_data.get('content'),  # 'result' maps to 'content' in DB
-            "error": task_data.get('error'),
-            "user_id": task_data.get('user_id', ''),
-            "user_email": user.email,  # Get from current user
-            "user_role": user.role     # Get from current user
-        })
-    
+        user_tasks.append(
+            {
+                "id": task_data.get("id", ""),
+                "topic": task_data.get("topic", ""),
+                "status": task_data.get(
+                    "status", ""
+                ).lower(),  # Convert ENUM to lowercase
+                "created_at": (
+                    task_data.get("created_at", "").isoformat()
+                    if task_data.get("created_at")
+                    else ""
+                ),
+                "current_step": task_data.get("current_step", ""),
+                "result": task_data.get("content"),  # 'result' maps to 'content' in DB
+                "error": task_data.get("error"),
+                "user_id": task_data.get("user_id", ""),
+                "user_email": user.email,  # Get from current user
+                "user_role": user.role,  # Get from current user
+            }
+        )
+
     return {"tasks": user_tasks}
+
 
 @app.get("/tasks/{task_id}")
 async def get_task_status(
-    task_id: str,
-    user: User = Depends(get_current_user)
+    task_id: str, user: User = Depends(get_current_user)
 ) -> TaskStatus:
     """Get the status of a specific task with structured error handling."""
     correlation_id = str(uuid.uuid4())[:8]
-    
+
     try:
         task = await task_manager.get_task(task_id)
         if not task:
@@ -666,39 +724,39 @@ async def get_task_status(
                     "TASK_NOT_FOUND",
                     user_message="The requested task could not be found.",
                     technical_details=f"Task ID {task_id} not found in database",
-                    correlation_id=correlation_id
+                    correlation_id=correlation_id,
                 )
             )
-        
+
         # Check if user owns this task (or is admin)
-        if task['user_id'] != user.id and user.role != 'ADMIN':
+        if task["user_id"] != user.id and user.role != "ADMIN":
             raise error_response_to_http_exception(
                 create_error_response(
                     "INSUFFICIENT_PERMISSIONS",
                     user_message="You don't have permission to access this task.",
                     technical_details=f"User {user.id} attempted to access task {task_id} owned by {task['user_id']}",
-                    correlation_id=correlation_id
+                    correlation_id=correlation_id,
                 )
             )
-        
+
         # Convert database task to TaskStatus format
         task_status = {
-            'id': task['id'],
-            'topic': task['topic'],
-            'status': task['status'].lower() if task['status'] else 'queued',
-            'created_at': task['created_at'].isoformat() if task['created_at'] else '',
-            'current_step': task['current_step'],
-            'result': task['content'],
-            'error': task['error'],
-            'user_id': task['user_id'],
-            'user_email': user.email,
-            'user_role': user.role,
-            'request_id': task_id,  # Use task_id as request_id
-            'instructions': task['instructions']
+            "id": task["id"],
+            "topic": task["topic"],
+            "status": task["status"].lower() if task["status"] else "queued",
+            "created_at": task["created_at"].isoformat() if task["created_at"] else "",
+            "current_step": task["current_step"],
+            "result": task["content"],
+            "error": task["error"],
+            "user_id": task["user_id"],
+            "user_email": user.email,
+            "user_role": user.role,
+            "request_id": task_id,  # Use task_id as request_id
+            "instructions": task["instructions"],
         }
-        
+
         return TaskStatus(**task_status)
-        
+
     except HTTPException:
         # Re-raise structured errors
         raise
@@ -706,39 +764,44 @@ async def get_task_status(
         logger.error(f"Error retrieving task {task_id}: {e}")
         raise handle_database_error(e, "get_task", correlation_id)
 
+
 @app.get("/stream/{task_id}")
 async def stream_task(task_id: str, token: str):
     """SSE stream for a specific task with Redis pub/sub support."""
     # Authenticate via query token
     user = await get_current_user_from_query_token(token)
-    
+
     # SOLUTION 1 & 2: Support pre-generated task IDs with message buffering
     # Check if this is a pre-generated task ID with active message buffering
     buffer_exists = False
     if message_buffer:
         buffer_exists = await message_buffer._check_buffer_exists(task_id)
-    
+
     # Handle race condition: task might not exist yet if SSE connection is made immediately after creation
     task = await task_manager.get_task(task_id)
     retry_count = 0
     max_retries = 5
-    
+
     # For pre-generated task IDs, allow SSE connection even if task doesn't exist yet
     while not task and not buffer_exists and retry_count < max_retries:
-        logger.info(f"Task {task_id} not found, retrying in 0.5s (attempt {retry_count + 1}/{max_retries})")
+        logger.info(
+            f"Task {task_id} not found, retrying in 0.5s (attempt {retry_count + 1}/{max_retries})"
+        )
         await asyncio.sleep(0.5)
         task = await task_manager.get_task(task_id)
         # Also check for buffer existence on each retry
         if message_buffer:
             buffer_exists = await message_buffer._check_buffer_exists(task_id)
         retry_count += 1
-    
+
     # Allow connection if either task exists OR buffer exists (pre-generated task ID)
     if not task and not buffer_exists:
-        raise HTTPException(status_code=404, detail="Task not found and no buffer exists")
-    
+        raise HTTPException(
+            status_code=404, detail="Task not found and no buffer exists"
+        )
+
     # For existing tasks, check user permissions
-    if task and task['user_id'] != user.id and user.role != 'ADMIN':
+    if task and task["user_id"] != user.id and user.role != "ADMIN":
         raise HTTPException(status_code=403, detail="Access denied")
 
     async def event_generator():
@@ -748,7 +811,7 @@ async def stream_task(task_id: str, token: str):
         last_sent_hero = None
         sent_initialization = False
         redis_pubsub = None
-        
+
         try:
             # Immediately send connection acknowledgment
             connection_message = {
@@ -756,25 +819,35 @@ async def stream_task(task_id: str, token: str):
                 "message_type": "connected",
                 "task_id": task_id,
                 "message": "SSE connection established",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
             yield f"data: {json.dumps(connection_message)}\n\n"
-            
+
             # Try to set up Redis pub/sub subscription
             redis_pubsub = None
-            if task_manager._redis_manager and hasattr(task_manager._redis_manager, 'redis_client') and task_manager._redis_manager.redis_client:
+            if (
+                task_manager._redis_manager
+                and hasattr(task_manager._redis_manager, "redis_client")
+                and task_manager._redis_manager.redis_client
+            ):
                 try:
                     redis_pubsub = task_manager._redis_manager.redis_client.pubsub()
-                    
+
                     # Subscribe to BOTH channels for complete message coverage
                     task_updates_channel = f"task_updates:{task_id}"
                     sse_immediate_channel = f"sse_immediate:{task_id}"
-                    
+
                     # Set timeout for Redis operations
-                    await asyncio.wait_for(redis_pubsub.subscribe(task_updates_channel), timeout=5.0)
-                    await asyncio.wait_for(redis_pubsub.subscribe(sse_immediate_channel), timeout=5.0)
-                    logger.info(f"📡 SSE subscribed to Redis channels: {task_updates_channel}, {sse_immediate_channel}")
-                    
+                    await asyncio.wait_for(
+                        redis_pubsub.subscribe(task_updates_channel), timeout=5.0
+                    )
+                    await asyncio.wait_for(
+                        redis_pubsub.subscribe(sse_immediate_channel), timeout=5.0
+                    )
+                    logger.info(
+                        f"📡 SSE subscribed to Redis channels: {task_updates_channel}, {sse_immediate_channel}"
+                    )
+
                     # SOLUTION 2: Wait for flow to start before flushing buffer
                     if message_buffer:
                         try:
@@ -783,236 +856,305 @@ async def stream_task(task_id: str, token: str):
                             timeout_seconds = 5.0
                             check_interval = 0.2
                             elapsed = 0.0
-                            
-                            logger.info(f"⏳ Waiting for CrewAI flow to start before flushing buffer...")
+
+                            logger.info(
+                                "⏳ Waiting for CrewAI flow to start before flushing buffer..."
+                            )
                             while not flow_started and elapsed < timeout_seconds:
                                 # Check if flow has started by looking for flow status marker
                                 flow_status_key = f"flow_status:{task_id}"
                                 redis_manager = task_manager._redis_manager
                                 if redis_manager and redis_manager.redis_client:
-                                    flow_status = await redis_manager.redis_client.get(flow_status_key)
+                                    flow_status = await redis_manager.redis_client.get(
+                                        flow_status_key
+                                    )
                                     if flow_status == "started":
                                         flow_started = True
-                                        logger.info(f"✅ Flow started, flushing buffer now...")
+                                        logger.info(
+                                            "✅ Flow started, flushing buffer now..."
+                                        )
                                         break
-                                
+
                                 await asyncio.sleep(check_interval)
                                 elapsed += check_interval
-                            
+
                             if not flow_started:
-                                logger.info(f"⏰ Timeout waiting for flow start, flushing buffer anyway...")
-                            
+                                logger.info(
+                                    "⏰ Timeout waiting for flow start, flushing buffer anyway..."
+                                )
+
                             # Flush buffer now that flow has started (or timeout reached)
-                            buffered_messages = await message_buffer.flush_buffered_messages(task_id)
+                            buffered_messages = (
+                                await message_buffer.flush_buffered_messages(task_id)
+                            )
                             if buffered_messages:
-                                logger.info(f"📤 Replaying {len(buffered_messages)} buffered messages for task {task_id}")
+                                logger.info(
+                                    f"📤 Replaying {len(buffered_messages)} buffered messages for task {task_id}"
+                                )
                                 for buffered_msg in buffered_messages:
                                     # Send each buffered message to the SSE stream
                                     replay_data = buffered_msg.message_data.copy()
-                                    replay_data['replayed'] = True
-                                    replay_data['buffer_timestamp'] = buffered_msg.timestamp
+                                    replay_data["replayed"] = True
+                                    replay_data["buffer_timestamp"] = (
+                                        buffered_msg.timestamp
+                                    )
                                     yield f"data: {json.dumps(replay_data)}\n\n"
-                                    logger.info(f"📤 Replayed {buffered_msg.message_type} message (buffered at {buffered_msg.timestamp})")
+                                    logger.info(
+                                        f"📤 Replayed {buffered_msg.message_type} message (buffered at {buffered_msg.timestamp})"
+                                    )
                             else:
-                                logger.info(f"📦 No buffered messages found for task {task_id}")
+                                logger.info(
+                                    f"📦 No buffered messages found for task {task_id}"
+                                )
                         except Exception as buffer_err:
-                            logger.error(f"❌ Failed to flush buffered messages for task {task_id}: {buffer_err}")
-                    
+                            logger.error(
+                                f"❌ Failed to flush buffered messages for task {task_id}: {buffer_err}"
+                            )
+
                 except asyncio.TimeoutError:
-                    logger.warning(f"Redis subscription timeout for task {task_id}, falling back to database polling")
+                    logger.warning(
+                        f"Redis subscription timeout for task {task_id}, falling back to database polling"
+                    )
                     if redis_pubsub:
                         try:
                             await redis_pubsub.close()
                         except Exception as close_error:
-                            logger.error(f"Error closing failed Redis pubsub: {close_error}")
+                            logger.error(
+                                f"Error closing failed Redis pubsub: {close_error}"
+                            )
                     redis_pubsub = None
                 except Exception as e:
-                    logger.warning(f"Redis subscription failed, falling back to database polling: {e}")
+                    logger.warning(
+                        f"Redis subscription failed, falling back to database polling: {e}"
+                    )
                     if redis_pubsub:
                         try:
                             await redis_pubsub.close()
                         except Exception as close_error:
-                            logger.error(f"Error closing failed Redis pubsub: {close_error}")
+                            logger.error(
+                                f"Error closing failed Redis pubsub: {close_error}"
+                            )
                     redis_pubsub = None
-            
+
             # Send initial task state
             current_task = await task_manager.get_task(task_id)
             if not current_task:
                 logger.error(f"Task {task_id} not found for SSE stream")
                 return
-            
+
             # Helper function to send task updates
             def send_update(task_data):
                 nonlocal last_sent_status, last_sent_step, last_sent_progress, last_sent_hero, sent_initialization
-                
-                status = task_data.get('status', '').lower()
-                step = task_data.get('current_step')
+
+                status = task_data.get("status", "").lower()
+                step = task_data.get("current_step")
                 # Ensure progress is a number (handle both string and number from Redis)
-                progress_raw = task_data.get('progress', 0)
+                progress_raw = task_data.get("progress", 0)
                 progress = float(progress_raw) if progress_raw is not None else 0
-                hero_url = task_data.get('hero_image_url')
-                
+                hero_url = task_data.get("hero_image_url")
+
                 # Debug logging for SSE progress values
-                logger.info(f"📡 SSE {task_id}: Sending progress {progress}% (raw: {progress_raw}, step: {step})")
-                
+                logger.info(
+                    f"📡 SSE {task_id}: Sending progress {progress}% (raw: {progress_raw}, step: {step})"
+                )
+
                 # Send initialization message once when task starts
-                if not sent_initialization and status in ['started', 'in_progress']:
+                if not sent_initialization and status in ["started", "in_progress"]:
                     sent_initialization = True  # Mark initialization as sent
                     init_message = create_initializing_message(
                         task_id=task_id,
                         phase="Blog Generation",
                         message="Initializing AI blog generation workflow...",
-                        progress=0.0
+                        progress=0.0,
                     )
                     return f"data: {json.dumps(init_message.to_dict())}\n\n"
-                
+
                 # Create appropriate message type based on status
-                if status == 'completed':
-                    final_content = task_data.get('content')
-                    generation_time = task_data.get('generation_time')
+                if status == "completed":
+                    final_content = task_data.get("content")
+                    generation_time = task_data.get("generation_time")
                     message = create_completed_message(
                         task_id=task_id,
                         final_content=final_content,
-                        generation_time=generation_time
+                        generation_time=generation_time,
                     )
-                elif status == 'failed':
-                    error_details = task_data.get('error', 'Unknown error occurred')
+                elif status == "failed":
+                    error_details = task_data.get("error", "Unknown error occurred")
                     message = create_error_message(
-                        task_id=task_id,
-                        error_msg=error_details,
-                        recoverable=False
+                        task_id=task_id, error_msg=error_details, recoverable=False
                     )
                 else:
                     # Regular status update
                     message = create_status_message(
                         task_id=task_id,
                         status=status,
-                        message=task_data.get('message', f"Status: {status}"),
+                        message=task_data.get("message", f"Status: {status}"),
                         step=step,
-                        progress=progress
+                        progress=progress,
                     )
-                
+
                 # Add hero image information if available
                 payload = message.to_dict()
                 if hero_url:
-                    payload['hero_image_url'] = hero_url
-                
+                    payload["hero_image_url"] = hero_url
+
                 # Update tracking variables
                 last_sent_status = status
                 last_sent_step = step
                 last_sent_progress = progress
                 last_sent_hero = hero_url
-                
+
                 return f"data: {json.dumps(payload)}\n\n"
-            
+
             # Send current task status immediately
             update = send_update(current_task)
             if update:
                 yield update
-            
+
             # Main update loop - Redis if available, otherwise database polling
             if redis_pubsub:
-                logger.info(f"📡 Using Redis pub/sub for real-time updates")
+                logger.info("📡 Using Redis pub/sub for real-time updates")
                 # Redis listening loop with reasonable timeout for complex blog generation
                 keepalive_counter = 0
-                timeout_seconds = 420  # 7 minutes - reasonable for complex blogs with fact-checking
+                timeout_seconds = (
+                    420  # 7 minutes - reasonable for complex blogs with fact-checking
+                )
                 start_time = datetime.utcnow()
-                logger.info(f"🕐 Redis listener started with {timeout_seconds}s timeout for task {task_id}")
-                
+                logger.info(
+                    f"🕐 Redis listener started with {timeout_seconds}s timeout for task {task_id}"
+                )
+
                 async for message in redis_pubsub.listen():
                     # Check timeout with better logging
                     elapsed_seconds = (datetime.utcnow() - start_time).total_seconds()
                     if elapsed_seconds > timeout_seconds:
-                        logger.warning(f"⏰ Redis listener timeout for task {task_id} after {elapsed_seconds:.1f}s (limit: {timeout_seconds}s)")
+                        logger.warning(
+                            f"⏰ Redis listener timeout for task {task_id} after {elapsed_seconds:.1f}s (limit: {timeout_seconds}s)"
+                        )
                         break
-                        
-                    if message['type'] == 'message':
+
+                    if message["type"] == "message":
                         try:
-                            # Parse Redis message 
-                            redis_data = json.loads(message['data'].decode('utf-8'))
-                            message_type = redis_data.get('message_type', redis_data.get('type', 'unknown'))
-                            logger.info(f"📨 Redis update for {task_id}: {message_type} (elapsed: {elapsed_seconds:.1f}s)")
-                            
+                            # Parse Redis message
+                            redis_data = json.loads(message["data"].decode("utf-8"))
+                            message_type = redis_data.get(
+                                "message_type", redis_data.get("type", "unknown")
+                            )
+                            logger.info(
+                                f"📨 Redis update for {task_id}: {message_type} (elapsed: {elapsed_seconds:.1f}s)"
+                            )
+
                             # CRITICAL FIX: Handle ALL message types from Redis, not just completion/error
                             # Forward Redis messages directly to frontend SSE with minimal processing
-                            
-                            if message_type == 'completed':
+
+                            if message_type == "completed":
                                 # Handle completion messages with special processing
-                                logger.info(f"🔍 RAW REDIS COMPLETION MESSAGE:")
-                                logger.info(f"   redis_data keys: {list(redis_data.keys())}")
-                                logger.info(f"   final_content: {redis_data.get('final_content', 'MISSING')[:100] if redis_data.get('final_content') else 'EMPTY'}")
-                                logger.info(f"   content: {redis_data.get('content', 'MISSING')[:100] if redis_data.get('content') else 'EMPTY'}")
-                                
+                                logger.info("🔍 RAW REDIS COMPLETION MESSAGE:")
+                                logger.info(
+                                    f"   redis_data keys: {list(redis_data.keys())}"
+                                )
+                                logger.info(
+                                    f"   final_content: {redis_data.get('final_content', 'MISSING')[:100] if redis_data.get('final_content') else 'EMPTY'}"
+                                )
+                                logger.info(
+                                    f"   content: {redis_data.get('content', 'MISSING')[:100] if redis_data.get('content') else 'EMPTY'}"
+                                )
+
                                 # Use the Redis message content directly - no database query needed
-                                final_content = redis_data.get('final_content', '')
-                                hero_image_url = redis_data.get('hero_image_url')
-                                
-                                logger.info(f"🔍 EXTRACTED CONTENT LENGTH: {len(final_content)}")
-                                
+                                final_content = redis_data.get("final_content", "")
+                                hero_image_url = redis_data.get("hero_image_url")
+
+                                logger.info(
+                                    f"🔍 EXTRACTED CONTENT LENGTH: {len(final_content)}"
+                                )
+
                                 # Create completion message with Redis data
                                 completion_task_data = {
-                                    'status': 'completed',
-                                    'current_step': 'Blog generation completed successfully!',
-                                    'progress': 100,
-                                    'message': f'Blog generation completed ({len(final_content)} words)',
-                                    'task_id': task_id,
-                                    'content': final_content,
-                                    'hero_image_url': hero_image_url
+                                    "status": "completed",
+                                    "current_step": "Blog generation completed successfully!",
+                                    "progress": 100,
+                                    "message": f"Blog generation completed ({len(final_content)} words)",
+                                    "task_id": task_id,
+                                    "content": final_content,
+                                    "hero_image_url": hero_image_url,
                                 }
-                                
+
                                 # Send the completion message immediately
                                 final_update = send_update(completion_task_data)
                                 if final_update:
-                                    logger.info(f"🔍 EXACT SSE COMPLETION MESSAGE: {final_update[:500]}...")
+                                    logger.info(
+                                        f"🔍 EXACT SSE COMPLETION MESSAGE: {final_update[:500]}..."
+                                    )
                                     yield final_update
-                                logger.info(f"✅ Sent completion with content ({len(final_content)} chars) for {task_id}")
-                                
+                                logger.info(
+                                    f"✅ Sent completion with content ({len(final_content)} chars) for {task_id}"
+                                )
+
                                 # Add a small delay to ensure frontend receives the completion message
-                                logger.info(f"⏳ Waiting 5 seconds for completion message delivery for {task_id}")
+                                logger.info(
+                                    f"⏳ Waiting 5 seconds for completion message delivery for {task_id}"
+                                )
                                 await asyncio.sleep(5)
-                                logger.info(f"✅ Completion message delivery delay completed for {task_id}")
+                                logger.info(
+                                    f"✅ Completion message delivery delay completed for {task_id}"
+                                )
                                 break
-                                
-                            elif message_type == 'error':
+
+                            elif message_type == "error":
                                 # Handle error completion
                                 error_task_data = {
-                                    'status': 'failed',
-                                    'current_step': 'Generation failed',
-                                    'progress': 0,
-                                    'message': redis_data.get('error_msg', 'Unknown error'),
-                                    'task_id': task_id,
-                                    'error': redis_data.get('error_msg', 'Unknown error')
+                                    "status": "failed",
+                                    "current_step": "Generation failed",
+                                    "progress": 0,
+                                    "message": redis_data.get(
+                                        "error_msg", "Unknown error"
+                                    ),
+                                    "task_id": task_id,
+                                    "error": redis_data.get(
+                                        "error_msg", "Unknown error"
+                                    ),
                                 }
-                                
+
                                 final_update = send_update(error_task_data)
                                 if final_update:
                                     yield final_update
-                                
-                                logger.info(f"⏳ Waiting 5 seconds for error message delivery for {task_id}")
+
+                                logger.info(
+                                    f"⏳ Waiting 5 seconds for error message delivery for {task_id}"
+                                )
                                 await asyncio.sleep(5)
-                                logger.info(f"✅ Error message delivery delay completed for {task_id}")
+                                logger.info(
+                                    f"✅ Error message delivery delay completed for {task_id}"
+                                )
                                 break
-                                
+
                             else:
                                 # CRITICAL FIX: Forward ALL other Redis messages directly to frontend
                                 # This includes: taskcreated, initializing, status, agent_thinking, tool_usage, etc.
-                                
+
                                 # Preserve the original Redis message structure and add SSE formatting
                                 sse_message = dict(redis_data)  # Copy all Redis data
-                                
+
                                 # Ensure required SSE fields are present
-                                if 'message_type' not in sse_message and 'type' in sse_message:
-                                    sse_message['message_type'] = sse_message['type']
-                                if 'task_id' not in sse_message:
-                                    sse_message['task_id'] = task_id
-                                if 'timestamp' not in sse_message:
-                                    sse_message['timestamp'] = datetime.utcnow().isoformat()
-                                
+                                if (
+                                    "message_type" not in sse_message
+                                    and "type" in sse_message
+                                ):
+                                    sse_message["message_type"] = sse_message["type"]
+                                if "task_id" not in sse_message:
+                                    sse_message["task_id"] = task_id
+                                if "timestamp" not in sse_message:
+                                    sse_message["timestamp"] = (
+                                        datetime.utcnow().isoformat()
+                                    )
+
                                 # Forward the complete Redis message to frontend
                                 sse_output = f"data: {json.dumps(sse_message)}\n\n"
-                                logger.info(f"📤 Forwarding {message_type} message to SSE: {str(sse_message)[:200]}...")
+                                logger.info(
+                                    f"📤 Forwarding {message_type} message to SSE: {str(sse_message)[:200]}..."
+                                )
                                 yield sse_output
-                            
+
                         except Exception as e:
                             logger.error(f"❌ Error processing Redis message: {e}")
                     else:
@@ -1021,48 +1163,48 @@ async def stream_task(task_id: str, token: str):
                         if keepalive_counter % 100 == 0:  # Every ~20-30 seconds
                             keepalive_message = {
                                 "type": "keepalive",
-                                "message_type": "keepalive", 
+                                "message_type": "keepalive",
                                 "task_id": task_id,
                                 "message": "Connection active (Redis mode)",
-                                "timestamp": datetime.utcnow().isoformat()
+                                "timestamp": datetime.utcnow().isoformat(),
                             }
                             yield f"data: {json.dumps(keepalive_message)}\n\n"
             else:
-                logger.info(f"📊 Using database polling")
+                logger.info("📊 Using database polling")
                 # Database polling loop
                 poll_count = 0
                 max_polls = 1500  # ~5 minutes at 0.2s intervals
-                
+
                 while poll_count < max_polls:
                     poll_count += 1
-                    
+
                     try:
                         current_task = await task_manager.get_task(task_id)
                         if not current_task:
                             break
-                        
-                        status = current_task.get('status', '').lower()
-                        step = current_task.get('current_step')
-                        progress = current_task.get('progress', 0)
-                        hero_url = current_task.get('hero_image_url')
-                        
+
+                        status = current_task.get("status", "").lower()
+                        step = current_task.get("current_step")
+                        progress = current_task.get("progress", 0)
+                        hero_url = current_task.get("hero_image_url")
+
                         # Check for changes
                         has_changes = (
-                            status != last_sent_status or
-                            step != last_sent_step or
-                            progress != last_sent_progress or
-                            hero_url != last_sent_hero
+                            status != last_sent_status
+                            or step != last_sent_step
+                            or progress != last_sent_progress
+                            or hero_url != last_sent_hero
                         )
-                        
+
                         if has_changes:
                             update = send_update(current_task)
                             if update:
                                 yield update
-                        
+
                         # Exit if complete
-                        if status in ['completed', 'failed']:
+                        if status in ["completed", "failed"]:
                             break
-                        
+
                         # Periodic keepalive
                         if poll_count % 50 == 0:  # Every ~10 seconds
                             keepalive_message = {
@@ -1070,25 +1212,25 @@ async def stream_task(task_id: str, token: str):
                                 "message_type": "keepalive",
                                 "task_id": task_id,
                                 "message": "Connection active (polling mode)",
-                                "timestamp": datetime.utcnow().isoformat()
+                                "timestamp": datetime.utcnow().isoformat(),
                             }
                             yield f"data: {json.dumps(keepalive_message)}\n\n"
-                        
+
                     except Exception as e:
                         logger.error(f"❌ Database polling error: {e}")
-                        
+
                     # Wait before next poll
                     await asyncio.sleep(0.2)
-                
+
                 # Timeout reached
                 timeout_message = {
                     "type": "timeout",
                     "task_id": task_id,
                     "message": "Stream timeout reached - refresh page to reconnect",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
                 }
                 yield f"data: {json.dumps(timeout_message)}\n\n"
-                
+
         except asyncio.CancelledError:
             logger.info(f"SSE stream cancelled for task {task_id}")
         except Exception as e:
@@ -1097,7 +1239,7 @@ async def stream_task(task_id: str, token: str):
                 "type": "error",
                 "task_id": task_id,
                 "message": f"Stream error: {str(e)}",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
             yield f"data: {json.dumps(error_message)}\n\n"
         finally:
@@ -1105,51 +1247,57 @@ async def stream_task(task_id: str, token: str):
             if redis_pubsub:
                 try:
                     logger.info(f"🔌 Closing Redis pubsub for task {task_id}")
-                    await asyncio.wait_for(redis_pubsub.unsubscribe(f"task_updates:{task_id}"), timeout=2.0)
+                    await asyncio.wait_for(
+                        redis_pubsub.unsubscribe(f"task_updates:{task_id}"), timeout=2.0
+                    )
                     await asyncio.wait_for(redis_pubsub.close(), timeout=2.0)
                     logger.info(f"✅ Redis pubsub closed for task {task_id}")
                 except asyncio.TimeoutError:
                     logger.error(f"❌ Timeout closing Redis pubsub for task {task_id}")
                 except Exception as cleanup_error:
-                    logger.error(f"❌ Error closing Redis pubsub for task {task_id}: {cleanup_error}")
+                    logger.error(
+                        f"❌ Error closing Redis pubsub for task {task_id}: {cleanup_error}"
+                    )
                 finally:
                     redis_pubsub = None
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "*",
-        "X-Accel-Buffering": "no",  # Disable Nginx buffering
-        "X-Content-Type-Options": "nosniff",
-        "Transfer-Encoding": "chunked"
-    })
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+            "X-Content-Type-Options": "nosniff",
+            "Transfer-Encoding": "chunked",
+        },
+    )
+
 
 @app.delete("/tasks/{task_id}")
-async def delete_task(
-    task_id: str,
-    user: User = Depends(get_current_user)
-):
+async def delete_task(task_id: str, user: User = Depends(get_current_user)):
     """Delete a task/blog (useful for cleaning up stuck or failed tasks)."""
     try:
         success = await task_manager.delete_task(task_id, user.id)
-        
+
         if not success:
-            raise HTTPException(status_code=404, detail="Task not found or access denied")
-        
+            raise HTTPException(
+                status_code=404, detail="Task not found or access denied"
+            )
+
         return {"message": "Task deleted successfully", "task_id": task_id}
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ Failed to delete task {task_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete task")
 
+
 @app.post("/tasks/{task_id}/acknowledge-completion")
-async def acknowledge_completion(
-    task_id: str,
-    user: User = Depends(get_current_user)
-):
+async def acknowledge_completion(task_id: str, user: User = Depends(get_current_user)):
     """
     Acknowledge that the frontend has received the blog completion.
     Part of the Enhanced Completion Protocol to prevent race conditions.
@@ -1157,39 +1305,43 @@ async def acknowledge_completion(
     try:
         # Verify the task belongs to the user
         task_result = await task_manager.get_task(task_id)
-        if not task_result or task_result.get('user_id') != user.id:
-            raise HTTPException(status_code=404, detail="Task not found or access denied")
-        
+        if not task_result or task_result.get("user_id") != user.id:
+            raise HTTPException(
+                status_code=404, detail="Task not found or access denied"
+            )
+
         # Send acknowledgment via Redis
         await redis_manager.send_completion_acknowledgment(task_id)
-        
-        logger.info(f"✅ Frontend acknowledged completion for task {task_id} by user {user.id}")
-        
+
+        logger.info(
+            f"✅ Frontend acknowledged completion for task {task_id} by user {user.id}"
+        )
+
         return {
             "message": "Completion acknowledgment received",
             "task_id": task_id,
-            "acknowledged": True
+            "acknowledged": True,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ Failed to acknowledge completion for task {task_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to acknowledge completion")
 
+
 @app.post("/generate-title", response_model=TitleGenerationResponse)
 async def generate_title(
-    request: TitleGenerationRequest,
-    user: User = Depends(get_current_user)
+    request: TitleGenerationRequest, user: User = Depends(get_current_user)
 ) -> TitleGenerationResponse:
     """
     Generate a concise blog title from blog instructions using OpenAI.
-    
+
     This endpoint:
     1. Takes blog instructions as input
     2. Uses OpenAI to generate a short, engaging title
     3. Returns the generated title with context variable isolation
-    
+
     The context variables ensure that API costs are properly tracked
     per user and session.
     """
@@ -1198,11 +1350,8 @@ async def generate_title(
         openai_api_key = config.api.openai_key
         if not openai_api_key:
             logger.error("OpenAI API key not found in configuration")
-            raise HTTPException(
-                status_code=500,
-                detail="OpenAI API key not configured"
-            )
-        
+            raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+
         # Set up context for this title generation request
         request_id = str(uuid.uuid4())
         set_request_context(
@@ -1212,9 +1361,9 @@ async def generate_title(
             user_email=user.email,
             user_role=user.role,
             blog_id=f"title_{request_id}",  # Use title task ID as blog_id
-            topic=f"Title: {request.instructions[:50]}..."
+            topic=f"Title: {request.instructions[:50]}...",
         )
-        
+
         # Generate concise topic using shared utility (handles heuristic + OpenAI refinement)
         final_title = generate_concise_topic(
             request.instructions,
@@ -1223,42 +1372,44 @@ async def generate_title(
         )
         logger.info(f"✅ Title generated for user {user.id}: {final_title}")
         return TitleGenerationResponse(title=final_title, success=True)
-        
+
     except openai.OpenAIError as e:
         logger.error(f"❌ OpenAI API error during title generation: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate title using AI"
-        )
+        raise HTTPException(status_code=500, detail="Failed to generate title using AI")
     except Exception as e:
         logger.error(f"❌ Unexpected error during title generation: {e}")
         raise HTTPException(
-            status_code=500,
-            detail="Internal error during title generation"
+            status_code=500, detail="Internal error during title generation"
         )
+
 
 # =============================================================================
 # Background Tasks
 # =============================================================================
 
-async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str, instructions: Optional[str] = None):
+
+async def async_blog_generation(
+    task_id: str, topic: Optional[str], user_id: str, instructions: Optional[str] = None
+):
     """
     Async blog generation with context preservation and comprehensive error handling.
-    
+
     This function runs as a FastAPI background task and maintains
     the request context throughout the blog generation process.
     """
     correlation_id = str(uuid.uuid4())[:8]
     cleanup_context = None
-    
+
     try:
-        logger.info(f"🔄 Starting async blog generation for task {task_id} (correlation: {correlation_id})")
-        
+        logger.info(
+            f"🔄 Starting async blog generation for task {task_id} (correlation: {correlation_id})"
+        )
+
         # Register cleanup context for this task
         cleanup_context = await cleanup_manager.register_task(task_id)
         cleanup_context.add_metadata("correlation_id", correlation_id)
         cleanup_context.add_metadata("user_id", user_id)
-        
+
         # ===== CRITICAL FIX: Restore context in background task =====
         # Background tasks lose context, so we need to restore it
         request_id = str(uuid.uuid4())
@@ -1269,19 +1420,20 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             user_email=f"{user_id}@context.restored",  # Placeholder since we don't have email
             user_role="PREMIUM",  # Assume premium for background tasks
             blog_id=task_id,
-            topic=topic or '<auto>'
+            topic=topic or "<auto>",
         )
-        
+
         # Update task status to in_progress
         try:
-            await task_manager.update_task(task_id, 
-                status='in_progress', 
-                current_step='Initializing blog generation workflow...'
+            await task_manager.update_task(
+                task_id,
+                status="in_progress",
+                current_step="Initializing blog generation workflow...",
             )
         except Exception as e:
             logger.error(f"Failed to update task status: {e}")
             # Don't fail entirely - continue with generation
-        
+
         # Send immediate initialization message for SSE streams
         if task_manager._redis_manager:
             try:
@@ -1289,109 +1441,131 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
                     task_id=task_id,
                     phase="Blog Generation",
                     message="Initializing AI blog generation workflow...",
-                    progress=0.0
+                    progress=0.0,
                 )
-                await task_manager._redis_manager.publish_immediate_message(task_id, init_message.to_dict())
+                await task_manager._redis_manager.publish_immediate_message(
+                    task_id, init_message.to_dict()
+                )
             except Exception as e:
                 logger.warning(f"Failed to send SSE initialization message: {e}")
-        
+
         # Create audit tracker for this session - USING ENHANCED VERSION
         # Note: In production, user_id should come from JWT token validation
         # For now, we'll use a fallback to ensure audit logging works
-        valid_user_id = user_id if user_id and len(user_id) > 10 else "cmdaiv5530000z9nxqmyg445v"
-        
+        valid_user_id = (
+            user_id if user_id and len(user_id) > 10 else "cmdaiv5530000z9nxqmyg445v"
+        )
+
         try:
             audit_tracker = EnhancedDatabaseAuditTracker(
-                session_type="blog_generation",
-                user_id=valid_user_id,
-                blog_id=task_id
+                session_type="blog_generation", user_id=valid_user_id, blog_id=task_id
             )
-            
+
             # Register audit tracker for cleanup
             await register_database_transaction(task_id, audit_tracker)
-            
+
             # ===== CRITICAL FIX: Set audit context AFTER restoring request context =====
-            set_audit_context(audit_tracker, f"session_{int(datetime.utcnow().timestamp())}")
-            
+            set_audit_context(
+                audit_tracker, f"session_{int(datetime.utcnow().timestamp())}"
+            )
+
             # Start the audit session
             await audit_tracker.start_session()
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize audit tracker: {e}")
             # Continue without audit tracking if it fails
             audit_tracker = None
-        
+
         logger.info(f"✅ Context restored and resources registered for task {task_id}")
-        
+
         # Define enhanced status update callback for Phase 1 Foundation
         def update_task_status(status_data: Dict[str, Any]):
             """Enhanced task status update with immediate SSE broadcasting."""
-            message = status_data.get('message', 'Processing...')
-            step = status_data.get('step', 0)
-            progress = status_data.get('progress', 0.0)
-            message_type = status_data.get('message_type', 'status')
-            
+            message = status_data.get("message", "Processing...")
+            step = status_data.get("step", 0)
+            progress = status_data.get("progress", 0.0)
+            message_type = status_data.get("message_type", "status")
+
             # Progress is already in percentage (0-100) from our status_manager
             # Don't modify it, just ensure it's within bounds
             if progress > 100:
                 progress = 100
             elif progress < 0:
                 progress = 0
-            
+
             # Debug logging for progress tracking
-            logger.info(f"🔢 Task {task_id}: Progress update - {progress}% (message: {message})")
-            
+            logger.info(
+                f"🔢 Task {task_id}: step {step} progress {progress}% (message: {message})"
+            )
+
             # Detect if running in CrewAI Flow thread context to avoid asyncio conflicts
             import threading
+
             current_thread = threading.current_thread()
             is_flow_thread = (
-                current_thread.name.startswith('Thread-') or 
-                'CrewAI' in current_thread.name or
-                current_thread != threading.main_thread()
+                current_thread.name.startswith("Thread-")
+                or "CrewAI" in current_thread.name
+                or current_thread != threading.main_thread()
             )
-            
+
             if is_flow_thread:
                 # REDIS-ONLY updates from Flow threads to avoid asyncio conflicts
                 try:
                     # Use thread-safe Redis-only update
                     task_manager.update_task_redis_only(task_id, status_data)
-                    
+
                     # Log different message types appropriately
-                    if message_type == 'agentthinking':
-                        logger.info(f"🧠 {task_id}: Agent thinking - {status_data.get('agent_name', 'Unknown')}")
-                    elif message_type == 'toolcall':
-                        logger.info(f"🔧 {task_id}: Tool usage - {status_data.get('tool_name', 'Unknown')}")
-                    elif message_type == 'contentstream':
-                        logger.info(f"📄 {task_id}: Content streaming - {status_data.get('content_type', 'Unknown')}")
-                    elif message_type == 'researchfinding':
-                        logger.info(f"🔍 {task_id}: Research finding - {len(status_data.get('finding', ''))} chars")
+                    if message_type == "agentthinking":
+                        logger.info(
+                            f"🧠 {task_id}: Agent thinking - {status_data.get('agent_name', 'Unknown')}"
+                        )
+                    elif message_type == "toolcall":
+                        logger.info(
+                            f"🔧 {task_id}: Tool usage - {status_data.get('tool_name', 'Unknown')}"
+                        )
+                    elif message_type == "contentstream":
+                        logger.info(
+                            f"📄 {task_id}: Content streaming - {status_data.get('content_type', 'Unknown')}"
+                        )
+                    elif message_type == "researchfinding":
+                        logger.info(
+                            f"🔍 {task_id}: Research finding - {len(status_data.get('finding', ''))} chars"
+                        )
                     else:
-                        logger.info(f"📊 {task_id}: {message} ({progress:.1f}%) - Redis update")
-                        
+                        logger.info(
+                            f"📊 {task_id}: {message} ({progress:.1f}%) - Redis update"
+                        )
+
                 except Exception as e:
-                    logger.error(f"❌ Failed to send Redis status update for task {task_id}: {e}")
+                    logger.error(
+                        f"❌ Failed to send Redis status update for task {task_id}: {e}"
+                    )
             else:
                 # FULL DATABASE + REDIS updates from main thread
                 async def update_with_enhanced_broadcasting():
                     try:
                         # Update database task status
-                        await task_manager.update_task(task_id, 
-                            current_step=message, 
-                            progress=progress
+                        await task_manager.update_task(
+                            task_id, current_step=message, progress=progress
                         )
-                        
+
                         # Broadcast immediate message for enhanced real-time feedback
                         if task_manager._redis_manager:
-                            await task_manager._redis_manager.publish_immediate_message(task_id, status_data)
-                        
-                        logger.info(f"📊 {task_id}: {message} ({progress:.1f}%) - Database + Redis updated")
-                            
+                            await task_manager._redis_manager.publish_immediate_message(
+                                task_id, status_data
+                            )
+
+                        logger.info(
+                            f"📊 {task_id}: {message} ({progress:.1f}%) - Database + Redis updated"
+                        )
+
                     except Exception as e:
                         logger.error(f"❌ Failed to update task {task_id} status: {e}")
-                
+
                 # Schedule the enhanced async update only from main thread
                 asyncio.create_task(update_with_enhanced_broadcasting())
-        
+
         # Create and run blog generation flow with direct audit tracker
         flow = BlogGenerationFlow(
             status_callback=update_task_status,
@@ -1399,73 +1573,96 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             blog_id=task_id,
             audit_tracker=audit_tracker,
             topic=topic,  # may be None
-            instructions=instructions
+            instructions=instructions,
         )
-        
+
         # Send immediate status update before flow execution starts
         if task_manager._redis_manager:
             pre_flow_message = {
-                'message_type': 'status',
-                'task_id': task_id,
-                'status': 'in_progress',
-                'message': 'Blog generation flow starting...',
-                'progress': 10,  # 10% for initialization
-                'current_step': 'Step 1/5: Initialization',
-                'timestamp': datetime.utcnow().isoformat()
+                "message_type": "status",
+                "task_id": task_id,
+                "status": "in_progress",
+                "message": "Blog generation flow starting...",
+                "progress": 10,  # 10% for initialization
+                "current_step": "Step 1/5: Initialization",
+                "timestamp": datetime.utcnow().isoformat(),
             }
-            await task_manager._redis_manager.publish_immediate_message(task_id, pre_flow_message)
+            await task_manager._redis_manager.publish_immediate_message(
+                task_id, pre_flow_message
+            )
 
         async def hero_image_task():
             """Generate hero image in parallel once topic becomes available."""
             try:
                 # Wait for topic (poll) or give up after 30 * 0.3s = 9s
                 for _ in range(30):
-                    if getattr(flow, 'topic', None):
+                    if getattr(flow, "topic", None):
                         break
                     await asyncio.sleep(0.3)
-                final_topic = getattr(flow, 'topic', None) or topic or 'AI Blog'
-                update_phase('image_generation')
-                
+                final_topic = getattr(flow, "topic", None) or topic or "AI Blog"
+                update_phase("image_generation")
+
                 # Check if AI image generation is enabled
                 hero_url = None
                 if config.features.enable_hero_image_generation:
                     from bloggen.tools.openai_image_tool import OpenAIImageTool
                     from bloggen.tools.unsplash_tool import UnsplashImageTool
                     import re
-                    
-                    prompt = f"Photorealistic, high-quality professional image directly representing '{final_topic}'. Modern, stylish composition with excellent lighting, sharp focus, and cinematic quality. Suitable for premium blog header, visually striking and directly relevant to the topic."
+
+                    prompt = (
+                        "Photorealistic, high-quality professional image directly "
+                        f"representing '{final_topic}'. Modern, stylish composition "
+                        "with excellent lighting, sharp focus, and cinematic quality. "
+                        "Suitable for premium blog header, visually striking and "
+                        "directly relevant to the topic."
+                    )
                     hero_tool = OpenAIImageTool(audit_tracker=audit_tracker)
                     hero_result = hero_tool.run(prompt)
-                    
+
                     # Extract URL from markdown format: ![alt](url "caption")
                     if isinstance(hero_result, str):
-                        url_match = re.search(r'!\[.*?\]\((.*?)\s*(?:\".*?\")?\)', hero_result)
+                        url_match = re.search(
+                            r"!\[.*?\]\((.*?)\s*(?:\".*?\")?\)", hero_result
+                        )
                         hero_url = url_match.group(1) if url_match else None
                     elif isinstance(hero_result, dict):
-                        hero_url = hero_result.get('url')
-                    
-                    if not hero_url or 'placeholder' in (hero_url or '') or 'placehold.co' in (hero_url or ''):
+                        hero_url = hero_result.get("url")
+
+                    if (
+                        not hero_url
+                        or "placeholder" in (hero_url or "")
+                        or "placehold.co" in (hero_url or "")
+                    ):
                         try:
                             unsplash_tool = UnsplashImageTool()
                             unsplash_res = unsplash_tool.run(final_topic)
                             if isinstance(unsplash_res, dict):
-                                hero_url = unsplash_res.get('url') or hero_url
+                                hero_url = unsplash_res.get("url") or hero_url
                         except Exception:
-                            logger.debug('Unsplash fallback failed', exc_info=True)
+                            logger.debug("Unsplash fallback failed", exc_info=True)
                 else:
-                    logger.info("AI image generation disabled - skipping hero image generation")
-                        
+                    logger.info(
+                        "AI image generation disabled - skipping hero image generation"
+                    )
+
                 # Update hero image in database if found
                 if hero_url:
                     current_task = await task_manager.get_task(task_id)
-                    if current_task and current_task.get('status', '').lower() not in ['failed', 'completed']:
-                        await task_manager.update_task(task_id, 
+                    if current_task and current_task.get("status", "").lower() not in [
+                        "failed",
+                        "completed",
+                    ]:
+                        await task_manager.update_task(
+                            task_id,
                             hero_image_url=hero_url,
-                            current_step='Hero image ready'
+                            current_step="Hero image ready",
                         )
-                update_phase('finalization')
+                update_phase("finalization")
             except Exception as e:
-                logger.debug(f"Parallel hero image generation failed for task {task_id}: {e}", exc_info=True)
+                logger.debug(
+                    f"Parallel hero image generation failed for task {task_id}: {e}",
+                    exc_info=True,
+                )
 
         # Start hero image generation concurrently
         hero_task = asyncio.create_task(hero_image_task())
@@ -1474,18 +1671,33 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         if task_manager._redis_manager:
             try:
                 flow_status_key = f"flow_status:{task_id}"
-                await task_manager._redis_manager.redis_client.setex(flow_status_key, 300, "started")  # 5 min TTL
+                await task_manager._redis_manager.redis_client.setex(
+                    flow_status_key, 300, "started"
+                )  # 5 min TTL
                 logger.info(f"🚀 Set flow status marker for task {task_id}")
             except Exception as e:
                 logger.warning(f"Failed to set flow status marker: {e}")
 
         # Execute the flow with proper inputs (topic may be None for auto-generation)
         result = await run_blog_flow_async(flow, topic)
-        
+
         # CRITICAL DEBUG: Log the raw result from the flow
         logger.info(f"🔍 DEBUG: Blog flow result type: {type(result)}")
-        logger.info(f"🔍 DEBUG: Blog flow result keys (if dict): {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
-        logger.info(f"🔍 DEBUG: Blog flow result attributes: {[attr for attr in dir(result) if not attr.startswith('_')] if hasattr(result, '__dict__') else 'No attributes'}")
+        logger.info(
+            f"🔍 DEBUG: Blog flow result keys (if dict): {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}"
+        )
+        if hasattr(result, "__dict__") or hasattr(result, "__slots__"):
+            visible_attributes = [
+                attr
+                for attr in dir(result)
+                if not attr.startswith("_")
+            ]
+        else:
+            visible_attributes = "No attributes"
+
+        logger.info(
+            f"🔍 DEBUG: Blog flow result attributes: {visible_attributes}"
+        )
         logger.info(f"🔍 DEBUG: Blog flow result preview: {str(result)[:200]}...")
 
         # Get current task state to check if it should be updated
@@ -1493,42 +1705,64 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         if current_task:
             blog_content = "Blog generation completed, but content extraction failed."
             try:
-                if isinstance(result, dict) and 'final_blog_post' in result:
-                    final_blog = result['final_blog_post']
-                    logger.info(f"🔍 DEBUG: Found final_blog_post in dict, type: {type(final_blog)}")
-                    if hasattr(final_blog, 'raw'):
+                if isinstance(result, dict) and "final_blog_post" in result:
+                    final_blog = result["final_blog_post"]
+                    logger.info(
+                        f"🔍 DEBUG: Found final_blog_post in dict, type: {type(final_blog)}"
+                    )
+                    if hasattr(final_blog, "raw"):
                         blog_content = final_blog.raw
-                        logger.info(f"🔍 DEBUG: Using final_blog.raw, length: {len(blog_content)}")
+                        logger.info(
+                            f"🔍 DEBUG: Using final_blog.raw, length: {len(blog_content)}"
+                        )
                     elif isinstance(final_blog, str):
                         blog_content = final_blog
-                        logger.info(f"🔍 DEBUG: Using final_blog as string, length: {len(blog_content)}")
+                        logger.info(
+                            f"🔍 DEBUG: Using final_blog as string, length: {len(blog_content)}"
+                        )
                     else:
                         blog_content = str(final_blog)
-                        logger.info(f"🔍 DEBUG: Converting final_blog to string, length: {len(blog_content)}")
-                elif hasattr(result, 'raw') and result.raw:  # type: ignore
+                        logger.info(
+                            f"🔍 DEBUG: Converting final_blog to string, length: {len(blog_content)}"
+                        )
+                elif hasattr(result, "raw") and result.raw:  # type: ignore
                     blog_content = result.raw  # type: ignore
-                    logger.info(f"🔍 DEBUG: Using result.raw, length: {len(blog_content)}")
+                    logger.info(
+                        f"🔍 DEBUG: Using result.raw, length: {len(blog_content)}"
+                    )
                 else:
                     blog_content = str(result)
-                    logger.info(f"🔍 DEBUG: Using fallback string conversion, length: {len(blog_content)}")
-                    logger.warning(f"⚠️ Using fallback string conversion for task {task_id}")
-                    
-                logger.info(f"🔍 DEBUG: Final blog_content length before completion: {len(blog_content)}")
-                logger.info(f"🔍 DEBUG: Final blog_content preview: {blog_content[:200]}...")
-                
+                    logger.info(
+                        f"🔍 DEBUG: Using fallback string conversion, length: {len(blog_content)}"
+                    )
+                    logger.warning(
+                        f"⚠️ Using fallback string conversion for task {task_id}"
+                    )
+
+                logger.info(
+                    f"🔍 DEBUG: Final blog_content length before completion: {len(blog_content)}"
+                )
+                logger.info(
+                    f"🔍 DEBUG: Final blog_content preview: {blog_content[:200]}..."
+                )
+
             except Exception as e:
-                logger.error(f"❌ Error extracting blog content for task {task_id}: {e}")
+                logger.error(
+                    f"❌ Error extracting blog content for task {task_id}: {e}"
+                )
                 blog_content = f"Error extracting blog content: {str(e)}"
 
             # Update topic if auto-generated
-            if (not topic or not topic.strip()) and getattr(flow, 'topic', None):
+            if (not topic or not topic.strip()) and getattr(flow, "topic", None):
                 await task_manager.update_task(task_id, topic=flow.topic)
 
             # Await hero task (still parallelized with flow) to keep guarantee hero appears before completion
             try:
                 await asyncio.wait_for(hero_task, timeout=15)
             except asyncio.TimeoutError:
-                logger.warning(f"Hero image generation timeout for task {task_id}; completing without it")
+                logger.warning(
+                    f"Hero image generation timeout for task {task_id}; completing without it"
+                )
             except Exception:
                 logger.debug("Hero image coroutine error", exc_info=True)
 
@@ -1536,31 +1770,40 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             current_task = await task_manager.get_task(task_id)
             if current_task:
                 # Get hero image URL if it was set during generation
-                hero_image_url = current_task.get('hero_image_url')
-                
+                hero_image_url = current_task.get("hero_image_url")
+
                 # CRITICAL DEBUG: Check content before completion call
-                logger.info(f"🔍 COMPLETION DEBUG - About to call complete_task:")
+                logger.info("🔍 COMPLETION DEBUG - About to call complete_task:")
                 logger.info(f"   task_id: {task_id}")
-                logger.info(f"   blog_content length: {len(blog_content) if blog_content else 0}")
+                logger.info(
+                    f"   blog_content length: {len(blog_content) if blog_content else 0}"
+                )
                 logger.info(f"   blog_content type: {type(blog_content)}")
-                logger.info(f"   blog_content is_empty: {not blog_content or not blog_content.strip()}")
-                logger.info(f"   blog_content preview: {blog_content[:300] if blog_content else 'EMPTY'}...")
+                logger.info(
+                    f"   blog_content is_empty: {not blog_content or not blog_content.strip()}"
+                )
+                logger.info(
+                    f"   blog_content preview: {blog_content[:300] if blog_content else 'EMPTY'}..."
+                )
                 logger.info(f"   hero_image_url: {hero_image_url}")
-                
+
                 # Always complete the task since the Flow finished successfully
                 await task_manager.complete_task(task_id, blog_content, hero_image_url)
-                logger.info(f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars")
+                logger.info(
+                    f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars"
+                )
 
         # End the audit session AFTER hero image to include its cost
         if audit_tracker:
             await audit_tracker.end_session()
-        
+
         logger.info(f"✅ Blog generation completed for task {task_id}")
-        
+
     except Exception as e:
         import traceback
+
         logger.error(f"❌ Blog generation failed for task {task_id}: {e}")
-        logger.error(f"❌ Exception type: {type(e).__name__}")  
+        logger.error(f"❌ Exception type: {type(e).__name__}")
         logger.error(f"❌ Exception module: {type(e).__module__}")
         logger.error(f"❌ Exception args: {getattr(e, 'args', 'N/A')}")
         logger.error(f"❌ Full traceback:\n{traceback.format_exc()}")
@@ -1569,15 +1812,17 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         if task_manager._redis_manager:
             try:
                 error_message = {
-                    'message_type': 'error',
-                    'task_id': task_id,
-                    'status': 'failed',
-                    'message': f'Blog generation failed: {str(e)}',
-                    'error': str(e),
-                    'progress': 0,
-                    'timestamp': datetime.utcnow().isoformat()
+                    "message_type": "error",
+                    "task_id": task_id,
+                    "status": "failed",
+                    "message": f"Blog generation failed: {str(e)}",
+                    "error": str(e),
+                    "progress": 0,
+                    "timestamp": datetime.utcnow().isoformat(),
                 }
-                await task_manager._redis_manager.publish_immediate_message(task_id, error_message)
+                await task_manager._redis_manager.publish_immediate_message(
+                    task_id, error_message
+                )
                 logger.info(f"📡 Sent error notification via SSE for task {task_id}")
             except Exception as sse_error:
                 logger.error(f"Failed to send SSE error notification: {sse_error}")
@@ -1585,7 +1830,7 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
         # Try to end audit session on error
         try:
             audit_tracker_var = current_audit_tracker.get(None)
-            if audit_tracker_var and hasattr(audit_tracker_var, 'end_session'):
+            if audit_tracker_var and hasattr(audit_tracker_var, "end_session"):
                 await audit_tracker_var.end_session()  # type: ignore
         except Exception as audit_error:
             logger.error(f"Failed to end audit session: {audit_error}")
@@ -1600,6 +1845,7 @@ async def async_blog_generation(task_id: str, topic: Optional[str], user_id: str
             await cleanup_context.cleanup(CleanupReason.ERROR)
         else:
             await cleanup_manager.cleanup_task(task_id, CleanupReason.ERROR)
+
 
 async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
     """Run the blog generation flow asynchronously using a thread pool.
@@ -1619,18 +1865,24 @@ async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
             if not flow.current_year:
                 flow.current_year = datetime.now().year
 
-            log_topic = flow.topic if flow.topic else '<auto>'
-            logger.info(f"🚀 Starting flow with topic: {log_topic}, year: {flow.current_year}")
+            log_topic = flow.topic if flow.topic else "<auto>"
+            logger.info(
+                f"🚀 Starting flow with topic: {log_topic}, year: {flow.current_year}"
+            )
 
-            return flow.kickoff({
-                'topic': flow.topic or '',  # kickoff context; flow handles auto-generation internally
-                'current_year': flow.current_year,
-            })
+            return flow.kickoff(
+                {
+                    "topic": flow.topic
+                    or "",  # kickoff context; flow handles auto-generation internally
+                    "current_year": flow.current_year,
+                }
+            )
         except Exception as e:
             logger.error(f"❌ Flow execution failed: {e}")
             raise
 
     return await loop.run_in_executor(None, run_sync_flow)
+
 
 # =============================================================================
 # Development Server
@@ -1639,15 +1891,15 @@ async def run_blog_flow_async(flow: BlogGenerationFlow, topic: Optional[str]):
 if __name__ == "__main__":
     # Get protocol configuration
     protocol_config = get_protocol_config()
-    
+
     # Prepare uvicorn config
     uvicorn_config = {
         "host": "0.0.0.0",
         "port": protocol_config.backend_port,
         "reload": True,
-        "access_log": False  # Keep logs clean
+        "access_log": False,  # Keep logs clean
     }
-    
+
     # Add SSL configuration if HTTPS mode
     if protocol_config.is_https:
         ssl_config = protocol_config.get_ssl_config()
@@ -1656,14 +1908,16 @@ if __name__ == "__main__":
             if os.path.exists(cert_path) and os.path.exists(key_path):
                 uvicorn_config["ssl_keyfile"] = key_path
                 uvicorn_config["ssl_certfile"] = cert_path
-                logger.info(f"🔒 HTTPS mode enabled with SSL certificates")
+                logger.info("🔒 HTTPS mode enabled with SSL certificates")
             else:
-                logger.warning(f"⚠️ HTTPS mode requested but SSL certificates not found:")
+                logger.warning(
+                    "⚠️ HTTPS mode requested but SSL certificates not found:"
+                )
                 logger.warning(f"   Cert: {cert_path}")
                 logger.warning(f"   Key: {key_path}")
-                logger.warning(f"   Falling back to HTTP mode")
+                logger.warning("   Falling back to HTTP mode")
         else:
-            logger.warning(f"⚠️ HTTPS mode requested but no SSL config available")
-    
+            logger.warning("⚠️ HTTPS mode requested but no SSL config available")
+
     logger.info(f"🚀 Starting backend server: {protocol_config.get_backend_url()}")
     uvicorn.run("main:app", **uvicorn_config)

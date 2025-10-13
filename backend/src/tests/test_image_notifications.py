@@ -1,3 +1,4 @@
+# flake8: noqa
 """Legacy image notification test retired with stdout capture removal."""
 
 import pytest

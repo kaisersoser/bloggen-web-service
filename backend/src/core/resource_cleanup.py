@@ -2,6 +2,7 @@
 Resource Cleanup Manager for BlogGen Backend
 Manages cleanup of resources when errors occur or operations complete
 """
+
 import asyncio
 import logging
 from typing import Dict, List, Optional, Protocol, Any
@@ -10,22 +11,28 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+
 class CleanupReason(str, Enum):
     """Reasons for resource cleanup"""
+
     NORMAL = "normal"
     ERROR = "error"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
     FORCE = "force"
 
+
 class CleanupResource(Protocol):
     """Protocol for resources that can be cleaned up"""
+
     async def cleanup(self) -> None:
         """Perform cleanup for this resource"""
         ...
 
+
 class RedisSubscriptionResource:
     """Cleanup resource for Redis pub/sub subscriptions"""
+
     def __init__(self, pubsub, channel: str):
         self.pubsub = pubsub
         self.channel = channel
@@ -34,7 +41,7 @@ class RedisSubscriptionResource:
     async def cleanup(self) -> None:
         if self.cleanup_called:
             return
-        
+
         self.cleanup_called = True
         try:
             await asyncio.wait_for(self.pubsub.unsubscribe(self.channel), timeout=2.0)
@@ -43,8 +50,10 @@ class RedisSubscriptionResource:
         except Exception as e:
             logger.warning(f"Failed to cleanup Redis subscription {self.channel}: {e}")
 
+
 class CrewAIFlowResource:
     """Cleanup resource for CrewAI flows"""
+
     def __init__(self, flow, task_id: str):
         self.flow = flow
         self.task_id = task_id
@@ -53,21 +62,23 @@ class CrewAIFlowResource:
     async def cleanup(self) -> None:
         if self.cleanup_called:
             return
-            
+
         self.cleanup_called = True
         try:
             # Attempt to cancel/stop the flow if it has such methods
-            if hasattr(self.flow, 'cancel'):
+            if hasattr(self.flow, "cancel"):
                 await self.flow.cancel()
-            elif hasattr(self.flow, 'stop'):
+            elif hasattr(self.flow, "stop"):
                 await self.flow.stop()
-            
+
             logger.info(f"🧹 CrewAI flow cleaned up: {self.task_id}")
         except Exception as e:
             logger.warning(f"Failed to cleanup CrewAI flow {self.task_id}: {e}")
 
+
 class DatabaseTransactionResource:
     """Cleanup resource for database transactions"""
+
     def __init__(self, connection, task_id: str):
         self.connection = connection
         self.task_id = task_id
@@ -76,23 +87,27 @@ class DatabaseTransactionResource:
     async def cleanup(self) -> None:
         if self.cleanup_called:
             return
-            
+
         self.cleanup_called = True
         try:
             # Rollback any uncommitted transactions
-            if hasattr(self.connection, 'rollback'):
+            if hasattr(self.connection, "rollback"):
                 await self.connection.rollback()
-            
+
             # Close the connection
-            if hasattr(self.connection, 'close'):
+            if hasattr(self.connection, "close"):
                 await self.connection.close()
-            
+
             logger.info(f"🧹 Database transaction cleaned up: {self.task_id}")
         except Exception as e:
-            logger.warning(f"Failed to cleanup database transaction {self.task_id}: {e}")
+            logger.warning(
+                f"Failed to cleanup database transaction {self.task_id}: {e}"
+            )
+
 
 class FileUploadResource:
     """Cleanup resource for temporary files and uploads"""
+
     def __init__(self, file_path: str, task_id: str):
         self.file_path = file_path
         self.task_id = task_id
@@ -101,18 +116,21 @@ class FileUploadResource:
     async def cleanup(self) -> None:
         if self.cleanup_called:
             return
-            
+
         self.cleanup_called = True
         try:
             import os
+
             if os.path.exists(self.file_path):
                 os.remove(self.file_path)
                 logger.info(f"🧹 Temporary file cleaned up: {self.file_path}")
         except Exception as e:
             logger.warning(f"Failed to cleanup file {self.file_path}: {e}")
 
+
 class TaskCleanupContext:
     """Context for tracking resources that need cleanup for a task"""
+
     def __init__(self, task_id: str):
         self.task_id = task_id
         self.resources: List[CleanupResource] = []
@@ -145,22 +163,31 @@ class TaskCleanupContext:
                 await asyncio.wait_for(resource.cleanup(), timeout=5.0)
                 cleanup_results.append(f"Resource {i}: ✅")
             except asyncio.TimeoutError:
-                logger.error(f"Timeout cleaning up resource {i} for task {self.task_id}")
+                logger.error(
+                    f"Timeout cleaning up resource {i} for task {self.task_id}"
+                )
                 cleanup_results.append(f"Resource {i}: ⏰ Timeout")
             except Exception as e:
-                logger.error(f"Failed to cleanup resource {i} for task {self.task_id}: {e}")
+                logger.error(
+                    f"Failed to cleanup resource {i} for task {self.task_id}: {e}"
+                )
                 cleanup_results.append(f"Resource {i}: ❌ {str(e)[:50]}")
 
-        logger.info(f"🧹 Cleanup completed for task {self.task_id}: {len(cleanup_results)} resources processed")
-        
+        logger.info(
+            f"🧹 Cleanup completed for task {self.task_id}: {len(cleanup_results)} resources processed"
+        )
+
         # Log cleanup summary if there were issues
         failed_cleanups = [r for r in cleanup_results if not r.endswith("✅")]
         if failed_cleanups:
-            logger.warning(f"Some cleanups failed for task {self.task_id}: {failed_cleanups}")
+            logger.warning(
+                f"Some cleanups failed for task {self.task_id}: {failed_cleanups}"
+            )
+
 
 class ResourceCleanupManager:
     """Manages cleanup of resources across multiple tasks"""
-    
+
     def __init__(self):
         self.active_tasks: Dict[str, TaskCleanupContext] = {}
         self._cleanup_lock = asyncio.Lock()
@@ -182,20 +209,24 @@ class ResourceCleanupManager:
                 self.active_tasks[task_id].add_resource(resource)
                 logger.debug(f"📝 Added resource to task {task_id}")
 
-    async def cleanup_task(self, task_id: str, reason: CleanupReason = CleanupReason.NORMAL) -> None:
+    async def cleanup_task(
+        self, task_id: str, reason: CleanupReason = CleanupReason.NORMAL
+    ) -> None:
         """Clean up all resources for a specific task"""
         async with self._cleanup_lock:
             context = self.active_tasks.pop(task_id, None)
-            
+
         if context:
             await context.cleanup(reason)
         else:
             logger.debug(f"No cleanup context found for task {task_id}")
 
-    async def cleanup_all_tasks(self, reason: CleanupReason = CleanupReason.FORCE) -> None:
+    async def cleanup_all_tasks(
+        self, reason: CleanupReason = CleanupReason.FORCE
+    ) -> None:
         """Emergency cleanup of all active tasks"""
         logger.warning(f"🚨 Emergency cleanup of all tasks (reason: {reason})")
-        
+
         # Get all tasks to cleanup
         async with self._cleanup_lock:
             tasks_to_cleanup = list(self.active_tasks.items())
@@ -203,17 +234,17 @@ class ResourceCleanupManager:
 
         # Cleanup all tasks concurrently
         cleanup_tasks = [
-            context.cleanup(reason) 
-            for task_id, context in tasks_to_cleanup
+            context.cleanup(reason) for task_id, context in tasks_to_cleanup
         ]
-        
+
         if cleanup_tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
-                    timeout=30.0
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True), timeout=30.0
                 )
-                logger.info(f"🧹 Emergency cleanup completed: {len(cleanup_tasks)} tasks")
+                logger.info(
+                    f"🧹 Emergency cleanup completed: {len(cleanup_tasks)} tasks"
+                )
             except asyncio.TimeoutError:
                 logger.error("Emergency cleanup timed out after 30 seconds")
 
@@ -232,12 +263,14 @@ class ResourceCleanupManager:
                     "created_at": context.created_at.isoformat(),
                     "resource_count": len(context.resources),
                     "metadata": context.metadata,
-                    "cleaned_up": context.cleaned_up
+                    "cleaned_up": context.cleaned_up,
                 }
             return None
 
+
 # Global cleanup manager instance
 cleanup_manager = ResourceCleanupManager()
+
 
 # Convenience functions for common cleanup operations
 async def register_redis_subscription(task_id: str, pubsub, channel: str) -> None:
@@ -245,15 +278,18 @@ async def register_redis_subscription(task_id: str, pubsub, channel: str) -> Non
     resource = RedisSubscriptionResource(pubsub, channel)
     await cleanup_manager.add_resource(task_id, resource)
 
+
 async def register_crewai_flow(task_id: str, flow) -> None:
     """Register a CrewAI flow for cleanup"""
     resource = CrewAIFlowResource(flow, task_id)
     await cleanup_manager.add_resource(task_id, resource)
 
+
 async def register_database_transaction(task_id: str, connection) -> None:
     """Register a database transaction for cleanup"""
     resource = DatabaseTransactionResource(connection, task_id)
     await cleanup_manager.add_resource(task_id, resource)
+
 
 async def register_temp_file(task_id: str, file_path: str) -> None:
     """Register a temporary file for cleanup"""

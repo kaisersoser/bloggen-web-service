@@ -1,3 +1,4 @@
+# flake8: noqa
 import json
 import os
 import sys
@@ -43,17 +44,15 @@ class FakeConnection:
         if len(params) == 3:
             statuses, cutoff, limit = params
             filtered = [
-                row for row in self._rows
+                row
+                for row in self._rows
                 if row["status"] in statuses and row["updated_at"] < cutoff
             ]
             return filtered[:limit]
 
         if len(params) == 2:
             statuses, limit = params
-            filtered = [
-                row for row in self._rows
-                if row["status"] in statuses
-            ]
+            filtered = [row for row in self._rows if row["status"] in statuses]
             return filtered[:limit]
 
         raise ValueError("Unexpected parameters for fetch")
@@ -159,12 +158,18 @@ async def test_cleanup_redis_status_cache_removes_old_entries(monkeypatch):
     async def fake_expire(self):
         return None
 
-    monkeypatch.setattr(tm, "_expire_stale_incomplete_tasks", types.MethodType(fake_expire, tm))
+    monkeypatch.setattr(
+        tm, "_expire_stale_incomplete_tasks", types.MethodType(fake_expire, tm)
+    )
 
     now = datetime.utcnow()
     entries = {
-        "task_status:recent": json.dumps({"updated_at": (now - timedelta(seconds=30)).isoformat()}),
-        "task_status:old": json.dumps({"updated_at": (now - timedelta(minutes=5)).isoformat()}),
+        "task_status:recent": json.dumps(
+            {"updated_at": (now - timedelta(seconds=30)).isoformat()}
+        ),
+        "task_status:old": json.dumps(
+            {"updated_at": (now - timedelta(minutes=5)).isoformat()}
+        ),
         "task_status:invalid": "not-json",
     }
     redis_client = FakeRedisClient(entries)

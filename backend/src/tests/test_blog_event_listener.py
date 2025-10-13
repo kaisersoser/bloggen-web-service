@@ -1,8 +1,10 @@
+# flake8: noqa
 """Tests for the BlogEventListener native callback wiring.
 
 These tests ensure CrewAI events are mirrored to the StatusUpdateManager
 without relying on legacy stdout scraping.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -26,12 +28,16 @@ class DummyStatusManager:
     def send_agent_thinking(self, agent_name: str, thought: str) -> None:
         self.agent_thinking.append({"agent_name": agent_name, "thought": thought})
 
-    def send_tool_usage(self, tool_name: str, input_summary: str, agent_name: str) -> None:
-        self.tool_usage.append({
-            "tool_name": tool_name,
-            "input_summary": input_summary,
-            "agent_name": agent_name,
-        })
+    def send_tool_usage(
+        self, tool_name: str, input_summary: str, agent_name: str
+    ) -> None:
+        self.tool_usage.append(
+            {
+                "tool_name": tool_name,
+                "input_summary": input_summary,
+                "agent_name": agent_name,
+            }
+        )
 
     def send_error_update(self, message: str) -> None:
         self.errors.append(message)
@@ -58,7 +64,9 @@ def _register_listener(phase: str = "research"):
 
 def test_task_events_emit_status_updates():
     listener, context, crew, status_manager = _register_listener("content_generation")
-    source = SimpleNamespace(name="Draft Article", agent=SimpleNamespace(role="Content Creator"), crew=crew)
+    source = SimpleNamespace(
+        name="Draft Article", agent=SimpleNamespace(role="Content Creator"), crew=crew
+    )
     event = SimpleNamespace(task_id="task-1")
 
     listener._handle_task_started(context, source, event)
@@ -96,7 +104,10 @@ def test_tool_events_emit_usage_messages():
             "agent_name": "Fact Checker",
         }
     ]
-    assert status_manager.agent_thinking[-1]["thought"] == "URLValidationTool returned results."
+    assert (
+        status_manager.agent_thinking[-1]["thought"]
+        == "URLValidationTool returned results."
+    )
 
     listener.unregister_run(crew)
 
@@ -106,7 +117,9 @@ def test_reasoning_events_share_agent_thoughts():
     source = SimpleNamespace(role="Senior Researcher", crew=crew)
 
     reasoning_started = SimpleNamespace(agent_role="Senior Researcher")
-    reasoning_completed = SimpleNamespace(agent_role="Senior Researcher", plan="Assess data sources")
+    reasoning_completed = SimpleNamespace(
+        agent_role="Senior Researcher", plan="Assess data sources"
+    )
 
     listener._handle_agent_reasoning_started(context, source, reasoning_started)
     listener._handle_agent_reasoning_completed(context, source, reasoning_completed)

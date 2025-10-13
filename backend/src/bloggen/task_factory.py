@@ -5,7 +5,7 @@ Follows Single Responsibility Principle - only creates and configures tasks.
 """
 
 from crewai import Task, Agent
-from typing import Dict, Any, Optional
+from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,11 +13,20 @@ logger = logging.getLogger(__name__)
 
 class TaskFactory:
     """Factory for creating specialized tasks for blog generation phases."""
-    
+
     @staticmethod
-    def create_research_task(agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None) -> Task:
+    def create_research_task(
+        agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None
+    ) -> Task:
         """Create a research task for gathering information on a topic."""
-        extra = ("\n\nUSER DIRECTIVES (priority unless they conflict with sourcing rules):\n" + instructions.strip()) if instructions else ""
+        extra = (
+            (
+                "\n\nUSER DIRECTIVES (priority unless they conflict with sourcing rules):\n"
+                + instructions.strip()
+            )
+            if instructions
+            else ""
+        )
         return Task(
             description=f"""Conduct comprehensive research on '{topic}' with focus on {current_year} developments.
 
@@ -50,13 +59,22 @@ class TaskFactory:
             - Explicit separation of sourced facts vs projections
             - Actionable insights and implications
             - Current trends and future outlook
-            - 'Sources' section: numbered markdown list of unique source URLs used above"""
+            - 'Sources' section: numbered markdown list of unique source URLs used above""",
         )
-    
+
     @staticmethod
-    def create_content_task(agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None) -> Task:
+    def create_content_task(
+        agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None
+    ) -> Task:
         """Create a content creation task for writing blog posts with mandatory image enforcement."""
-        extra = ("\n\nUSER DIRECTIVES (priority unless they conflict with factual accuracy / sourcing):\n" + instructions.strip()) if instructions else ""
+        extra = (
+            (
+                "\n\nUSER DIRECTIVES (priority unless they conflict with factual accuracy / sourcing):\n"
+                + instructions.strip()
+            )
+            if instructions
+            else ""
+        )
         return Task(
             description=f"""🚨 MANDATORY TOOL USAGE TASK: Create an engaging blog post about '{topic}' for {current_year}.
             
@@ -122,13 +140,22 @@ class TaskFactory:
             
             🚨 CRITICAL: Output MUST contain 2-3 actual images from tool calls. No manual URLs allowed.
             🚨 CRITICAL: Use only tool-generated image markdown blocks, never create fake URLs.
-            🚨 CRITICAL: If fewer than 2 images included, task will be considered FAILED."""
+            🚨 CRITICAL: If fewer than 2 images included, task will be considered FAILED.""",
         )
 
     @staticmethod
-    def create_fact_check_task(agent: Agent, topic: str, instructions: Optional[str] = None) -> Task:
+    def create_fact_check_task(
+        agent: Agent, topic: str, instructions: Optional[str] = None
+    ) -> Task:
         """Create a fact-checking task for verifying content accuracy with mandatory URL validation."""
-        extra = ("\n\nUSER ORIGINAL DIRECTIVES (retain intent while enforcing verification):\n" + instructions.strip()) if instructions else ""
+        extra = (
+            (
+                "\n\nUSER ORIGINAL DIRECTIVES (retain intent while enforcing verification):\n"
+                + instructions.strip()
+            )
+            if instructions
+            else ""
+        )
         return Task(
             description=f"""Thoroughly fact-check the blog post about '{topic}' with MANDATORY URL validation.
 
@@ -164,13 +191,22 @@ class TaskFactory:
             - Outdated or unsourced claims flagged or revised
             - Consolidated, deduplicated 'References' section (numbered)
             - A 'Fact Check Summary' section listing corrections, replaced sources, and URL validation results
-            - 'URL Validation Report' showing tested links and any replacements made"""
+            - 'URL Validation Report' showing tested links and any replacements made""",
         )
 
     @staticmethod
-    def create_finalization_task(agent: Agent, topic: str, instructions: Optional[str] = None) -> Task:
+    def create_finalization_task(
+        agent: Agent, topic: str, instructions: Optional[str] = None
+    ) -> Task:
         """Create a finalization task for polishing content."""
-        extra = ("\n\nUSER DIRECTIVES (final polish should respect these preferences):\n" + instructions.strip()) if instructions else ""
+        extra = (
+            (
+                "\n\nUSER DIRECTIVES (final polish should respect these preferences):\n"
+                + instructions.strip()
+            )
+            if instructions
+            else ""
+        )
         return Task(
             description=f"""Finalize the blog post about '{topic}' for publication.
             
@@ -200,7 +236,7 @@ class TaskFactory:
             - Clean markdown structure
             - Professional presentation
             - Inline citations preserved & cleaned
-            - Final 'References' section (numbered, unique, valid URLs)"""
+            - Final 'References' section (numbered, unique, valid URLs)""",
         )
 
     @staticmethod
@@ -230,5 +266,5 @@ class TaskFactory:
             - 1-2 new images from unsplash_image_search tool calls
             - Images placed strategically between content sections
             - Proper markdown formatting for all images
-            - Alt text and attribution maintained"""
+            - Alt text and attribution maintained""",
         )

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# flake8: noqa
 """
 Quick notification harness retired with stdout capture removal.
 """

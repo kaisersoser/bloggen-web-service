@@ -1,3 +1,4 @@
+# flake8: noqa
 """
 Legacy logging recursion test for stdout capture (deprecated).
 

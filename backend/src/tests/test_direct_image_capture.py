@@ -1,3 +1,4 @@
+# flake8: noqa
 """Legacy direct image capture test retired with stdout capture removal."""
 
 import pytest

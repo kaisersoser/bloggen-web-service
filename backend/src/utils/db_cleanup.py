@@ -1,3 +1,4 @@
+# flake8: noqa
 """Database Cleanup Utility
 
 Purpose:
@@ -32,10 +33,13 @@ from typing import List
 from pathlib import Path
 
 import asyncpg
+
 try:
     from dotenv import load_dotenv  # python-dotenv already in requirements
 except ImportError:  # graceful fallback
     load_dotenv = None  # type: ignore
+
+
 def _load_environment():
     """Load environment variables from backend/.env or project root .env if present.
 
@@ -48,8 +52,8 @@ def _load_environment():
         return
 
     script_dir = Path(__file__).resolve().parent
-    backend_env = script_dir / '.env'
-    root_env = script_dir.parent / '.env'
+    backend_env = script_dir / ".env"
+    root_env = script_dir.parent / ".env"
 
     # Load backend/.env first (do not override existing vars)
     if backend_env.exists():
@@ -66,9 +70,9 @@ LEGACY_TABLES = [
 
 TRUNCATE_TABLES_IN_ORDER: List[str] = [
     # Order matters due to FK constraints
-    "llm_calls",       # references audit_sessions
+    "llm_calls",  # references audit_sessions
     "audit_sessions",  # may reference blogs via blog_id (nullable)
-    "blog_logs",       # references blogs
+    "blog_logs",  # references blogs
     "blogs",
 ]
 
@@ -99,7 +103,7 @@ async def drop_legacy_tables(conn: asyncpg.Connection, dry_run: bool):
                 print(f"[DRY RUN] Would drop legacy table: {table}")
             else:
                 print(f"Dropping legacy table: {table}")
-                await conn.execute(f'DROP TABLE IF EXISTS {table} CASCADE;')
+                await conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
         else:
             print(f"Legacy table not present (skip): {table}")
 
@@ -112,7 +116,7 @@ async def truncate_tables(conn: asyncpg.Connection, dry_run: bool):
             else:
                 print(f"Truncating table: {table}")
                 # RESTART IDENTITY is harmless if PKs are UUID/text
-                await conn.execute(f'TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;')
+                await conn.execute(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;")
         else:
             print(f"Table missing (skip truncate): {table}")
 
@@ -165,7 +169,7 @@ async def main():
 
     except Exception as e:
         print(f"❌ Cleanup failed: {e}")
-        if 'tx' in locals() and tx is not None:
+        if "tx" in locals() and tx is not None:
             try:
                 await tx.rollback()
             except Exception:
