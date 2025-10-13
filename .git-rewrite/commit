@@ -1,0 +1,6 @@
+tree ff3588431b301504e03b95276edcc068097acb06
+parent 079ad17e07a8be8535b9ae17f94d3d8e2681e4fc
+author charles.vogt@gmail.com <charles.vogt@gmail.com> 1760387155 +0200
+committer charles.vogt@gmail.com <charles.vogt@gmail.com> 1760387155 +0200
+
+🔒 Update .gitignore to exclude .env.development files
