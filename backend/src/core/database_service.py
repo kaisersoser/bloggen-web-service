@@ -32,7 +32,12 @@ class DatabaseService:
         command_timeout: int = 30,
         **pool_kwargs: Any,
     ) -> asyncpg.Pool:
-        """Create the shared connection pool if it does not exist yet."""
+        """Create the shared connection pool if it does not exist yet.
+        
+        Note: statement_cache_size=0 disables prepared statement caching to avoid
+        conflicts when connections are reused from the pool. This is necessary
+        when using connection pooling with asyncpg.
+        """
         if self._pool is not None:
             return self._pool
 
@@ -45,6 +50,7 @@ class DatabaseService:
                 "min_size": min_size,
                 "max_size": max_size,
                 "command_timeout": command_timeout,
+                "statement_cache_size": 0,  # Disable prepared statement caching to prevent conflicts
                 **pool_kwargs,
             }
             self._pool = await asyncpg.create_pool(database_url, **self._pool_kwargs)
