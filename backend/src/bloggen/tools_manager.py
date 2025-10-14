@@ -124,7 +124,7 @@ class ToolsManager:
         return
 
     def _load_content_tools(self) -> List[Any]:
-        """Load content generation tools with proper error handling."""
+        """Load content generation tools with proper error handling and provider selection."""
         tools = []
 
         try:
@@ -134,15 +134,41 @@ class ToolsManager:
             # Always include Unsplash tool as it's free
             tools.append(UnsplashImageTool(audit_tracker=self.audit_tracker))
 
-            # Conditionally include OpenAI image tool based on configuration
+            # Conditionally include AI image tool based on configuration
             if config.features.enable_ai_image_generation:
-                from bloggen.tools.openai_image_tool import OpenAIImageTool
-
-                tools.append(OpenAIImageTool(audit_tracker=self.audit_tracker))
-                logger.debug("✅ UnsplashImageTool + OpenAIImageTool loaded")
+                # Determine which image provider to use (replicate or openai)
+                image_provider = getattr(config.api, 'image_provider', 'replicate')
+                image_model = getattr(config.api, 'image_model', 'google/imagen-3-fast')
+                image_cost = getattr(config.api, 'image_cost_per_generation', 0.025)
+                
+                logger.info(f"🎨 Loading image provider: {image_provider} (model: {image_model}, cost: ${image_cost}/image)")
+                
+                if image_provider == 'replicate':
+                    from bloggen.tools.replicate_image_tool import ReplicateImageTool
+                    tools.append(ReplicateImageTool(
+                        api_key=config.api.replicate_key,
+                        model=image_model,
+                        cost_per_image=image_cost,
+                        audit_tracker=self.audit_tracker
+                    ))
+                    logger.debug(f"✅ UnsplashImageTool + ReplicateImageTool loaded ({image_model})")
+                elif image_provider == 'openai':
+                    from bloggen.tools.openai_image_tool import OpenAIImageTool
+                    tools.append(OpenAIImageTool(audit_tracker=self.audit_tracker))
+                    logger.debug(f"✅ UnsplashImageTool + OpenAIImageTool loaded ({image_model})")
+                else:
+                    logger.warning(f"⚠️ Unknown image provider '{image_provider}', defaulting to Replicate")
+                    from bloggen.tools.replicate_image_tool import ReplicateImageTool
+                    tools.append(ReplicateImageTool(
+                        api_key=config.api.replicate_key,
+                        model=image_model,
+                        cost_per_image=image_cost,
+                        audit_tracker=self.audit_tracker
+                    ))
+                    logger.debug(f"✅ UnsplashImageTool + ReplicateImageTool (default fallback)")
             else:
                 logger.debug(
-                    "✅ UnsplashImageTool loaded (OpenAI image generation disabled)"
+                    "✅ UnsplashImageTool loaded (AI image generation disabled)"
                 )
 
         except ImportError as e:

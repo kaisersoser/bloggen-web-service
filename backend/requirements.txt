@@ -12,6 +12,7 @@ Flask-CORS
 crewai==0.201.1
 crewai-tools>=0.75.0
 openai>=1.30.0
+replicate  # AI image generation via Replicate API
 
 # Redis for pub/sub messaging
 redis[hiredis]

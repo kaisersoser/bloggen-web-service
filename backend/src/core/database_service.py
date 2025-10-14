@@ -8,20 +8,29 @@ operations while ensuring the pool is initialized exactly once.
 from __future__ import annotations
 
 import asyncio
+import logging
+import traceback
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable, Optional
+from typing import Any, AsyncIterator, Callable, Dict, Optional
 
 import asyncpg
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseService:
     """Manage the lifecycle of a shared asyncpg connection pool."""
 
+    _instance_counter = 0  # Track number of instances created
+
     def __init__(self) -> None:
+        DatabaseService._instance_counter += 1
+        self._instance_id = DatabaseService._instance_counter
         self._pool: Optional[asyncpg.Pool] = None
         self._lock = asyncio.Lock()
         self._pool_kwargs: dict[str, Any] = {}
         self._database_url: Optional[str] = None
+        logger.info(f"🆕 DatabaseService instance #{self._instance_id} created (total instances: {DatabaseService._instance_counter})")
 
     async def initialize(
         self,
@@ -54,27 +63,107 @@ class DatabaseService:
                 **pool_kwargs,
             }
             self._pool = await asyncpg.create_pool(database_url, **self._pool_kwargs)
+            logger.info(f"✅ Pool created for instance #{self._instance_id}: pool_id={id(self._pool)}, min={min_size}, max={max_size}")
             return self._pool
 
     async def ensure_pool(self) -> asyncpg.Pool:
-        """Return the existing pool or raise if `initialize` has not been called."""
+        """Return the existing pool or raise if `initialize` has not been called.
+        
+        If pool was unexpectedly set to None but connection details exist,
+        attempt to recreate it (defensive recovery).
+        """
+        # Fast path: pool exists and is valid
         if self._pool:
+            # Check if pool is closed (default to False if attribute doesn't exist)
+            if getattr(self._pool, '_closed', False):
+                logger.error(f"❌ Instance #{self._instance_id}: Pool is closed!")
+                raise RuntimeError("DatabaseService pool has been closed")
             return self._pool
+        
+        # Pool is None - check if we can recreate it
+        if self._database_url and self._pool_kwargs:
+            logger.warning(f"⚠️  Instance #{self._instance_id}: Pool was None but connection details exist!")
+            logger.warning(f"   This should NOT happen - investigating pool loss")
+            logger.warning(f"   Stack trace:\n{''.join(traceback.format_stack())}")
+            
+            # Attempt defensive recovery
+            async with self._lock:
+                if self._pool is None:  # Double-check after acquiring lock
+                    logger.warning(f"🔄 Instance #{self._instance_id}: Recreating pool defensively...")
+                    try:
+                        self._pool = await asyncpg.create_pool(
+                            self._database_url,
+                            **self._pool_kwargs
+                        )
+                        logger.info(f"✅ Pool recreated successfully: pool_id={id(self._pool)}")
+                        return self._pool
+                    except Exception as e:
+                        logger.error(f"❌ Failed to recreate pool: {e}")
+                        raise RuntimeError(f"Failed to recreate database pool: {e}")
+                else:
+                    return self._pool
+        
         raise RuntimeError("DatabaseService has not been initialized")
 
     def is_initialized(self) -> bool:
         """Return True when the pool is ready for use."""
-        return self._pool is not None
+        # Check if pool exists and is not closed (default to False for _closed attribute)
+        is_init = self._pool is not None and not getattr(self._pool, '_closed', False)
+        if not is_init:
+            logger.debug(f"🔍 Instance #{self._instance_id}: is_initialized={is_init} (_pool is None: {self._pool is None})")
+        return is_init
+    
+    def get_pool_stats(self) -> Dict[str, Any]:
+        """Return current pool statistics for monitoring."""
+        # Check if pool exists and is not closed (default to False for _closed attribute)
+        if not self._pool or getattr(self._pool, '_closed', False):
+            logger.warning(f"⚠️  Instance #{self._instance_id}: Pool unavailable in get_pool_stats()")
+            logger.warning(f"   _pool is None: {self._pool is None}")
+            logger.warning(f"   _pool object id: {id(self._pool) if self._pool else 'N/A'}")
+            logger.warning(f"   Have connection details: {bool(self._database_url and self._pool_kwargs)}")
+            return {
+                "initialized": False,
+                "closed": True,
+                "size": 0,
+                "free": 0,
+                "in_use": 0,
+            }
+        
+        try:
+            size = self._pool.get_size()
+            free = self._pool.get_idle_size()
+            return {
+                "initialized": True,
+                "closed": False,
+                "size": size,
+                "free": free,
+                "in_use": size - free,
+                "max_size": self._pool_kwargs.get("max_size", 10),
+                "min_size": self._pool_kwargs.get("min_size", 1),
+            }
+        except Exception as e:
+            logger.error(f"❌ Exception getting pool stats: {e}")
+            return {
+                "initialized": True,
+                "closed": False,
+                "error": f"Could not retrieve stats: {e}",
+            }
 
     async def close(self) -> None:
         """Gracefully close the connection pool."""
+        logger.warning(f"🛑 DatabaseService instance #{self._instance_id} close() called!")
+        logger.warning(f"   Stack trace:\n{''.join(traceback.format_stack())}")
+        
         if self._pool is None:
+            logger.warning(f"   Pool already None, nothing to close")
             return
 
         async with self._lock:
             if self._pool is not None:
+                logger.info(f"   Closing pool: pool_id={id(self._pool)}")
                 await self._pool.close()
                 self._pool = None
+                logger.warning(f"   ✅ Pool closed and set to None")
                 self._database_url = None
                 self._pool_kwargs = {}
 

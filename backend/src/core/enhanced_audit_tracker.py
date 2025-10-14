@@ -115,7 +115,12 @@ class EnhancedDatabaseAuditTracker:
         except Exception as e:
             logger.error(f"❌ Database worker loop error: {e}")
         finally:
-            loop.close()
+            # DO NOT close the loop - it closes the shared database pool!
+            # asyncpg pools are tied to event loops, and closing this loop
+            # will mark the shared database_service._pool as closed.
+            # Just clear the reference instead.
+            asyncio.set_event_loop(None)
+            # loop.close()  # REMOVED: This was closing the database pool!
             cls._db_worker_running = False
 
     @classmethod
@@ -130,7 +135,7 @@ class EnhancedDatabaseAuditTracker:
 
             pool = await temp_tracker._get_database_connection()
             if not pool:
-                logger.warning("No database connection available for logging")
+                logger.debug("No database connection available for logging (pool may be closed)")
                 return
 
             # Calculate separate input/output costs to match Prisma schema
@@ -191,7 +196,12 @@ class EnhancedDatabaseAuditTracker:
             )
 
         except Exception as e:
-            logger.error(f"❌ Failed to process database log: {e}")
+            # Silently ignore errors during shutdown when pool is closed
+            error_msg = str(e).lower()
+            if 'pool is closed' in error_msg or 'closed' in error_msg:
+                logger.debug("Database pool closed, skipping log operation")
+            else:
+                logger.error(f"❌ Failed to process database log: {e}")
 
     @classmethod
     async def _process_blog_id_update(cls, update_data: Dict[str, Any]):
@@ -250,17 +260,30 @@ class EnhancedDatabaseAuditTracker:
 
         try:
             # Use centralized database service
+            from core.database_service import database_service
+            
+            # Check if database service is still active before attempting connection
+            if not database_service.is_initialized():
+                logger.debug("DatabaseService not initialized - database audit disabled")
+                self.database_enabled = False
+                return None
+
             self.pool = await database_service.ensure_pool()
             self.database_enabled = True
-            logger.info("✅ Audit tracker using centralized database pool")
+            logger.debug("✅ Audit tracker using centralized database pool")
             return self.pool
 
-        except RuntimeError:
-            logger.warning("DatabaseService not initialized - database audit disabled")
+        except RuntimeError as e:
+            # Handle both "not initialized" and "pool is closed" errors
+            error_msg = str(e).lower()
+            if 'closed' in error_msg:
+                logger.debug("DatabaseService pool closed - database audit disabled")
+            else:
+                logger.debug(f"DatabaseService not ready: {e}")
             self.database_enabled = False
             return None
         except Exception as e:
-            logger.error(f"❌ Database connection failed: {e}")
+            logger.debug(f"Database connection failed: {e}")
             self.database_enabled = False
             return None
 
@@ -512,12 +535,14 @@ class EnhancedDatabaseAuditTracker:
             logger.error(f"❌ Failed to end audit session: {e}")
 
         finally:
-            # Close database connection
+            # DO NOT close the pool - it's a shared pool managed by database_service!
+            # The pool is used across the entire application and should only be closed
+            # during application shutdown in main.py's lifespan handler.
+            # Just clear our reference to it.
             if self.pool:
-                try:
-                    await self.pool.close()
-                except Exception as e:
-                    logger.debug(f"Error closing pool: {e}")
+                logger.debug("Clearing audit tracker pool reference (shared pool remains open)")
+                self.pool = None  # Clear reference without closing
+                # REMOVED: await self.pool.close()  # This was closing the shared pool!
 
     def track_llm_call(self, *args, **kwargs):
         """Sync wrapper for backward compatibility."""

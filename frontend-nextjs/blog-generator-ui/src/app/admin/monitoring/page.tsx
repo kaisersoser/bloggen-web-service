@@ -1,7 +1,7 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,24 @@ interface SystemMetrics {
   open_connections: number;
   thread_count: number;
   timestamp: string;
+}
+
+interface DatabasePoolStats {
+  initialized: boolean;
+  closed: boolean;
+  size: number;
+  free: number;
+  in_use: number;
+  max_size: number;
+  min_size: number;
+}
+
+interface DatabasePoolHistory {
+  timestamp: string;
+  size: number;
+  free: number;
+  in_use: number;
+  utilization: number;
 }
 
 interface PerformanceMetric {
@@ -54,12 +72,137 @@ interface MonitoringData {
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'https://localhost:5000';
 
+// Memoized chart components to prevent unnecessary re-renders
+const SystemHistoryChart = memo(({ data }: { data: SystemMetrics[] }) => {
+  if (data.length === 0) return null;
+  
+  return (
+    <Card className="p-6">
+      <h2 className="text-xl font-semibold mb-4">Resource Usage Trends (Last 10 minutes)</h2>
+      <div className="h-80">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis
+              dataKey="timestamp"
+              tickFormatter={(value) => new Date(value).toLocaleTimeString()}
+              tick={{ fontSize: 12 }}
+            />
+            <YAxis
+              domain={[0, 100]}
+              tick={{ fontSize: 12 }}
+              label={{ value: 'Usage (%)', angle: -90, position: 'insideLeft' }}
+            />
+            <Tooltip
+              labelFormatter={(value) => new Date(value).toLocaleString()}
+              formatter={(value: number) => `${value.toFixed(1)}%`}
+            />
+            <Line
+              type="monotone"
+              dataKey="cpu_percent"
+              name="CPU"
+              stroke="#F59E0B"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={true}
+              animationDuration={300}
+            />
+            <Line
+              type="monotone"
+              dataKey="memory_percent"
+              name="Memory"
+              stroke="#3B82F6"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={true}
+              animationDuration={300}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </Card>
+  );
+});
+SystemHistoryChart.displayName = 'SystemHistoryChart';
+
+const DatabasePoolChart = memo(({ data }: { data: DatabasePoolHistory[] }) => {
+  if (data.length === 0) return null;
+  
+  return (
+    <div>
+      <h3 className="text-sm font-semibold mb-3">Connection Usage Over Time</h3>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+          <XAxis 
+            dataKey="timestamp" 
+            stroke="#9CA3AF"
+            fontSize={10}
+            tickFormatter={(value) => new Date(value).toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              second: '2-digit'
+            })}
+          />
+          <YAxis stroke="#9CA3AF" fontSize={12} />
+          <Tooltip 
+            contentStyle={{ 
+              backgroundColor: '#1F2937', 
+              border: '1px solid #374151',
+              borderRadius: '6px'
+            }}
+            labelFormatter={(value) => new Date(value as string).toLocaleTimeString()}
+            formatter={(value: number, name: string) => {
+              const label = name === 'in_use' ? 'In Use' : name === 'free' ? 'Free' : 'Total';
+              return [value, label];
+            }}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="in_use" 
+            stroke="#3B82F6" 
+            strokeWidth={2}
+            name="In Use"
+            dot={false}
+            isAnimationActive={true}
+            animationDuration={300}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="free" 
+            stroke="#10B981" 
+            strokeWidth={2}
+            name="Free"
+            dot={false}
+            isAnimationActive={true}
+            animationDuration={300}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="size" 
+            stroke="#8B5CF6" 
+            strokeWidth={2}
+            strokeDasharray="5 5"
+            name="Total"
+            dot={false}
+            isAnimationActive={true}
+            animationDuration={300}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+});
+DatabasePoolChart.displayName = 'DatabasePoolChart';
+
 export default function AdminMonitoringPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [monitoringData, setMonitoringData] = useState<MonitoringData | null>(null);
   const [systemHistory, setSystemHistory] = useState<SystemMetrics[]>([]);
+  const [poolHistory, setPoolHistory] = useState<DatabasePoolHistory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
@@ -74,9 +217,14 @@ export default function AdminMonitoringPage() {
   }, [session, status, router]);
 
   // Fetch monitoring data
-  const fetchMonitoringData = useCallback(async () => {
+  const fetchMonitoringData = useCallback(async (isInitialLoad = false) => {
     try {
-      setLoading(true);
+      // Only show full loading on initial load, use refreshing state for updates
+      if (isInitialLoad) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       
       // Fetch full status
       const statusResponse = await fetch(`${BACKEND_URL}/metrics`);
@@ -93,18 +241,42 @@ export default function AdminMonitoringPage() {
         setSystemHistory(historyData.history || []);
       }
       
+      // Fetch database pool stats and update history
+      const poolResponse = await fetch(`${BACKEND_URL}/health/database-pool`);
+      if (poolResponse.ok) {
+        const poolData = await poolResponse.json();
+        if (poolData.stats && poolData.stats.initialized) {
+          const newPoolEntry: DatabasePoolHistory = {
+            timestamp: new Date().toISOString(),
+            size: poolData.stats.size || 0,
+            free: poolData.stats.free || 0,
+            in_use: poolData.stats.in_use || 0,
+            utilization: poolData.stats.max_size > 0 
+              ? (poolData.stats.in_use / poolData.stats.max_size) * 100 
+              : 0,
+          };
+          
+          setPoolHistory(prev => {
+            const updated = [...prev, newPoolEntry];
+            // Keep only last 20 entries for the graph
+            return updated.slice(-20);
+          });
+        }
+      }
+      
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch monitoring data');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
 
   // Initial fetch
   useEffect(() => {
     if (session?.user?.role !== 'ADMIN') return;
-    fetchMonitoringData();
+    fetchMonitoringData(true);
   }, [session, fetchMonitoringData]);
 
   // Auto-refresh
@@ -112,7 +284,7 @@ export default function AdminMonitoringPage() {
     if (!autoRefresh) return;
     
     const interval = setInterval(() => {
-      fetchMonitoringData();
+      fetchMonitoringData(false); // Not initial load, so won't show loading spinner
     }, 10000); // Refresh every 10 seconds
     
     return () => clearInterval(interval);
@@ -154,7 +326,7 @@ export default function AdminMonitoringPage() {
             <div className="text-center text-red-600 dark:text-red-400">
               <p className="text-lg font-semibold mb-2">❌ Error Loading Monitoring Data</p>
               <p className="text-sm">{error}</p>
-              <Button onClick={fetchMonitoringData} className="mt-4">
+              <Button onClick={() => fetchMonitoringData(true)} className="mt-4">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Retry
               </Button>
@@ -191,13 +363,14 @@ export default function AdminMonitoringPage() {
             <Button
               onClick={() => setAutoRefresh(!autoRefresh)}
               variant={autoRefresh ? 'default' : 'outline'}
+              className="relative"
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${autoRefresh ? 'animate-spin' : ''}`} />
               {autoRefresh ? 'Auto-Refresh ON' : 'Auto-Refresh OFF'}
             </Button>
-            <Button onClick={fetchMonitoringData} variant="outline">
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh Now
+            <Button onClick={() => fetchMonitoringData(false)} variant="outline" disabled={isRefreshing}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
             </Button>
           </div>
         </div>
@@ -437,49 +610,141 @@ export default function AdminMonitoringPage() {
           </div>
         </Card>
 
-        {/* System History Chart */}
-        {systemHistory.length > 0 && (
+        {/* Database Connection Pool */}
+        {monitoringData.health.system?.details?.database_pool && (
           <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Resource Usage Trends (Last 10 minutes)</h2>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={systemHistory}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="timestamp"
-                    tickFormatter={(value) => new Date(value).toLocaleTimeString()}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis
-                    domain={[0, 100]}
-                    tick={{ fontSize: 12 }}
-                    label={{ value: 'Usage (%)', angle: -90, position: 'insideLeft' }}
-                  />
-                  <Tooltip
-                    labelFormatter={(value) => new Date(value).toLocaleString()}
-                    formatter={(value: number) => `${value.toFixed(1)}%`}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="cpu_percent"
-                    name="CPU"
-                    stroke="#F59E0B"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="memory_percent"
-                    name="Memory"
-                    stroke="#3B82F6"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <Database className="w-5 h-5" />
+              Database Connection Pool
+            </h2>
+            
+            {(() => {
+              const pool = monitoringData.health.system.details.database_pool as DatabasePoolStats;
+              const utilization = pool.max_size > 0 ? (pool.in_use / pool.max_size) * 100 : 0;
+              const isHealthy = pool.initialized && !pool.closed && utilization < 80;
+              
+              return (
+                <>
+                  {/* Pool Status Banner */}
+                  <div className={`p-4 rounded-lg mb-6 ${
+                    !pool.initialized || pool.closed 
+                      ? 'bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700'
+                      : utilization > 80
+                      ? 'bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700'
+                      : 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">
+                          {!pool.initialized || pool.closed ? '❌' : utilization > 80 ? '⚠️' : '✅'}
+                        </span>
+                        <div>
+                          <div className="font-semibold">
+                            {!pool.initialized 
+                              ? 'Pool Not Initialized' 
+                              : pool.closed 
+                              ? 'Pool Closed' 
+                              : utilization > 80
+                              ? `High Utilization: ${utilization.toFixed(1)}%`
+                              : `Healthy: ${utilization.toFixed(1)}% Utilized`
+                            }
+                          </div>
+                          <div className="text-sm opacity-75">
+                            {pool.in_use} in use • {pool.free} free • {pool.size} total (max: {pool.max_size})
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-3xl font-bold">{pool.in_use}/{pool.max_size}</div>
+                        <div className="text-xs opacity-75">connections</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pool Stats Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="text-sm text-blue-600 dark:text-blue-400 mb-1">In Use</div>
+                      <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">{pool.in_use}</div>
+                      <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">Active connections</div>
+                    </div>
+                    
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                      <div className="text-sm text-green-600 dark:text-green-400 mb-1">Free</div>
+                      <div className="text-2xl font-bold text-green-700 dark:text-green-300">{pool.free}</div>
+                      <div className="text-xs text-green-600 dark:text-green-400 mt-1">Available now</div>
+                    </div>
+                    
+                    <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                      <div className="text-sm text-purple-600 dark:text-purple-400 mb-1">Total</div>
+                      <div className="text-2xl font-bold text-purple-700 dark:text-purple-300">{pool.size}</div>
+                      <div className="text-xs text-purple-600 dark:text-purple-400 mt-1">Current pool size</div>
+                    </div>
+                    
+                    <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                      <div className="text-sm text-orange-600 dark:text-orange-400 mb-1">Utilization</div>
+                      <div className="text-2xl font-bold text-orange-700 dark:text-orange-300">{utilization.toFixed(0)}%</div>
+                      <div className="text-xs text-orange-600 dark:text-orange-400 mt-1">of max capacity</div>
+                    </div>
+                  </div>
+
+                  {/* Visual Bar */}
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Connection Distribution</span>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                        {pool.in_use} / {pool.max_size} ({utilization.toFixed(1)}%)
+                      </span>
+                    </div>
+                    <div className="relative w-full h-8 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      {/* In Use - Blue */}
+                      <div
+                        className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-500"
+                        style={{ width: `${(pool.in_use / pool.max_size) * 100}%` }}
+                      >
+                        {pool.in_use > 0 && (
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
+                            {pool.in_use} in use
+                          </span>
+                        )}
+                      </div>
+                      {/* Free - Green */}
+                      <div
+                        className="absolute top-0 h-full bg-gradient-to-r from-green-500 to-green-600 transition-all duration-500"
+                        style={{ 
+                          left: `${(pool.in_use / pool.max_size) * 100}%`,
+                          width: `${(pool.free / pool.max_size) * 100}%` 
+                        }}
+                      >
+                        {pool.free > 0 && (
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
+                            {pool.free} free
+                          </span>
+                        )}
+                      </div>
+                      {/* Unused capacity - Light gray */}
+                      <div
+                        className="absolute top-0 right-0 h-full bg-gray-300 dark:bg-gray-600 transition-all duration-500"
+                        style={{ width: `${Math.max(0, 100 - ((pool.size / pool.max_size) * 100))}%` }}
+                      ></div>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mt-2">
+                      <span>Min: {pool.min_size}</span>
+                      <span>Current: {pool.size}</span>
+                      <span>Max: {pool.max_size}</span>
+                    </div>
+                  </div>
+
+                  {/* Real-time Graph - Using Memoized Component */}
+                  <DatabasePoolChart data={poolHistory} />
+                </>
+              );
+            })()}
           </Card>
         )}
+
+        {/* System History Chart - Using Memoized Component */}
+        <SystemHistoryChart data={systemHistory} />
 
         {/* Performance Metrics */}
         {Object.keys(monitoringData.performance).length > 0 && (

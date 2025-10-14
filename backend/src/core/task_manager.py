@@ -176,7 +176,12 @@ class TaskManager:
         try:
             cycle_expired = await self._expire_stale_incomplete_tasks()
         except Exception as e:
-            logger.error(f"Task cleanup failed while expiring incomplete tasks: {e}")
+            # Silently ignore errors during shutdown when pool is closed
+            error_msg = str(e).lower()
+            if 'pool is closed' in error_msg or 'closed' in error_msg or 'not available' in error_msg:
+                logger.debug("Database unavailable during cleanup (likely shutdown)")
+            else:
+                logger.error(f"Task cleanup failed while expiring incomplete tasks: {e}")
 
         cycle_expired = int(cycle_expired or 0)
 
@@ -468,16 +473,34 @@ class TaskManager:
         from core.database_service import database_service
 
         try:
+            # Check if database service is still active
+            if not database_service.is_initialized():
+                logger.debug("DatabaseService not initialized - operations disabled")
+                raise RuntimeError("DatabaseService not initialized")
+            
             # Use centralized database service
             pool = await database_service.ensure_pool()
             logger.debug("✅ Task manager using centralized database pool")
             return pool
 
         except RuntimeError as e:
-            logger.error(f"❌ DatabaseService not initialized: {e}")
+            # Handle both "not initialized" and "pool is closed" errors gracefully
+            error_msg = str(e).lower()
+            if 'closed' in error_msg:
+                logger.debug("DatabaseService pool closed - operations disabled")
+            else:
+                logger.debug(f"DatabaseService not ready: {e}")
             raise Exception("Database connection not available") from e
         except Exception as e:
+            # Log more details about connection pool exhaustion
             logger.error(f"❌ Failed to get database connection: {e}")
+            if hasattr(database_service, '_pool') and database_service._pool:
+                try:
+                    pool_size = database_service._pool.get_size()
+                    pool_free = database_service._pool.get_idle_size()
+                    logger.error(f"   Pool stats: size={pool_size}, free={pool_free}, in_use={pool_size - pool_free}")
+                except Exception:
+                    pass
             raise Exception(f"Failed to get database connection: {e}") from e
 
     async def create_task(

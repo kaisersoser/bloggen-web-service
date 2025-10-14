@@ -63,7 +63,12 @@ class DatabaseWorker:
         except Exception as e:
             logger.error(f"❌ Database worker loop error: {e}")
         finally:
-            loop.close()
+            # DO NOT close the loop - it closes the shared database pool!
+            # asyncpg pools are tied to event loops, and closing this loop
+            # will mark the shared database_service._pool as closed.
+            # Just clear the reference instead.
+            asyncio.set_event_loop(None)
+            # loop.close()  # REMOVED: This was closing the database pool!
             self._running = False
 
     async def _process_operations(self):

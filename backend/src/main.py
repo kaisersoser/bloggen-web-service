@@ -45,6 +45,7 @@ from core.database_service import database_service
 from core.enhanced_audit_tracker import EnhancedDatabaseAuditTracker
 from core.error_responses import (
     create_auth_error,
+    create_database_error,
     create_error_response,
     create_system_error,
     create_validation_error,
@@ -117,8 +118,14 @@ async def lifespan(app: FastAPI):
 
     # Initialize shared database service pool
     try:
-        await database_service.initialize(config.database.url)
-        logger.info("✅ Database service connection pool initialized")
+        await database_service.initialize(
+            config.database.url,
+            min_size=2,
+            max_size=20,  # Increased from default 10 to handle concurrent operations
+            command_timeout=60,  # Increased timeout for long-running queries
+            max_inactive_connection_lifetime=300,  # Close idle connections after 5 minutes
+        )
+        logger.info("✅ Database service connection pool initialized (min=2, max=20)")
     except Exception as db_err:
         logger.error(f"❌ Failed to initialize database service: {db_err}")
         raise
@@ -586,13 +593,56 @@ async def health_check_system():
     """System resources health check."""
     result = monitoring_service._check_system_health()
     
+    # Add database pool statistics
+    pool_stats = database_service.get_pool_stats()
+    
     return {
         "service": "system",
         "healthy": result.healthy,
         "response_time_ms": result.response_time_ms,
-        "details": result.details,
+        "details": {
+            **result.details,
+            "database_pool": pool_stats,
+        },
         "error": result.error,
         "timestamp": result.timestamp.isoformat()
+    }
+
+
+@app.get("/health/database-pool")
+async def health_check_database_pool():
+    """Database connection pool health check with detailed stats."""
+    pool_stats = database_service.get_pool_stats()
+    
+    # Determine health status
+    if not pool_stats.get("initialized"):
+        healthy = False
+        message = "Database pool not initialized"
+    elif pool_stats.get("closed"):
+        healthy = False
+        message = "Database pool is closed"
+    elif pool_stats.get("error"):
+        healthy = False
+        message = f"Pool stats error: {pool_stats['error']}"
+    else:
+        # Check if pool is getting exhausted (>80% utilization)
+        in_use = pool_stats.get("in_use", 0)
+        max_size = pool_stats.get("max_size", 10)
+        utilization = (in_use / max_size * 100) if max_size > 0 else 0
+        
+        if utilization > 80:
+            healthy = False
+            message = f"Pool exhaustion warning: {utilization:.1f}% utilized ({in_use}/{max_size})"
+        else:
+            healthy = True
+            message = f"Pool healthy: {utilization:.1f}% utilized ({in_use}/{max_size})"
+    
+    return {
+        "service": "database_pool",
+        "healthy": healthy,
+        "message": message,
+        "stats": pool_stats,
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 
@@ -777,6 +827,17 @@ async def generate_blog(
                 normalized_instructions,
             )
         except Exception as e:
+            error_msg = str(e).lower()
+            # Check if this is a shutdown-related database error
+            if 'pool is closed' in error_msg or 'closed' in error_msg or 'not available' in error_msg:
+                logger.warning(f"Cannot create task - database unavailable (likely shutting down): {e}")
+                raise error_response_to_http_exception(
+                    create_database_error(
+                        "create_task",
+                        "Service is shutting down. Please try again in a moment.",
+                        correlation_id
+                    )
+                )
             logger.error(f"Failed to create task in database: {e}")
             raise handle_database_error(e, "create_task", correlation_id)
 

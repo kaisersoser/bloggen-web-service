@@ -295,10 +295,16 @@ class DirectSupabaseAuditManager:
             return None
 
     async def close(self):
-        """Close the database connection pool"""
+        """
+        Clear pool reference (DO NOT close the shared pool).
+        
+        Phase 3.1: This pool is managed by database_service and shared across
+        the application. It should only be closed during application shutdown.
+        """
         if self.pool:
-            await self.pool.close()
-            self.logger.info("✅ Database connection pool closed")
+            self.logger.debug("Clearing direct audit manager pool reference (shared pool remains open)")
+            self.pool = None
+            # REMOVED: await self.pool.close()  # This was closing the shared pool!
 
 
 # Global instance

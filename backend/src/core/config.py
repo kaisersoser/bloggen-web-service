@@ -44,6 +44,12 @@ class APIConfig:
     google_key: Optional[str]
     serper_key: Optional[str]
     unsplash_key: Optional[str]
+    replicate_key: Optional[str]
+    
+    # Image generation provider settings
+    image_provider: str = "replicate"  # 'replicate' or 'openai'
+    image_model: str = "google/imagen-3-fast"
+    image_cost_per_generation: float = 0.025
 
 
 @dataclass
@@ -245,6 +251,10 @@ class UnifiedConfig:
             google_key=google_key,
             serper_key=self.env.get_optional("SERPER_API_KEY"),
             unsplash_key=self.env.get_optional("UNSPLASH_ACCESS_KEY"),
+            replicate_key=self.env.get_optional("REPLICATE_API_KEY"),
+            image_provider=os.getenv("IMAGE_PROVIDER", "replicate"),
+            image_model=os.getenv("IMAGE_MODEL", "google/imagen-3-fast"),
+            image_cost_per_generation=float(os.getenv("IMAGE_COST_PER_GENERATION", "0.025")),
         )
 
     def _init_models(self) -> ModelsConfig:

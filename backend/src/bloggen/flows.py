@@ -258,7 +258,10 @@ class BlogGenerationFlow(Flow):
                                 except Exception as exc:
                                     exception_container.append(exc)
                                 finally:
-                                    new_loop.close()
+                                    # DO NOT close the loop - it can close shared resources like database pools
+                                    # Just clear the event loop reference
+                                    asyncio.set_event_loop(None)
+                                    # new_loop.close()  # REMOVED: This was closing the database pool!
 
                             thread = threading.Thread(target=run_in_new_loop)
                             thread.start()
@@ -273,10 +276,25 @@ class BlogGenerationFlow(Flow):
                                     f"Rate-limited execution timed out for {phase_name}"
                                 )
                         else:
-                            result = asyncio.run(execute_with_rate_limiting())
+                            # DO NOT use asyncio.run() - it closes the loop and database pool!
+                            # Use manual loop creation without closing
+                            manual_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(manual_loop)
+                            try:
+                                result = manual_loop.run_until_complete(execute_with_rate_limiting())
+                            finally:
+                                asyncio.set_event_loop(None)
+                                # DO NOT close: manual_loop.close()
                     except RuntimeError:
-                        # No event loop in current thread, safe to use asyncio.run
-                        result = asyncio.run(execute_with_rate_limiting())
+                        # No event loop in current thread
+                        # DO NOT use asyncio.run() - it closes the loop and database pool!
+                        manual_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(manual_loop)
+                        try:
+                            result = manual_loop.run_until_complete(execute_with_rate_limiting())
+                        finally:
+                            asyncio.set_event_loop(None)
+                            # DO NOT close: manual_loop.close()
                 except Exception as exc:
                     logger.error(
                         f"Rate-limited execution failed for {phase_name}: {exc}"
