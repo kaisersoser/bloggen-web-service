@@ -228,7 +228,7 @@ class TaskManager:
                 """
                 SELECT id, user_id, status, updated_at
                 FROM blogs
-                WHERE status = ANY($1::text[])
+                WHERE status = ANY($1::"BlogStatus"[])
                   AND updated_at < $2
                 ORDER BY updated_at ASC
                 LIMIT $3

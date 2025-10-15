@@ -187,13 +187,27 @@ class RedisManager:
         """
         for attempt in range(self._max_reconnect_attempts):
             try:
+                # Configure SSL for rediss:// (TLS) connections
+                import ssl
+                connection_kwargs = {
+                    "max_connections": 50,  # Handle SSE connections
+                    "retry_on_timeout": True,
+                    "socket_timeout": 10,  # Increased for TLS handshake
+                    "socket_connect_timeout": 10,
+                    "retry_on_error": [ConnectionError, TimeoutError],  # Auto-retry on errors
+                }
+                
+                # Add SSL context for rediss:// (TLS) connections
+                if self.redis_url.startswith("rediss://"):
+                    ssl_context = ssl.create_default_context()
+                    ssl_context.check_hostname = False  # Upstash uses wildcards
+                    ssl_context.verify_mode = ssl.CERT_NONE  # Trust Upstash certificate
+                    connection_kwargs["ssl"] = ssl_context
+                    logger.info(f"🔒 Using TLS/SSL for Redis connection (attempt {attempt + 1})")
+                
                 self.connection_pool = aioredis.ConnectionPool.from_url(
                     self.redis_url,
-                    max_connections=50,  # Handle SSE connections
-                    retry_on_timeout=True,
-                    socket_timeout=5,
-                    socket_connect_timeout=5,
-                    retry_on_error=[ConnectionError, TimeoutError],  # Auto-retry on errors
+                    **connection_kwargs
                 )
                 self.redis_client = aioredis.Redis(
                     connection_pool=self.connection_pool,
@@ -266,7 +280,7 @@ class RedisManager:
 
         Phase 3.4: Enhanced with connection checking and graceful error handling.
         """
-        if not await self.is_healthy():
+        if not self.redis_client or not await self.is_healthy():
             logger.warning(
                 f"⚠️ Redis unavailable, skipping publish for task {task_update.task_id}"
             )
@@ -308,7 +322,7 @@ class RedisManager:
         Sends structured SSE messages directly to task channels for real-time updates
         including agent decisions, tool usage, and content streaming.
         """
-        if not await self.is_healthy():
+        if not self.redis_client or not await self.is_healthy():
             logger.warning(
                 f"⚠️ Redis unavailable, skipping immediate message for task {task_id}"
             )
@@ -556,7 +570,7 @@ class RedisManager:
         Phase 3.4: Added memory monitoring (Claude Sonnet 4.5 recommendation)
         Returns: Memory statistics or empty dict if unavailable
         """
-        if not await self.is_healthy():
+        if not self.redis_client or not await self.is_healthy():
             return {}
 
         try:
@@ -580,7 +594,7 @@ class RedisManager:
         Phase 3.4: Added TTL management (Claude Sonnet 4.5 recommendation)
         Returns: Number of keys that had TTL added
         """
-        if not await self.is_healthy():
+        if not self.redis_client or not await self.is_healthy():
             logger.warning("⚠️ Redis unavailable, skipping cleanup")
             return 0
 
@@ -610,7 +624,7 @@ class RedisManager:
         
         Phase 3.4: Combined publish + persistence (Claude Sonnet 4.5 recommendation)
         """
-        if not await self.is_healthy():
+        if not self.redis_client or not await self.is_healthy():
             logger.warning(f"⚠️ Redis unavailable, skipping publish_with_ttl for {key}")
             return
 
