@@ -4,15 +4,69 @@
 
 ---
 
+## 🎯 Choose Your Deployment Path
+
+### Path A: Existing Supabase Database (Most Common) ✅
+```bash
+# 1. Pre-deployment checks
+./scripts/pre-deploy-check.sh
+
+# 2. Get Supabase connection string
+# Dashboard → Settings → Database → Copy DATABASE_URL
+
+# 3. Setup Upstash Redis
+# Sign up at https://console.upstash.com/
+# Create Redis database → Copy REDIS_URL
+
+# 4. Deploy backend to Railway
+# Add DATABASE_URL and REDIS_URL to environment variables
+./scripts/deploy-production.sh --backend-only
+
+# 5. Deploy frontend to Vercel
+./scripts/deploy-production.sh --frontend-only
+
+# 6. Verify health
+./scripts/health-check.sh
+
+# ✅ Done! Skip database migration.
+```
+
+### Path B: New Supabase Database (Fresh Setup)
+```bash
+# 1. Pre-deployment checks
+./scripts/pre-deploy-check.sh
+
+# 2. Setup Supabase project
+# Create new project at https://supabase.com/
+
+# 3. Run database migrations
+cd frontend-nextjs/blog-generator-ui
+export DATABASE_URL="your-supabase-url"
+npx prisma migrate deploy
+
+# 4. Setup Upstash Redis
+# Sign up at https://console.upstash.com/
+
+# 5. Deploy backend + frontend
+./scripts/deploy-production.sh
+
+# 6. Verify health
+./scripts/health-check.sh
+
+# ✅ Done! New database configured.
+```
+
+---
+
 ## 📋 Quick Commands
 
 ### Initial Setup (One-time)
 ```bash
-# 1. Sign up for services
-#    - Supabase: https://supabase.com/
-#    - Upstash: https://console.upstash.com/
-#    - Railway: https://railway.app/
-#    - Vercel: https://vercel.com/
+# 1. Sign up for services (if not already done)
+#    - Supabase: https://supabase.com/ (✓ if existing)
+#    - Upstash: https://console.upstash.com/ (NEW)
+#    - Railway: https://railway.app/ (NEW)
+#    - Vercel: https://vercel.com/ (NEW)
 
 # 2. Install CLI tools
 npm install -g vercel @railway/cli
@@ -85,6 +139,61 @@ railway logs
 cd frontend-nextjs/blog-generator-ui
 vercel --prod
 vercel logs
+```
+
+---
+
+## ⚙️ Railway Configuration Reference
+
+### Via Railway Dashboard (Recommended)
+```bash
+# 1. Navigate to: https://railway.app/dashboard
+# 2. Select Project → Backend Service → Settings
+
+## Configuration Sections:
+
+### Source Section
+Root Directory: backend/
+Branch: main
+
+### Deploy Section  
+Start Command: python src/main.py
+Restart Policy: On Failure
+Max Retries: 10
+
+### Networking Section
+Health Check Path: /health
+Health Check Timeout: 30
+Port: Auto-assigned via $PORT
+
+### Build Section
+Builder: Nixpacks (auto-detected)
+Build Command: pip install -r requirements.txt
+
+# ✅ Save each section after editing
+```
+
+### Via railway.json (Alternative)
+```bash
+# Create backend/railway.json with:
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "pip install -r requirements.txt"
+  },
+  "deploy": {
+    "startCommand": "python src/main.py",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+
+# Then commit and push:
+git add backend/railway.json
+git commit -m "Add Railway config"
+git push origin main
 ```
 
 ---

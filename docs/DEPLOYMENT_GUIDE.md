@@ -10,7 +10,7 @@
 
 1. [Pre-Deployment Checklist](#pre-deployment-checklist)
 2. [Phase 1: Infrastructure Setup](#phase-1-infrastructure-setup)
-3. [Phase 2: Database Migration](#phase-2-database-migration)
+3. [Phase 2: Database Setup](#phase-2-database-setup) ← Updated: Choose your path
 4. [Phase 3: Backend Deployment](#phase-3-backend-deployment)
 5. [Phase 4: Frontend Deployment](#phase-4-frontend-deployment)
 6. [Phase 5: Verification & Testing](#phase-5-verification--testing)
@@ -20,14 +20,22 @@
 
 ---
 
+## 📖 Additional Guides
+
+- **[Railway Configuration Guide](./RAILWAY_CONFIGURATION.md)** - Detailed Railway setup walkthrough
+- **[Environment Configuration](./ENVIRONMENT_CONFIGURATION.md)** - Local vs Production setup
+- **[Quick Reference](./DEPLOYMENT_QUICK_REFERENCE.md)** - Fast deployment commands
+
+---
+
 ## ✅ Pre-Deployment Checklist
 
 ### 1. Required Accounts (Sign up before starting)
 
 - [ ] **GitHub Account** (you have this)
-- [ ] **Supabase Account** - https://supabase.com/ (PostgreSQL)
-- [ ] **Upstash Account** - https://console.upstash.com/ (Redis)
-- [ ] **Railway Account** - https://railway.app/ (Backend hosting)
+- [ ] **Supabase Account** - https://supabase.com/ (PostgreSQL) ← May already have
+- [ ] **Upstash Account** - https://console.upstash.com/ (Redis) ← NEW
+- [ ] **Railway Account** - https://railway.app/ (Backend hosting) ← NEW
 - [ ] **Vercel Account** - https://vercel.com/ (Frontend hosting)
 - [ ] **Domain Name** (optional, can use free subdomains)
 
@@ -230,11 +238,77 @@ UPSTASH_REDIS_REST_TOKEN=[your_token]
 
 ---
 
-## 🗄️ Phase 2: Database Migration
+## 🗄️ Phase 2: Database Setup
 
-**Estimated Time:** 15-20 minutes
+**Estimated Time:** 5-20 minutes (depending on your situation)
 
-### Step 2.1: Run Prisma Migrations
+> **Choose Your Path:**
+> - **Option A:** Using Existing Supabase Database (5 minutes) ← **Most users**
+> - **Option B:** New Supabase Database Setup (20 minutes)
+
+---
+
+### Option A: Using Existing Supabase Database ✅
+
+**Use this if:** You already have a working Supabase database with all tables, RLS policies, and data.
+
+#### Step 2A.1: Verify Existing Database
+
+```bash
+# 1. Get your Supabase connection string
+# Go to Supabase Dashboard → Settings → Database → Connection String → URI
+
+# Your DATABASE_URL should look like:
+# postgresql://postgres:[PASSWORD]@db.[PROJECT].supabase.co:5432/postgres
+
+# 2. Verify all required tables exist
+# Go to Supabase Dashboard → Table Editor
+# Confirm these tables are present:
+# ✓ User
+# ✓ Account  
+# ✓ Session
+# ✓ VerificationToken
+# ✓ Blog (or blogs)
+# ✓ audit_sessions (if using audit features)
+# ✓ llm_api_calls (if using audit features)
+
+# 3. (Optional) Test connection locally
+cd /home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service/frontend-nextjs/blog-generator-ui
+export DATABASE_URL="your-supabase-connection-string"
+npx prisma db pull
+# Should show: "Introspected X models from the database"
+
+# ✅ Database verified! Skip to Phase 3: Backend Deployment
+```
+
+#### Step 2A.2: Save Connection Strings
+
+```bash
+# Copy these from Supabase Dashboard → Settings → Database:
+
+# 1. Connection String (for Railway backend & Vercel frontend)
+DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT].supabase.co:5432/postgres
+
+# 2. Direct Connection String (for Prisma migrations if needed)
+DIRECT_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT].supabase.co:5432/postgres
+
+# 3. Supabase Project URL & Keys (from Settings → API)
+SUPABASE_URL=https://[PROJECT].supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-key (keep secret!)
+
+# Save these securely - you'll use them in Phase 3 & 4
+
+# ✅ Connection strings ready! Proceed to Phase 3.
+```
+
+---
+
+### Option B: New Supabase Database Setup ⚙️
+
+**Use this if:** You're starting fresh or need to set up a brand new Supabase project.
+
+#### Step 2B.1: Run Prisma Migrations
 
 ```bash
 # 1. Navigate to frontend directory
@@ -266,7 +340,7 @@ npx prisma studio
 # ✅ Database schema deployed!
 ```
 
-### Step 2.2: Verify Database Structure
+#### Step 2B.2: Verify Database Structure
 
 ```bash
 # Connect to Supabase and verify tables
@@ -289,7 +363,22 @@ EOF
 # ✅ All tables should be visible
 ```
 
-### Step 2.3: (Optional) Seed Initial Data
+#### Step 2B.3: Apply Row Level Security (RLS) Policies
+
+```bash
+# Run RLS setup scripts from database/
+cd /home/vogtcha/Jupyter/Projects/CrewAI/bloggen-web-service
+
+# Apply RLS policies
+psql "$DATABASE_URL" < database/rls-setup-corrected.sql
+
+# Verify RLS coverage
+psql "$DATABASE_URL" < database/verify-rls-coverage.sql
+
+# ✅ RLS policies applied!
+```
+
+#### Step 2B.4: (Optional) Seed Initial Data
 
 ```bash
 # If you have a seed script
@@ -395,16 +484,103 @@ ENABLE_CONTENT_IMAGE_INJECTION=false
 CORS_ORIGINS=https://your-frontend.vercel.app
 ```
 
-### Step 3.2: Create Railway Dockerfile
+### Step 3.2: Configure Railway Service Settings
+
+**Important:** Railway needs to know where your code is and how to run it.
+
+#### Via Railway Dashboard (Recommended for First Deployment)
 
 ```bash
-# This should already exist, but verify:
-cat backend/Dockerfile
+# 1. Go to Railway Dashboard: https://railway.app/dashboard
+# 2. Select your project → backend service
+# 3. Click on "Settings" tab (top navigation)
+# 4. Configure these sections in the right sidebar:
 
-# If it doesn't exist, we'll create it in the automation scripts section
+## Section: Source
+- Root Directory: backend/
+- Branch: main
+- ✅ Save changes
+
+## Section: Deploy  
+- Start Command: python src/main.py
+- Restart Policy: On Failure
+- Max Retries: 10
+- ✅ Save changes
+
+## Section: Networking
+- Health Check Path: /health
+- Health Check Timeout: 30 seconds
+- Port: (Railway auto-assigns via $PORT variable)
+- ✅ Save changes
+
+## Section: Build
+- Builder: Nixpacks (default)
+- Build Command: pip install -r requirements.txt
+- ✅ Save changes (Railway usually auto-detects this)
+
+# 5. Verify Railway reads PORT from environment
+# Your backend/src/main.py should have:
+#   port = int(os.environ.get("PORT", 5000))
 ```
 
-### Step 3.3: Deploy Backend to Railway
+#### Via railway.json (Alternative - Infrastructure as Code)
+
+If you prefer configuration files, create `backend/railway.json`:
+
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "pip install -r requirements.txt"
+  },
+  "deploy": {
+    "startCommand": "python src/main.py",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+Then commit and push:
+```bash
+git add backend/railway.json
+git commit -m "Add Railway configuration"
+git push origin main
+```
+
+#### Verify Railway Configuration
+
+```bash
+# Check if Railway picked up your settings:
+# 1. Go to Railway Dashboard → Your Service → Settings
+# 2. Verify each section shows your configured values
+# 3. Look for these indicators:
+#    ✓ Root Directory: backend/
+#    ✓ Start Command: python src/main.py
+#    ✓ Health Check: /health
+
+# ✅ Configuration verified! Ready to deploy.
+```
+
+### Step 3.3: Verify Backend Dockerfile
+
+```bash
+# Railway uses Docker to build your app. Verify Dockerfile exists:
+ls -la backend/Dockerfile
+
+# Should show:
+# -rw-rw-r-- 1 user user 1234 Oct 15 12:00 backend/Dockerfile
+
+# If it exists, Railway will use it automatically.
+# If it doesn't exist, Railway will use Nixpacks auto-detection.
+
+# ✅ Build configuration ready!
+```
+
+### Step 3.4: Deploy Backend to Railway
 
 ```bash
 # Railway auto-deploys when you push to GitHub
