@@ -25,6 +25,7 @@ PyJWT
 asyncpg  # Direct PostgreSQL/Supabase connections
 beautifulsoup4  # For safe HTML content parsing
 lxml  # Fast XML/HTML parser for BeautifulSoup
+psutil  # System and process monitoring
 
 # Server
 uvicorn
