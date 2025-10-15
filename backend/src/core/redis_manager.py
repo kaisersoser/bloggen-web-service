@@ -7,6 +7,7 @@ without database polling.
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Set, Optional, Any, Callable
 from datetime import datetime
 
@@ -651,5 +652,6 @@ class RedisManager:
         }
 
 
-# Global Redis manager instance
-redis_manager = RedisManager()
+# Global Redis manager instance - reads REDIS_URL from environment
+redis_manager = RedisManager(redis_url=os.getenv("REDIS_URL", "redis://localhost:6379"))
+
