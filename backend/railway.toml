@@ -1,0 +1,17 @@
+[build]
+builder = "nixpacks"
+
+[build.nixpacksPlan]
+# Ensure proper network configuration
+providers = ["python"]
+
+[deploy]
+startCommand = "python src/main.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[env]
+# Force unbuffered output for better logging
+PYTHONUNBUFFERED = "1"
