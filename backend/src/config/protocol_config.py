@@ -28,7 +28,8 @@ class ProtocolConfig:
         self.protocol_mode: str = "https"
         self.frontend_port = 3001
         self.frontend_host = "localhost"
-        self.backend_port = 5000
+        # Railway provides PORT environment variable - use it if available
+        self.backend_port = int(os.getenv("PORT", "5000"))
         self.backend_host = "localhost"
         self.ssl_cert_path = "./certs/localhost.pem"
         self.ssl_key_path = "./certs/localhost-key.pem"

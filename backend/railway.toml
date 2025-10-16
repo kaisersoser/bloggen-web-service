@@ -11,6 +11,9 @@ healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
+# Give application time to start before health checks
+sleepApplication = false
+numReplicas = 1
 
 [env]
 # Force unbuffered output for better logging
