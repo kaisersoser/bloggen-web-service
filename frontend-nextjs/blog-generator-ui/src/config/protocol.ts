@@ -35,6 +35,11 @@ export class ProtocolConfig {
   }
 
   static getApiBaseUrl(): string {
+    // Priority 1: Use NEXT_PUBLIC_API_URL if set (for production)
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    // Priority 2: Construct from host/port (for local development)
     return this.getBackendUrl();
   }
 
