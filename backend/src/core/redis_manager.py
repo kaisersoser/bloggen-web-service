@@ -202,7 +202,7 @@ class RedisManager:
                     ssl_context = ssl.create_default_context()
                     ssl_context.check_hostname = False  # Upstash uses wildcards
                     ssl_context.verify_mode = ssl.CERT_NONE  # Trust Upstash certificate
-                    connection_kwargs["ssl"] = ssl_context
+                    connection_kwargs["ssl_context"] = ssl_context  # Changed from "ssl" to "ssl_context"
                     logger.info(f"🔒 Using TLS/SSL for Redis connection (attempt {attempt + 1})")
                 
                 self.connection_pool = aioredis.ConnectionPool.from_url(
