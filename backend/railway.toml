@@ -2,8 +2,9 @@
 # Use default Railpack builder
 
 [deploy]
-# Railway already uses /backend as root directory, so just run python directly
-startCommand = "python src/main.py"
+# Railway uses /backend as root directory, code is in /app/src/
+# Set PYTHONPATH so Python can find config/, core/, etc. modules
+startCommand = "cd /app && PYTHONPATH=/app/src python src/main.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
