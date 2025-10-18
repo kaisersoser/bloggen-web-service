@@ -1,9 +1,6 @@
 [build]
-builder = "nixpacks"
-
-[build.nixpacksPlan]
-# Ensure proper network configuration
-providers = ["python"]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "python src/main.py"
