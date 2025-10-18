@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Cache-busting layer - forces rebuild from here down
-RUN echo "Build timestamp: 2025-10-18-17:40:00"
+RUN echo "Build timestamp: 2025-10-18-17:45:00"
 
 # Copy requirements first (for better caching)
 COPY requirements.txt .
@@ -44,10 +44,11 @@ USER appuser
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src
 
 # Railway will provide PORT via environment variable
 # No need to hardcode it here
 
-# Start application
-CMD ["python", "src/main.py"]
+# Start application using the diagnostic startup script
+CMD ["/app/start.sh"]
