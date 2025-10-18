@@ -187,8 +187,8 @@ class RedisManager:
         """
         for attempt in range(self._max_reconnect_attempts):
             try:
-                # Configure SSL for rediss:// (TLS) connections
-                import ssl
+                # Configure connection parameters
+                # Note: redis.asyncio automatically handles SSL for rediss:// URLs
                 connection_kwargs = {
                     "max_connections": 50,  # Handle SSE connections
                     "retry_on_timeout": True,
@@ -197,14 +197,11 @@ class RedisManager:
                     "retry_on_error": [ConnectionError, TimeoutError],  # Auto-retry on errors
                 }
                 
-                # Add SSL context for rediss:// (TLS) connections
+                # Log TLS usage for rediss:// URLs
                 if self.redis_url.startswith("rediss://"):
-                    ssl_context = ssl.create_default_context()
-                    ssl_context.check_hostname = False  # Upstash uses wildcards
-                    ssl_context.verify_mode = ssl.CERT_NONE  # Trust Upstash certificate
-                    connection_kwargs["ssl_context"] = ssl_context  # Changed from "ssl" to "ssl_context"
-                    logger.info(f"🔒 Using TLS/SSL for Redis connection (attempt {attempt + 1})")
+                    logger.info(f"🔒 Using TLS/SSL for Redis connection (rediss:// URL, attempt {attempt + 1})")
                 
+                # Create connection pool - SSL is handled automatically by redis.asyncio for rediss:// URLs
                 self.connection_pool = aioredis.ConnectionPool.from_url(
                     self.redis_url,
                     **connection_kwargs
