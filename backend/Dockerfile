@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Cache-busting layer - forces rebuild from here down
-RUN echo "Build timestamp: 2025-10-18-17:45:00"
+RUN echo "Build timestamp: 2025-10-18-17:50:00"
 
 # Copy requirements first (for better caching)
 COPY requirements.txt .
@@ -32,12 +32,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY src/ ./src/
 COPY start.sh ./start.sh
 
-# Make startup script executable
-RUN chmod +x ./start.sh
-
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
+
+# Make startup script executable AFTER setting ownership
+RUN chmod +x ./start.sh
 
 # Switch to non-root user
 USER appuser
@@ -50,5 +50,5 @@ ENV PYTHONUNBUFFERED=1 \
 # Railway will provide PORT via environment variable
 # No need to hardcode it here
 
-# Start application using the diagnostic startup script
-CMD ["/app/start.sh"]
+# Start application directly with Python, PYTHONPATH already set
+CMD ["python", "src/main.py"]
