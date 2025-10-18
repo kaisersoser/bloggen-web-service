@@ -1,8 +1,8 @@
 [build]
 # Use Dockerfile for build
 builder = "DOCKERFILE"
-# Dockerfile is in the backend root directory (Railway root is set to /backend)
-dockerfilePath = "./Dockerfile"
+# Since Railway root directory is /backend, just use filename
+# dockerfilePath = "Dockerfile"
 
 [deploy]
 # Let Dockerfile CMD handle startup (don't override with startCommand)
