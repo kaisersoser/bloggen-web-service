@@ -3,8 +3,8 @@
 
 [deploy]
 # Railway uses /backend as root directory, code is in /app/src/
-# Set PYTHONPATH so Python can find config/, core/, etc. modules
-startCommand = "cd /app && PYTHONPATH=/app/src python src/main.py"
+# Use startup script for better error logging
+startCommand = "chmod +x /app/start.sh && /app/start.sh"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"

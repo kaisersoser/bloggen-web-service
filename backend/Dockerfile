@@ -23,6 +23,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application code
 COPY src/ ./src/
+COPY start.sh ./start.sh
+
+# Make startup script executable
+RUN chmod +x ./start.sh
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
