@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
     const backendResponse = await new Promise<{ok: boolean, status: number, json: () => Promise<{task_id?: string; error?: string}>, text: () => Promise<string>}>((resolve, reject) => {
       const options = {
         hostname: backendUrl.hostname,
-        port: backendUrl.port || (isHttpsMode() ? 5000 : 5000),
+        port: backendUrl.port || (backendUrl.protocol === 'https:' ? 443 : 80),
         path: backendUrl.pathname,
         method: 'POST',
         headers: {
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
           'Content-Length': Buffer.byteLength(postData)
         },
         // Disable SSL verification for development self-signed certificates
-        rejectUnauthorized: false
+        rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false
       }
 
       const httpModule = isHttpsMode() ? https : http;
