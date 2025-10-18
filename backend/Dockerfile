@@ -1,5 +1,6 @@
 # Backend Dockerfile for Production Deployment
 # Optimized for Railway deployment
+# Updated: 2025-10-18 - Added startup diagnostics
 
 FROM python:3.11-slim
 
