@@ -22,7 +22,7 @@ export async function backendFetch(
   options: BackendFetchOptions = {}
 ): Promise<Response> {
   // Priority: API_BASE_URL (server-side) > NEXT_PUBLIC_API_URL (client + server) > localhost fallback
-  const API_BASE_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://localhost:5001';
+  const API_BASE_URL = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://localhost:5000';
   const { timeout = 15000, ...fetchOptions } = options;
   
   // Debug logging
