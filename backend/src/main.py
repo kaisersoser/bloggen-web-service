@@ -1703,11 +1703,14 @@ if __name__ == "__main__":
     # Get protocol configuration
     protocol_config = get_protocol_config()
 
+    # Detect production environment (Railway, Docker, etc.)
+    is_production = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("DOCKER_CONTAINER") is not None
+    
     # Prepare uvicorn config
     uvicorn_config = {
         "host": "0.0.0.0",
         "port": protocol_config.backend_port,
-        "reload": True,
+        "reload": False if is_production else True,  # Disable reload in production
         "access_log": False,  # Keep logs clean
     }
 

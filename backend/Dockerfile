@@ -5,7 +5,7 @@
 FROM python:3.11-slim
 
 # Cache-busting argument
-ARG CACHEBUST=1760816302
+ARG CACHEBUST=1760816946
 
 # Set working directory
 WORKDIR /app
