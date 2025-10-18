@@ -90,7 +90,7 @@ Supabase or Railway has strict firewall rules.
 
 Update Railway `DATABASE_URL` to:
 ```
-postgresql://postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk@db.agaejevkyzufcqptatdw.supabase.co:6543/postgres
+postgresql://postgres.PROJECT_REF:PASSWORD@db.PROJECT_REF.supabase.co:6543/postgres
 ```
 
 This uses:
@@ -126,7 +126,7 @@ psql "$DATABASE_URL" -c "SELECT version();"
 
 Update Railway `DATABASE_URL` to direct connection (port 5432):
 ```
-postgresql://postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres
+postgresql://postgres.PROJECT_REF:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres
 ```
 
 **Note:** Direct connection has connection limits (max ~50), but might bypass pooler restrictions.
