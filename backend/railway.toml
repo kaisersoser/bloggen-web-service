@@ -1,11 +1,10 @@
 [build]
-# Use default Railpack builder (auto-detects Dockerfile)
+# Use Dockerfile for build
 builder = "DOCKERFILE"
 
 [deploy]
-# Railway uses /backend as root directory, code is in /app/src/
-# Use startup script for better error logging
-startCommand = "chmod +x /app/start.sh && /app/start.sh"
+# Let Dockerfile CMD handle startup (don't override with startCommand)
+# Railway uses /backend as root directory
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
