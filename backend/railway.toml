@@ -1,5 +1,6 @@
 [build]
-# Use default Railpack builder
+# Use default Railpack builder (auto-detects Dockerfile)
+builder = "DOCKERFILE"
 
 [deploy]
 # Railway uses /backend as root directory, code is in /app/src/
