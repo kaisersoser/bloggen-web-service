@@ -31,17 +31,12 @@ RUN useradd -m -u 1000 appuser && \
 # Switch to non-root user
 USER appuser
 
-# Expose port
-EXPOSE 5000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f https://localhost:5000/health || exit 1
-
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PORT=5000
+    PYTHONDONTWRITEBYTECODE=1
+
+# Railway will provide PORT via environment variable
+# No need to hardcode it here
 
 # Start application
 CMD ["python", "src/main.py"]
