@@ -15,24 +15,21 @@ import logging
 from dotenv import load_dotenv
 backend_dir = Path(__file__).parent.parent.parent  # Go up to backend/ directory
 
-# Only load .env files if not in production (Railway sets RAILWAY_ENVIRONMENT)
-# In production, all config comes from Railway environment variables
-if os.getenv("RAILWAY_ENVIRONMENT") is None:
-    # Priority: .env.local (development) > .env (production/default)
-    # This follows the standard practice of using .env.local for local overrides
-    env_local = backend_dir / ".env.local"
-    env_file = backend_dir / ".env"
+# Priority: .env.local (development) > .env (default)
+# In production environments (Railway, Docker without .env), all config comes from environment variables
+# .env files should be excluded via .dockerignore in production builds
+env_local = backend_dir / ".env.local"
+env_file = backend_dir / ".env"
 
-    if env_local.exists():
-        load_dotenv(env_local)
-        print(f"✅ Loaded environment from: .env.local (development)")
-    elif env_file.exists():
-        load_dotenv(env_file)
-        print(f"✅ Loaded environment from: .env (default)")
-    else:
-        print(f"ℹ️  No .env file found, using system environment variables")
+if env_local.exists():
+    load_dotenv(env_local)
+    print(f"✅ Loaded environment from: .env.local (development)")
+elif env_file.exists():
+    load_dotenv(env_file)
+    print(f"✅ Loaded environment from: .env (default)")
 else:
-    print(f"🚂 Running in Railway production mode - using environment variables only")
+    # No .env files found - using system environment variables (production mode)
+    print(f"ℹ️  No .env files found - using system environment variables")
 
 
 @dataclass
