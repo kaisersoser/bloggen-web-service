@@ -4,6 +4,9 @@
 
 FROM python:3.11-slim
 
+# Cache-busting argument
+ARG CACHEBUST=1
+
 # Set working directory
 WORKDIR /app
 
@@ -14,6 +17,9 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Cache-busting layer - forces rebuild from here down
+RUN echo "Build timestamp: 2025-10-18-17:40:00"
 
 # Copy requirements first (for better caching)
 COPY requirements.txt .

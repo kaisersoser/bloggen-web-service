@@ -1,0 +1,23 @@
+# Ignore these files when building Docker image
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.env
+.venv
+venv/
+*.log
+.DS_Store
+.git/
+.gitignore
+.dockerignore
+*.md
+.pytest_cache/
+.coverage
+htmlcov/
