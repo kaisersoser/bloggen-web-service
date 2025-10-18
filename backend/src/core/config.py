@@ -11,21 +11,28 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import logging
 
-# Load environment variables from .env file
+# Load environment variables from .env file (only in development)
 from dotenv import load_dotenv
 backend_dir = Path(__file__).parent.parent.parent  # Go up to backend/ directory
 
-# Priority: .env.local (development) > .env (production/default)
-# This follows the standard practice of using .env.local for local overrides
-env_local = backend_dir / ".env.local"
-env_file = backend_dir / ".env"
+# Only load .env files if not in production (Railway sets RAILWAY_ENVIRONMENT)
+# In production, all config comes from Railway environment variables
+if os.getenv("RAILWAY_ENVIRONMENT") is None:
+    # Priority: .env.local (development) > .env (production/default)
+    # This follows the standard practice of using .env.local for local overrides
+    env_local = backend_dir / ".env.local"
+    env_file = backend_dir / ".env"
 
-if env_local.exists():
-    load_dotenv(env_local)
-    print(f"✅ Loaded environment from: .env.local (development)")
+    if env_local.exists():
+        load_dotenv(env_local)
+        print(f"✅ Loaded environment from: .env.local (development)")
+    elif env_file.exists():
+        load_dotenv(env_file)
+        print(f"✅ Loaded environment from: .env (default)")
+    else:
+        print(f"ℹ️  No .env file found, using system environment variables")
 else:
-    load_dotenv(env_file)
-    print(f"✅ Loaded environment from: .env (default)")
+    print(f"🚂 Running in Railway production mode - using environment variables only")
 
 
 @dataclass

@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Cache-busting layer - forces rebuild from here down
-RUN echo "Build timestamp: 1760814197" && date
+RUN echo "Build timestamp: 1760814867" && date
 
 # Copy requirements first (for better caching)
 COPY requirements.txt .
