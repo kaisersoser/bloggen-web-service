@@ -1,14 +1,13 @@
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+# Use default Railpack builder
 
 [deploy]
-startCommand = "python src/main.py"
+# Start from project root, so we need to specify full path
+startCommand = "cd backend && python src/main.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
-# Give application time to start before health checks
 sleepApplication = false
 numReplicas = 1
 
