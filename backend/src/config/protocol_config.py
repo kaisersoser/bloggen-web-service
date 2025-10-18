@@ -29,7 +29,10 @@ class ProtocolConfig:
         self.frontend_port = 3001
         self.frontend_host = "localhost"
         # Railway provides PORT environment variable - use it if available
-        self.backend_port = int(os.getenv("PORT", "5000"))
+        port_from_env = os.getenv("PORT", "5000")
+        print(f"🔍 DEBUG: PORT environment variable = '{port_from_env}'")
+        self.backend_port = int(port_from_env)
+        print(f"🔍 DEBUG: backend_port set to = {self.backend_port}")
         self.backend_host = "localhost"
         self.ssl_cert_path = "./certs/localhost.pem"
         self.ssl_key_path = "./certs/localhost-key.pem"
