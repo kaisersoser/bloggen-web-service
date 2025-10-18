@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Cache-busting layer - forces rebuild from here down
-RUN echo "Build timestamp: 2025-10-18-17:50:00"
+RUN echo "Build timestamp: 2025-10-18-17:55:00"
 
 # Copy requirements first (for better caching)
 COPY requirements.txt .
@@ -50,5 +50,12 @@ ENV PYTHONUNBUFFERED=1 \
 # Railway will provide PORT via environment variable
 # No need to hardcode it here
 
-# Start application directly with Python, PYTHONPATH already set
-CMD ["python", "src/main.py"]
+# Use shell form to capture errors and print diagnostics
+CMD echo "=== Container Started ===" && \
+    echo "Working directory: $(pwd)" && \
+    echo "Python version: $(python --version)" && \
+    echo "PORT: $PORT" && \
+    echo "PYTHONPATH: $PYTHONPATH" && \
+    echo "Directory listing:" && ls -la /app && \
+    echo "=== Starting Python ===" && \
+    python src/main.py 2>&1 || (echo "=== Python failed with exit code $? ===" && sleep 10)
