@@ -1,6 +1,8 @@
 [build]
 # Use Dockerfile for build
 builder = "DOCKERFILE"
+# Force no cache to ensure latest code runs
+dockerfilePath = "Dockerfile"
 
 [deploy]
 # Let Dockerfile CMD handle startup (don't override with startCommand)
