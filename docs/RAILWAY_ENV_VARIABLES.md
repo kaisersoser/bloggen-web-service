@@ -17,8 +17,8 @@ DATABASE_URL=postgresql://postgres.agaejevkyzufcqptatdw:[PASSWORD]@aws-0-eu-cent
 ```
 
 **⚠️ Important:** Your current `.env` has incorrect format:
-- ❌ `postgres::Y_!Jnsm5Lmp7Yk` (double colon)
-- ✅ Should be `postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk` (single colon with project ref)
+- ❌ `postgres::PASSWORD` (double colon)
+- ✅ Should be `postgres.agaejevkyzufcqptatdw:PASSWORD` (single colon with project ref)
 
 ---
 

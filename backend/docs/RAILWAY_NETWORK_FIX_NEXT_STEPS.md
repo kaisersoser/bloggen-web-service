@@ -35,7 +35,7 @@ DNS resolution: IPv6: 2a05:d012:42e:5716:8026:e200:8a52:7082
 #### Option A: Force IPv4 with Session Pooler
 Update Railway `DATABASE_URL` to use the regional pooler (which might have IPv4):
 ```bash
-postgresql://postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk@aws-0-eu-west-3.pooler.supabase.com:5432/postgres
+postgresql://postgres.PROJECT_REF::PASSWORD@aws-0-eu-west-3.pooler.supabase.com:5432/postgres
 ```
 
 Key changes:
@@ -63,12 +63,12 @@ Even though asyncpg uses SSL by default, Railway might need explicit SSL mode.
 
 **Try adding to DATABASE_URL:**
 ```bash
-postgresql://postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?sslmode=require
+postgresql://postgres.PROJECT_REF::PASSWORD@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?sslmode=require
 ```
 
 Or more permissive (for testing):
 ```bash
-postgresql://postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?sslmode=prefer
+postgresql://postgres.PROJECT_REF::PASSWORD@db.agaejevkyzufcqptatdw.supabase.co:5432/postgres?sslmode=prefer
 ```
 
 ### 4. Railway Nixpacks Build Issue
@@ -100,7 +100,7 @@ PYTHONUNBUFFERED = "1"
 
 Update Railway `DATABASE_URL` to:
 ```
-postgresql://postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk@aws-0-eu-west-3.pooler.supabase.com:5432/postgres
+postgresql://postgres.PROJECT_REF::PASSWORD@aws-0-eu-west-3.pooler.supabase.com:5432/postgres
 ```
 
 This uses:
@@ -119,7 +119,7 @@ This uses:
 
 If Steps 1-2 fail, try:
 ```
-postgresql://postgres.agaejevkyzufcqptatdw:Y_!Jnsm5Lmp7Yk@aws-0-eu-west-3.pooler.supabase.com:5432/postgres?sslmode=require
+postgresql://postgres.PROJECT_REF::PASSWORD@aws-0-eu-west-3.pooler.supabase.com:5432/postgres?sslmode=require
 ```
 
 ### Step 4: Create Railway Network Test
