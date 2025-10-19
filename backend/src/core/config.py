@@ -15,21 +15,17 @@ import logging
 from dotenv import load_dotenv
 backend_dir = Path(__file__).parent.parent.parent  # Go up to backend/ directory
 
-# Priority: .env.local (development) > .env (default)
-# In production environments (Railway, Docker without .env), all config comes from environment variables
+# Simplified configuration loading: Single .env file for development
+# In production environments (Railway, Docker), all config comes from environment variables
 # .env files should be excluded via .dockerignore in production builds
-env_local = backend_dir / ".env.local"
 env_file = backend_dir / ".env"
 
-if env_local.exists():
-    load_dotenv(env_local)
-    print(f"✅ Loaded environment from: .env.local (development)")
-elif env_file.exists():
+if env_file.exists():
     load_dotenv(env_file)
-    print(f"✅ Loaded environment from: .env (default)")
+    print(f"✅ Loaded environment from: .env")
 else:
-    # No .env files found - using system environment variables (production mode)
-    print(f"ℹ️  No .env files found - using system environment variables")
+    # No .env file found - using system environment variables (production mode)
+    print(f"ℹ️  No .env file - using system environment variables (production)")
 
 
 @dataclass
