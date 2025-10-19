@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  backend-staging:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bloggen-backend-staging
+    ports:
+      - "5000:8080"  # Map host 5000 to container 8080 (Railway's internal port)
+    environment:
+      - PORT=8080
+      - NODE_ENV=staging
+      - RAILWAY_ENVIRONMENT=staging
+    env_file:
+      - ./backend/.env.staging
+    networks:
+      - bloggen-staging-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend-staging:
+    build:
+      context: ./frontend-nextjs/blog-generator-ui
+      dockerfile: Dockerfile
+    container_name: bloggen-frontend-staging
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=staging
+      - NEXT_PUBLIC_API_URL=http://localhost:5000
+    env_file:
+      - ./frontend-nextjs/blog-generator-ui/.env.staging
+    depends_on:
+      backend-staging:
+        condition: service_healthy
+    networks:
+      - bloggen-staging-network
+    restart: unless-stopped
+
+networks:
+  bloggen-staging-network:
+    driver: bridge
