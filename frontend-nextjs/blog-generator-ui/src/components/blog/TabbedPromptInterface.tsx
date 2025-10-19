@@ -109,10 +109,12 @@ export const TabbedPromptInterface = ({
     setIsFocused(focused);
   };
 
+  // ADMIN and PREMIUM users with -1 remaining (unlimited) should never be at limit
   const isAtLimit =
+    userRole !== "ADMIN" &&
     remainingGenerations !== undefined &&
-    remainingGenerations <= 0 &&
-    userRole !== "ADMIN";
+    remainingGenerations !== -1 &&
+    remainingGenerations <= 0;
 
   return (
     <div className={containerClasses}>
