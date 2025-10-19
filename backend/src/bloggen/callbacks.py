@@ -153,28 +153,85 @@ class BlogEventListener(BaseEventListener):
     def _handle_task_started(
         self, context: RunContext, source, event: TaskStartedEvent
     ) -> None:
-        context.status_manager.send_status_update(
-            message=f"{context.phase_name.title()} phase in progress",
-            step=self._phase_step(context.phase_name),
-            detail=f"Task '{getattr(source, 'name', event.task_id)}' started",
-        )
+        """
+        Handle TaskStartedEvent from CrewAI.
+        Defensive implementation - errors here should never break workflow.
+        """
+        try:
+            # Try to get a meaningful task identifier
+            task_name = getattr(source, 'name', None)
+            if not task_name:
+                task_name = getattr(source, 'description', 'task')
+            
+            context.status_manager.send_status_update(
+                message=f"{context.phase_name.title()} phase in progress",
+                step=self._phase_step(context.phase_name),
+                detail=f"Task '{task_name}' started",
+            )
+            
+        except AttributeError as e:
+            # Expected error if CrewAI changes event/source structure
+            logger.debug(f"Event structure changed in task started: {e}")
+            
+        except Exception as e:
+            # Unexpected errors should be logged but not propagated
+            logger.warning(f"Unexpected error in task started handler: {e}", exc_info=True)
 
     def _handle_task_completed(
         self, context: RunContext, source, event: TaskCompletedEvent
     ) -> None:
-        context.status_manager.send_agent_thinking(
-            agent_name=getattr(
-                source.agent, "role", context.phase_name.title() + " Agent"
-            ),
-            thought="Task completed successfully. Awaiting next steps.",
-        )
+        """
+        Handle TaskCompletedEvent from CrewAI.
+        Defensive implementation - errors here should never break workflow.
+        """
+        try:
+            # Try to get agent name safely
+            agent_name = getattr(
+                getattr(source, "agent", None), 
+                "role", 
+                context.phase_name.title() + " Agent"
+            )
+            
+            context.status_manager.send_agent_thinking(
+                agent_name=agent_name,
+                thought="Task completed successfully. Awaiting next steps.",
+            )
+            
+        except AttributeError as e:
+            # Expected error if CrewAI changes event/source structure
+            logger.debug(f"Event structure changed in task completed: {e}")
+            
+        except Exception as e:
+            # Unexpected errors should be logged but not propagated
+            logger.warning(f"Unexpected error in task completed handler: {e}", exc_info=True)
 
     def _handle_task_failed(
         self, context: RunContext, source, event: TaskFailedEvent
     ) -> None:
-        context.status_manager.send_error_update(
-            f"{context.phase_name.title()} task failed: {getattr(event, 'error', 'Unknown error')}",
-        )
+        """
+        Handle TaskFailedEvent from CrewAI.
+        Defensive implementation - errors here should never break workflow.
+        """
+        try:
+            error_msg = getattr(event, 'error', 'Unknown error')
+            context.status_manager.send_error_update(
+                f"{context.phase_name.title()} task failed: {error_msg}",
+            )
+            
+        except AttributeError as e:
+            # Expected error if CrewAI changes event/source structure
+            logger.debug(f"Event structure changed in task failed: {e}")
+            try:
+                # Fallback to generic error message
+                context.status_manager.send_error_update(
+                    f"{context.phase_name.title()} task failed",
+                )
+            except:
+                pass  # Silently fail if even basic update fails
+            
+        except Exception as e:
+            # Unexpected errors should be logged but not propagated
+            logger.warning(f"Unexpected error in task failed handler: {e}", exc_info=True)
 
     def _handle_agent_reasoning_started(
         self, context: RunContext, source, event: AgentReasoningStartedEvent
@@ -242,14 +299,27 @@ class BlogEventListener(BaseEventListener):
     def _with_context(
         self, source: Any, event: Any, handler: Callable[[RunContext, Any, Any], None]
     ) -> None:
+        """
+        Wrap handler with context - callbacks must never break workflow.
+        Enhanced error handling distinguishes between expected and unexpected errors.
+        """
         context = self._resolve_context(source, event)
         if not context:
             return
         try:
             handler(context, source, event)
+        except AttributeError as exc:
+            # Common issue with CrewAI event structure changes
+            logger.warning(
+                f"Event structure mismatch in {handler.__name__} "
+                f"for {type(event).__name__}: {exc}"
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
-            logger.exception(
-                "Error processing CrewAI event %s: %s", type(event).__name__, exc
+            # Catch all other unexpected errors
+            logger.error(
+                f"Unexpected error in {handler.__name__} "
+                f"for {type(event).__name__}: {exc}",
+                exc_info=True
             )
 
     def _resolve_context(self, source: Any, event: Any) -> Optional[RunContext]:

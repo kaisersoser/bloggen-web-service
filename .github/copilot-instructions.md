@@ -2,6 +2,47 @@
 
 ## 🚨 CRITICAL DEVELOPMENT RULES 🚨
 
+### ⚠️ Rule #0: Git Branch Strategy (HIGHEST PRIORITY)
+**ALWAYS work in the correct branch following the established git workflow**
+
+#### Branch Hierarchy
+```
+development (primary development branch)
+    ↓
+feature/staging-environment (testing branch)
+    ↓
+main (production branch - auto-deploys to Railway + Vercel)
+```
+
+#### Development Workflow
+1. **Primary Development**: ALWAYS work in `development` branch
+   - All new features, bug fixes, and improvements start here
+   - Commit and push changes to `development` regularly
+   - Example: `git checkout development && git pull origin development`
+
+2. **Staging Testing**: Merge `development` → `feature/staging-environment` for testing
+   - User tests on Windows Docker staging environment
+   - Validate all changes work in production-like environment
+   - Example: `git checkout feature/staging-environment && git merge development`
+
+3. **Production Deployment**: Merge `feature/staging-environment` → `main` after validation
+   - Only merge when staging tests pass completely
+   - Triggers automatic deployment to Railway (backend) + Vercel (frontend)
+   - Example: `git checkout main && git merge feature/staging-environment`
+
+#### Critical Rules
+- ✅ **DO**: Work in `development` branch for all development tasks
+- ✅ **DO**: Merge to `feature/staging-environment` only for testing
+- ✅ **DO**: Merge to `main` only after successful staging validation
+- ❌ **DON'T**: Make changes directly in `main` branch
+- ❌ **DON'T**: Skip staging validation before production deployment
+- ❌ **DON'T**: Push to `main` without explicit user approval
+
+#### Current Branch
+- **Active Branch**: `development`
+- **When in doubt**: Check with `git branch --show-current`
+- **Switch to development**: `git checkout development`
+
 ### ⚠️ Rule #1: Virtual Environment Requirement
 **ALWAYS activate the virtual environment before running Python scripts in Agent mode**
 - Backend Python environment: `source backend/.venv/bin/activate` (Linux/Mac) or `backend\.venv\Scripts\activate` (Windows)

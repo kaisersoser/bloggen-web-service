@@ -31,8 +31,14 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files (active configs gitignored, templates tracked)
+.env
+.env.local
+.env.staging
+.env_backups/
+*.env.backup
+*env.backup
+!.env.example
 
 # vercel
 .vercel
