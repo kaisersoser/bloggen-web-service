@@ -36,6 +36,10 @@ export function useGenerationUiState({
     if (!stats) {
       return canGenerateBlog();
     }
+    // ADMIN users always have unlimited access
+    if (stats.role === 'ADMIN') {
+      return true;
+    }
     return stats.remainingGenerations > 0 || stats.monthlyLimit === -1;
   }, [stats, canGenerateBlog]);
 
