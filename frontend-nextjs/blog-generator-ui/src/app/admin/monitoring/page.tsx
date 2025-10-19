@@ -70,7 +70,7 @@ interface MonitoringData {
   timestamp: string;
 }
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'https://localhost:5000';
 
 // Memoized chart components to prevent unnecessary re-renders
 const SystemHistoryChart = memo(({ data }: { data: SystemMetrics[] }) => {
