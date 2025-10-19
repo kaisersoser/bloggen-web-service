@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: bloggen-backend-staging
     ports:
-      - "5000:8080"  # Map host 5000 to container 8080 (Railway's internal port)
+      - "8080:8080"  # Staging uses 8080 (same as production)
     environment:
       - PORT=8080
       - NODE_ENV=staging
@@ -28,12 +28,25 @@ services:
     build:
       context: ./frontend-nextjs/blog-generator-ui
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_PROTOCOL_MODE=http
+        - NEXT_PUBLIC_FRONTEND_HOST=localhost
+        - NEXT_PUBLIC_FRONTEND_PORT=3000
+        - NEXT_PUBLIC_BACKEND_HOST=localhost
+        - NEXT_PUBLIC_BACKEND_PORT=8080
+        - NEXT_PUBLIC_API_URL=http://localhost:8080
     container_name: bloggen-frontend-staging
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=staging
-      - NEXT_PUBLIC_API_URL=http://localhost:5000
+      # Browser (client-side) needs to access backend via localhost:8080
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_PROTOCOL_MODE=http
+      - NEXT_PUBLIC_BACKEND_HOST=localhost
+      - NEXT_PUBLIC_BACKEND_PORT=8080
+      # Server-side API routes need to use Docker service name
+      - API_BASE_URL=http://backend-staging:8080
     env_file:
       - ./frontend-nextjs/blog-generator-ui/.env.staging
     depends_on:

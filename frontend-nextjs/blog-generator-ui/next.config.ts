@@ -3,6 +3,9 @@ import fs from 'fs'
 import path from 'path'
 
 const nextConfig: NextConfig = {
+  // Enable standalone output for Docker production builds
+  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
+  
   // Move serverComponentsExternalPackages to the root level
   serverExternalPackages: ['@prisma/client'],
   

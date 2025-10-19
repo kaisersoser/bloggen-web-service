@@ -9,13 +9,32 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Copy Prisma schema (required for prisma generate in postinstall)
+COPY prisma ./prisma
+
+# Install ALL dependencies (including devDependencies needed for build)
+RUN npm ci
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder
 
 WORKDIR /app
+
+# Accept build arguments for Next.js environment variables
+ARG NEXT_PUBLIC_PROTOCOL_MODE
+ARG NEXT_PUBLIC_FRONTEND_HOST
+ARG NEXT_PUBLIC_FRONTEND_PORT
+ARG NEXT_PUBLIC_BACKEND_HOST
+ARG NEXT_PUBLIC_BACKEND_PORT
+ARG NEXT_PUBLIC_API_URL
+
+# Set them as environment variables for the build
+ENV NEXT_PUBLIC_PROTOCOL_MODE=$NEXT_PUBLIC_PROTOCOL_MODE
+ENV NEXT_PUBLIC_FRONTEND_HOST=$NEXT_PUBLIC_FRONTEND_HOST
+ENV NEXT_PUBLIC_FRONTEND_PORT=$NEXT_PUBLIC_FRONTEND_PORT
+ENV NEXT_PUBLIC_BACKEND_HOST=$NEXT_PUBLIC_BACKEND_HOST
+ENV NEXT_PUBLIC_BACKEND_PORT=$NEXT_PUBLIC_BACKEND_PORT
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
@@ -54,6 +73,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Copy Prisma files
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/prisma ./prisma
+
+# Create logs directory with proper permissions for nextjs user
+RUN mkdir -p /app/logs && chown -R nextjs:nodejs /app/logs
 
 # Switch to non-root user
 USER nextjs

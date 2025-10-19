@@ -9,7 +9,7 @@ const PROTOCOL_MODE = process.env.NEXT_PUBLIC_PROTOCOL_MODE || 'https';
 const FRONTEND_HOST = process.env.NEXT_PUBLIC_FRONTEND_HOST || 'localhost';
 const FRONTEND_PORT = process.env.NEXT_PUBLIC_FRONTEND_PORT || '3001';
 const BACKEND_HOST = process.env.NEXT_PUBLIC_BACKEND_HOST || 'localhost';
-const BACKEND_PORT = process.env.NEXT_PUBLIC_BACKEND_PORT || '5000';
+const BACKEND_PORT = process.env.NEXT_PUBLIC_BACKEND_PORT || '8080';
 
 export class ProtocolConfig {
   static readonly protocolMode = PROTOCOL_MODE as 'http' | 'https';
