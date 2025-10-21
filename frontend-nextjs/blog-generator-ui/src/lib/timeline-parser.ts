@@ -12,12 +12,14 @@ import type {
   PhaseItem,
   AgentItem,
   ToolItem,
+  ConnectionItem,
   TimelineItemStatus,
 } from '@/types/timeline';
 
 export class TimelineParser {
   private state: TimelineState;
   private enableDebugLogging: boolean;
+  private currentAgentId: string | null = null; // Track current agent for tool nesting
 
   constructor(enableDebugLogging = false) {
     this.enableDebugLogging = enableDebugLogging;
@@ -26,7 +28,11 @@ export class TimelineParser {
       currentPhase: null,
       overallProgress: 0,
       startTime: new Date().toISOString(),
+      isComplete: false,
     };
+
+    // Add initial connection event
+    this.addConnectionEvent('start', 'Connection established');
   }
 
   /**
@@ -106,6 +112,8 @@ export class TimelineParser {
 
     // Find or create agent item
     const agentId = this.generateAgentId(data.agent_name);
+    this.currentAgentId = agentId; // Track for tool nesting
+    
     let agent = this.state.items.find((item) => item.id === agentId) as AgentItem | undefined;
 
     if (agent) {
@@ -125,13 +133,14 @@ export class TimelineParser {
         reasoning: data.reasoning,
         phaseId: this.state.currentPhase || undefined,
         expanded: false,
+        children: [], // Initialize empty children array
       };
       this.state.items.push(agent);
     }
   }
 
   /**
-   * Handle tool usage events
+   * Handle tool usage events - nest under current agent
    */
   private handleToolEvent(event: SSEEvent): void {
     const { data } = event;
@@ -150,9 +159,41 @@ export class TimelineParser {
       output: data.tool_output,
       error: data.tool_error,
       expanded: false,
+      agentId: this.currentAgentId || undefined,
     };
 
+    // If we have a current agent, nest tool under it
+    if (this.currentAgentId) {
+      const agent = this.state.items.find((item) => item.id === this.currentAgentId) as AgentItem | undefined;
+      if (agent) {
+        if (!agent.children) {
+          agent.children = [];
+        }
+        agent.children.push(tool);
+        return;
+      }
+    }
+
+    // Otherwise, add to main timeline
     this.state.items.push(tool);
+  }
+
+  /**
+   * Add connection event to timeline
+   */
+  private addConnectionEvent(connectionType: 'start' | 'end', message: string): void {
+    const connectionItem: ConnectionItem = {
+      id: `connection-${connectionType}-${Date.now()}`,
+      type: 'connection',
+      connectionType,
+      title: connectionType === 'start' ? 'Stream Started' : 'Stream Ended',
+      message,
+      status: connectionType === 'start' ? 'connected' : 'disconnected',
+      timestamp: new Date().toISOString(),
+      expanded: false,
+    };
+
+    this.state.items.push(connectionItem);
   }
 
   /**
@@ -252,6 +293,7 @@ export class TimelineParser {
   complete(): void {
     this.state.endTime = new Date().toISOString();
     this.state.overallProgress = 100;
+    this.state.isComplete = true; // Prevent clearing
     
     // Mark all in-progress items as completed
     this.state.items.forEach((item) => {
@@ -259,5 +301,8 @@ export class TimelineParser {
         item.status = 'completed';
       }
     });
+
+    // Add end connection event
+    this.addConnectionEvent('end', 'Blog generation completed');
   }
 }

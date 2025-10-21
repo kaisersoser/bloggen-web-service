@@ -54,8 +54,22 @@ export function WorkflowTimeline({ taskId, enableDebugLogging = false }: Workflo
       console.log('📅 [WorkflowTimeline] Received SSE event:', event.type);
     }
 
+    // Check if this is a completion event
+    const isCompletionEvent = 
+      event.type === 'status' && 
+      (event.data.status?.toLowerCase().includes('complete') || 
+       event.data.message?.toLowerCase().includes('complete'));
+
     const updatedTimeline = parserRef.current.processEvent(event);
-    setTimeline(updatedTimeline);
+
+    // If completion event, mark timeline as complete
+    if (isCompletionEvent && event.data.progress === 100) {
+      console.log('✅ [WorkflowTimeline] Blog generation complete, marking timeline');
+      parserRef.current.complete();
+      setTimeline(parserRef.current.getState());
+    } else {
+      setTimeline(updatedTimeline);
+    }
 
     // Auto-scroll to the end when new items are added
     if (timelineContainerRef.current) {
@@ -77,17 +91,29 @@ export function WorkflowTimeline({ taskId, enableDebugLogging = false }: Workflo
     enabled: true,
   });
 
-  // Reset timeline when taskId changes
+  // Reset timeline when taskId changes ONLY if not complete
   useEffect(() => {
-    console.log('🔄 [WorkflowTimeline] TaskId changed, resetting timeline:', taskId);
-    parserRef.current.reset();
-    setTimeline({
-      items: [],
-      currentPhase: null,
-      overallProgress: 0,
-      startTime: new Date().toISOString(),
+    console.log('🔄 [WorkflowTimeline] TaskId changed, checking timeline state:', { 
+      taskId, 
+      isComplete: timeline.isComplete,
+      itemCount: timeline.items.length 
     });
-  }, [taskId]);
+    
+    // Only reset if timeline is not marked as complete
+    if (!timeline.isComplete) {
+      console.log('🔄 [WorkflowTimeline] Resetting timeline for new task');
+      parserRef.current.reset();
+      setTimeline({
+        items: [],
+        currentPhase: null,
+        overallProgress: 0,
+        startTime: new Date().toISOString(),
+        isComplete: false,
+      });
+    } else {
+      console.log('✅ [WorkflowTimeline] Timeline is complete, preserving state');
+    }
+  }, [taskId, timeline.isComplete]);
 
   /**
    * Toggle expand/collapse for an item

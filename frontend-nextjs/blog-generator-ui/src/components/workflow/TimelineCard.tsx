@@ -8,9 +8,9 @@
 'use client';
 
 import React from 'react';
-import { ChevronDown, ChevronUp, CheckCircle2, Circle, XCircle, Loader2 } from 'lucide-react';
-import type { TimelineItem, PhaseItem, AgentItem, ToolItem } from '@/types/timeline';
-import { isPhaseItem, isAgentItem, isToolItem } from '@/types/timeline';
+import { ChevronDown, ChevronUp, CheckCircle2, Circle, XCircle, Loader2, Wifi, WifiOff } from 'lucide-react';
+import type { TimelineItem, PhaseItem, AgentItem, ToolItem, ConnectionItem } from '@/types/timeline';
+import { isPhaseItem, isAgentItem, isToolItem, isConnectionItem } from '@/types/timeline';
 
 interface TimelineCardProps {
   item: TimelineItem;
@@ -28,6 +28,10 @@ function getStatusIndicator(status: TimelineItem['status']) {
       return { icon: Loader2, color: 'text-blue-500 animate-spin', bg: 'bg-blue-50 dark:bg-blue-900/20' };
     case 'error':
       return { icon: XCircle, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-900/20' };
+    case 'connected':
+      return { icon: Wifi, color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-900/20' };
+    case 'disconnected':
+      return { icon: WifiOff, color: 'text-gray-500', bg: 'bg-gray-50 dark:bg-gray-900/20' };
     case 'pending':
     default:
       return { icon: Circle, color: 'text-gray-400', bg: 'bg-gray-50 dark:bg-gray-900/20' };
@@ -126,61 +130,83 @@ function PhaseCard({ item, onToggleExpand }: { item: PhaseItem; onToggleExpand: 
 }
 
 /**
- * Agent Card - Shows agent name, role, and reasoning
+ * Agent Card - Shows agent name, role, reasoning, and nested tools
  */
 function AgentCard({ item, onToggleExpand }: { item: AgentItem; onToggleExpand: (id: string) => void }) {
   const { icon: StatusIcon, color, bg } = getStatusIndicator(item.status);
   const borderColor = getBorderColor('agent');
   const pulseEffect = item.status === 'in_progress' ? 'animate-pulse-border' : '';
+  const hasChildren = item.children && item.children.length > 0;
 
   return (
-    <div
-      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} ${pulseEffect}
-        transition-all duration-200 hover:shadow-md cursor-pointer`}
-      onClick={() => onToggleExpand(item.id)}
-    >
-      {/* Header */}
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 flex-1">
-            <StatusIcon className={`h-5 w-5 ${color}`} />
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">
-                {item.title}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{item.role}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">
-                {formatTime(item.timestamp)}
-              </p>
+    <div className="flex flex-col gap-2">
+      {/* Main Agent Card (Horizontal) */}
+      <div
+        className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} ${pulseEffect}
+          transition-all duration-200 hover:shadow-md cursor-pointer`}
+        onClick={() => onToggleExpand(item.id)}
+      >
+        {/* Header */}
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 flex-1">
+              <StatusIcon className={`h-5 w-5 ${color}`} />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">
+                  {item.title}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{item.role}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  {formatTime(item.timestamp)}
+                </p>
+                {hasChildren && (
+                  <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                    {item.children!.length} {item.children!.length === 1 ? 'tool' : 'tools'} used
+                  </p>
+                )}
+              </div>
             </div>
+            {item.expanded ? (
+              <ChevronUp className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            )}
           </div>
-          {item.expanded ? (
-            <ChevronUp className="h-4 w-4 text-gray-400 flex-shrink-0" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
-          )}
         </div>
+
+        {/* Expandable details */}
+        {item.expanded && (item.reasoning || item.output) && (
+          <div className="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-2">
+            {item.reasoning && (
+              <div>
+                <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Reasoning</h4>
+                <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                  {item.reasoning}
+                </p>
+              </div>
+            )}
+            {item.output && (
+              <div>
+                <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Output</h4>
+                <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap line-clamp-4">
+                  {item.output}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Expandable details */}
-      {item.expanded && (item.reasoning || item.output) && (
-        <div className="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-2">
-          {item.reasoning && (
-            <div>
-              <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Reasoning</h4>
-              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                {item.reasoning}
-              </p>
-            </div>
-          )}
-          {item.output && (
-            <div>
-              <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Output</h4>
-              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap line-clamp-4">
-                {item.output}
-              </p>
-            </div>
-          )}
+      {/* Vertical Tool List (Children) */}
+      {hasChildren && (
+        <div className="ml-8 flex flex-col gap-2">
+          {item.children!.map((childTool) => (
+            <ToolCard
+              key={childTool.id}
+              item={childTool}
+              onToggleExpand={onToggleExpand}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -250,11 +276,51 @@ function ToolCard({ item, onToggleExpand }: { item: ToolItem; onToggleExpand: (i
 }
 
 /**
+ * Connection Card - Shows connection start/end events
+ */
+function ConnectionCard({ item }: { item: ConnectionItem }) {
+  const { icon: StatusIcon, color, bg } = getStatusIndicator(item.status);
+  const isStart = item.connectionType === 'start';
+
+  return (
+    <div
+      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${isStart ? 'border-green-500' : 'border-gray-500'} ${bg}
+        transition-all duration-200`}
+    >
+      <div className="p-4">
+        <div className="flex items-center gap-2">
+          <StatusIcon className={`h-5 w-5 ${color}`} />
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+              {item.title}
+            </h3>
+            {item.message && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{item.message}</p>
+            )}
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {formatTime(item.timestamp)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Main TimelineCard component - routes to appropriate card type
  */
 export function TimelineCard({ item, onToggleExpand }: TimelineCardProps) {
   // Add fade-in animation for new items
   const cardClasses = "animate-in fade-in slide-in-from-left-4 duration-300";
+
+  if (isConnectionItem(item)) {
+    return (
+      <div className={cardClasses}>
+        <ConnectionCard item={item} />
+      </div>
+    );
+  }
 
   if (isPhaseItem(item)) {
     return (
