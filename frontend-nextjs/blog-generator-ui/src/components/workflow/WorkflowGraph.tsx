@@ -14,7 +14,7 @@
 
 'use client';
 
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -33,6 +33,7 @@ import type { WorkflowGraph, SSEEvent } from '@/types/workflow-graph';
 import { PhaseNode } from './PhaseNode';
 import { AgentNode } from './AgentNode';
 import { ToolNode } from './ToolNode';
+import { useWorkflowSSE } from '@/hooks/useWorkflowSSE';
 
 interface WorkflowGraphProps {
   taskId: string;
@@ -121,7 +122,6 @@ export function WorkflowGraph({ taskId, onSSEEvent, enableDebugLogging = false }
 
   /**
    * Process SSE event and update graph
-   * TODO: This will be connected in Milestone 3 when we integrate with TabbedPromptInterface
    */
   const handleSSEEvent = useCallback((event: SSEEvent) => {
     const updatedGraph = graphBuilder.current.processSSEEvent(event);
@@ -132,16 +132,25 @@ export function WorkflowGraph({ taskId, onSSEEvent, enableDebugLogging = false }
     }
   }, [onSSEEvent]);
 
-  // TODO: Milestone 3 - Connect to real SSE stream
-  // useEnhancedSSEConnection(taskId, handleSSEEvent);
+  // Connect to SSE stream for real-time updates
+  const { isConnected } = useWorkflowSSE({
+    taskId,
+    onEvent: handleSSEEvent,
+    enabled: true,
+  });
 
-  // Expose handleSSEEvent for external use (prevents unused warning)
-  React.useEffect(() => {
-    // This effect ensures handleSSEEvent is preserved for Milestone 3 integration
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[WorkflowGraph] SSE handler ready for connection (Milestone 3)');
-    }
-  }, [handleSSEEvent]);
+  // Reset graph when taskId changes
+  useEffect(() => {
+    graphBuilder.current.reset();
+    setGraph({
+      nodes: [],
+      edges: [],
+      activeNodeId: null,
+      currentPhase: '',
+      overallProgress: 0,
+      taskId,
+    });
+  }, [taskId]);
   const reactFlowNodes: Node[] = useMemo(() => {
     return graph.nodes.map((node) => ({
       id: node.id,
@@ -228,6 +237,13 @@ export function WorkflowGraph({ taskId, onSSEEvent, enableDebugLogging = false }
             <span className="text-xs text-gray-500">
               {Math.round(graph.overallProgress)}%
             </span>
+            {/* Connection status indicator */}
+            <div className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+              <span className="text-xs text-gray-500">
+                {isConnected ? 'Live' : 'Disconnected'}
+              </span>
+            </div>
           </div>
         </Panel>
       </ReactFlow>
