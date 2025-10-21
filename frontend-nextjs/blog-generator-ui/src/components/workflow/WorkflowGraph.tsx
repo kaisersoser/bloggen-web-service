@@ -23,18 +23,31 @@ import ReactFlow, {
   Edge,
   ConnectionLineType,
   Panel,
+  NodeTypes,
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
 
 import { WorkflowGraphBuilder } from '@/lib/workflow-parser';
 import type { WorkflowGraph, SSEEvent } from '@/types/workflow-graph';
+import { PhaseNode } from './PhaseNode';
+import { AgentNode } from './AgentNode';
+import { ToolNode } from './ToolNode';
 
 interface WorkflowGraphProps {
   taskId: string;
   onSSEEvent?: (event: SSEEvent) => void;  // Optional callback for SSE events
   enableDebugLogging?: boolean;
 }
+
+/**
+ * Custom node types mapping
+ */
+const nodeTypes: NodeTypes = {
+  phase: PhaseNode,
+  agent: AgentNode,
+  tool: ToolNode,
+};
 
 /**
  * Layout configuration for Dagre
@@ -178,7 +191,7 @@ export function WorkflowGraph({ taskId, onSSEEvent, enableDebugLogging = false }
       <ReactFlow
         nodes={layoutedNodes}
         edges={layoutedEdges}
-        // nodeTypes={nodeTypes} // Will add custom node types in Milestone 2
+        nodeTypes={nodeTypes}
         fitView
         minZoom={0.3}
         maxZoom={1.5}

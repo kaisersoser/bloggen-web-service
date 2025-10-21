@@ -35,6 +35,7 @@ export interface NodeMetadata {
   
   // Tool-specific
   toolName?: string;        // "Serper Search", "Web Scraper", "Unsplash Image"
+  toolInput?: string;       // Input/query passed to the tool
   toolOutput?: string;      // Raw output from the tool
   toolError?: string;       // Error message if tool failed
   
