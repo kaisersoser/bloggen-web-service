@@ -28,7 +28,6 @@ import type {
   WorkflowEdge,
   SSEEvent,
   SSEEventData,
-  NodeStatus,
   GraphBuilderState,
   GraphBuilderConfig,
 } from '@/types/workflow-graph';
@@ -288,7 +287,7 @@ export class WorkflowGraphBuilder {
    * Handle 'error' events - marks nodes as failed
    */
   private handleErrorEvent(data: SSEEventData): void {
-    const { error, error_type } = data;
+    const { error } = data;
 
     // Mark currently active node as failed
     if (this.graph.activeNodeId) {
