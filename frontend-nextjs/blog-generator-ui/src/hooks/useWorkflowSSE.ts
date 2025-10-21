@@ -103,34 +103,57 @@ export function useWorkflowSSE({ taskId, onEvent, enabled = true }: UseWorkflowS
   const isConnectingRef = useRef(false);
 
   useEffect(() => {
+    console.log('🔍 [useWorkflowSSE] Effect triggered:', { 
+      enabled, 
+      taskId, 
+      status, 
+      hasSession: !!session,
+      isConnecting: isConnectingRef.current,
+      hasExistingConnection: !!eventSourceRef.current
+    });
+
     // Don't connect if disabled or no taskId
     if (!enabled || !taskId || status !== 'authenticated' || !session) {
+      console.warn('⚠️ [useWorkflowSSE] Connection preconditions not met:', {
+        enabled,
+        hasTaskId: !!taskId,
+        status,
+        hasSession: !!session
+      });
       return;
     }
 
     // Prevent duplicate connections
     if (isConnectingRef.current || eventSourceRef.current) {
+      console.warn('⚠️ [useWorkflowSSE] Already connecting or connected');
       return;
     }
 
     const connectToSSE = async () => {
       try {
+        console.log('🚀 [useWorkflowSSE] Starting connection process...');
         isConnectingRef.current = true;
 
         // Get auth token
         const token = await authTokenManager.getToken();
         if (!token) {
           logger.error('[useWorkflowSSE] No auth token available');
+          console.error('❌ [useWorkflowSSE] No auth token available');
           return;
         }
+
+        console.log('🔑 [useWorkflowSSE] Auth token obtained, length:', token.length);
 
         // Construct SSE URL with token (EventSource doesn't support headers)
         const sseUrl = `${API_BASE_URL}/stream/${taskId}?token=${encodeURIComponent(token)}`;
         
+        console.log('🌐 [useWorkflowSSE] Connecting to:', sseUrl);
         logger.info('[useWorkflowSSE] Connecting to workflow stream', { taskId });
         
         const eventSource = new EventSource(sseUrl);
         eventSourceRef.current = eventSource;
+
+        console.log('📡 [useWorkflowSSE] EventSource created, readyState:', eventSource.readyState);
 
         eventSource.onopen = () => {
           logger.info('[useWorkflowSSE] Connection established', { taskId });
