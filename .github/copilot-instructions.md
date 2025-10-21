@@ -72,12 +72,13 @@ main (production branch - auto-deploys to Railway + Vercel)
 ### ⚠️ Rule #4: Documentation File Organization
 **ALWAYS place documentation files in the proper directory structure**
 - **Backend documentation**: Must be placed in `backend/docs/` directory
-- **Frontend documentation**: Must be placed in `frontend-nextjs/blog-generator-ui/src/docs/` directory
+- **Frontend documentation**: Must be placed in `frontend-nextjs/blog-generator-ui/docs/` directory
+  - Use subdirectories: `architecture/`, `features/`, `guides/`, `archive/`
 - **Project-wide documentation**: Goes in root-level `docs/` directory
 - **NO documentation files** should be created in root directories unless project-wide
 - Examples:
   - Create `backend/docs/API_GUIDE.md` NOT `backend/API_GUIDE.md`
-  - Create `frontend-nextjs/blog-generator-ui/src/docs/COMPONENT_GUIDE.md` NOT `frontend-nextjs/blog-generator-ui/COMPONENT_GUIDE.md`
+  - Create `frontend-nextjs/blog-generator-ui/docs/features/COMPONENT_GUIDE.md` NOT `frontend-nextjs/blog-generator-ui/COMPONENT_GUIDE.md`
 
 ### ⚠️ Rule #5: HTTPS-Only Development
 **ALWAYS run the frontend in HTTPS mode**
@@ -359,7 +360,8 @@ docker-compose up -d
 - **Backend utilities**: Utility scripts in `backend/src/utils/` directory
 - **Frontend components**: React/TypeScript in `src/components/` with shadcn/ui
 - **Frontend tests**: All test files in `frontend-nextjs/blog-generator-ui/src/tests/` directory
-- **Frontend documentation**: All docs in `frontend-nextjs/blog-generator-ui/src/docs/` directory
+- **Frontend documentation**: All docs in `frontend-nextjs/blog-generator-ui/docs/` directory
+  - Organized into subdirectories: `architecture/`, `features/`, `guides/`, `archive/`
 - **Frontend utilities**: Utility scripts in `frontend-nextjs/blog-generator-ui/src/utils/` directory
 - **Custom hooks**: Business logic in `src/hooks/` (e.g., `useAuth.ts`, `useUserStats.ts`)
 - **Service layer**: API interactions in `src/lib/services/` (e.g., `user.ts`)
@@ -430,12 +432,21 @@ bloggen-web-service/
 │   ├── src/
 │   │   ├── docs/                  # 📚 Frontend documentation
 │   │   ├── tests/                 # 🧪 Frontend test files
+├── frontend-nextjs/blog-generator-ui/
+│   ├── src/
+│   │   ├── docs/                  # ❌ DEPRECATED - use docs/ instead
+│   │   ├── tests/                 # 🧪 Frontend test files
 │   │   ├── utils/                 # 🛠️ Frontend utility scripts
 │   │   ├── app/                   # Next.js application routes
 │   │   ├── components/            # React components
 │   │   ├── hooks/                 # Custom React hooks
 │   │   ├── lib/                   # Library code and services
 │   │   └── [other frontend directories...]
+│   ├── docs/                      # 📚 Frontend documentation (NEW location)
+│   │   ├── architecture/          # Design and structure docs
+│   │   ├── features/              # Feature-specific docs
+│   │   ├── guides/                # Setup and debugging guides
+│   │   └── archive/               # Historical reports
 │   └── [other frontend files...]
 ├── docs/                          # 📚 Project-wide documentation
 ├── database/                      # 🗄️ Database scripts and backups
@@ -447,7 +458,7 @@ bloggen-web-service/
 2. **Backend docs** → `backend/docs/`
 3. **Backend utils** → `backend/src/utils/`
 4. **Frontend tests** → `frontend-nextjs/blog-generator-ui/src/tests/`
-5. **Frontend docs** → `frontend-nextjs/blog-generator-ui/src/docs/`
+5. **Frontend docs** → `frontend-nextjs/blog-generator-ui/docs/` ⚠️ CHANGED from src/docs/
 6. **Frontend utils** → `frontend-nextjs/blog-generator-ui/src/utils/`
 7. **Project-wide docs** → `docs/`
 
