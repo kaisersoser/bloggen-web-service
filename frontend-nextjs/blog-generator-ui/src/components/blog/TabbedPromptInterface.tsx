@@ -12,9 +12,9 @@ import type { LogEntry } from "@/types/blog";
 import { FileText, Terminal, Workflow } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// Lazy load WorkflowGraph to avoid SSR issues
-const WorkflowGraph = dynamic(
-  () => import("@/components/workflow/WorkflowGraph").then(mod => ({ default: mod.WorkflowGraph })),
+// Lazy load WorkflowTimeline to avoid SSR issues
+const WorkflowTimeline = dynamic(
+  () => import("@/components/workflow/WorkflowTimeline").then(mod => ({ default: mod.WorkflowTimeline })),
   { 
     ssr: false,
     loading: () => (
@@ -252,7 +252,7 @@ export const TabbedPromptInterface = ({
         <TabsContent value="workflow" className="space-y-4 animate-lift-up">
           {currentJobId ? (
             <div className="w-full h-[600px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
-              <WorkflowGraph 
+              <WorkflowTimeline 
                 taskId={currentJobId} 
                 enableDebugLogging={process.env.NODE_ENV === 'development'}
               />
