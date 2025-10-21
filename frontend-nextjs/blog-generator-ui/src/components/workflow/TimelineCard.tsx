@@ -69,10 +69,11 @@ function getBorderColor(type: TimelineItem['type']): string {
 function PhaseCard({ item, onToggleExpand }: { item: PhaseItem; onToggleExpand: (id: string) => void }) {
   const { icon: StatusIcon, color, bg } = getStatusIndicator(item.status);
   const borderColor = getBorderColor('phase');
+  const pulseEffect = item.status === 'in_progress' ? 'animate-pulse-border' : '';
 
   return (
     <div
-      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} 
+      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} ${pulseEffect}
         transition-all duration-200 hover:shadow-md cursor-pointer`}
       onClick={() => onToggleExpand(item.id)}
     >
@@ -130,10 +131,11 @@ function PhaseCard({ item, onToggleExpand }: { item: PhaseItem; onToggleExpand: 
 function AgentCard({ item, onToggleExpand }: { item: AgentItem; onToggleExpand: (id: string) => void }) {
   const { icon: StatusIcon, color, bg } = getStatusIndicator(item.status);
   const borderColor = getBorderColor('agent');
+  const pulseEffect = item.status === 'in_progress' ? 'animate-pulse-border' : '';
 
   return (
     <div
-      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} 
+      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} ${pulseEffect}
         transition-all duration-200 hover:shadow-md cursor-pointer`}
       onClick={() => onToggleExpand(item.id)}
     >
@@ -191,10 +193,11 @@ function AgentCard({ item, onToggleExpand }: { item: AgentItem; onToggleExpand: 
 function ToolCard({ item, onToggleExpand }: { item: ToolItem; onToggleExpand: (id: string) => void }) {
   const { icon: StatusIcon, color, bg } = getStatusIndicator(item.status);
   const borderColor = getBorderColor('tool');
+  const pulseEffect = item.status === 'in_progress' ? 'animate-pulse-border' : '';
 
   return (
     <div
-      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} 
+      className={`min-w-[280px] max-w-[280px] rounded-lg border-2 ${borderColor} ${bg} ${pulseEffect}
         transition-all duration-200 hover:shadow-md cursor-pointer`}
       onClick={() => onToggleExpand(item.id)}
     >
@@ -250,16 +253,31 @@ function ToolCard({ item, onToggleExpand }: { item: ToolItem; onToggleExpand: (i
  * Main TimelineCard component - routes to appropriate card type
  */
 export function TimelineCard({ item, onToggleExpand }: TimelineCardProps) {
+  // Add fade-in animation for new items
+  const cardClasses = "animate-in fade-in slide-in-from-left-4 duration-300";
+
   if (isPhaseItem(item)) {
-    return <PhaseCard item={item} onToggleExpand={onToggleExpand} />;
+    return (
+      <div className={cardClasses}>
+        <PhaseCard item={item} onToggleExpand={onToggleExpand} />
+      </div>
+    );
   }
 
   if (isAgentItem(item)) {
-    return <AgentCard item={item} onToggleExpand={onToggleExpand} />;
+    return (
+      <div className={cardClasses}>
+        <AgentCard item={item} onToggleExpand={onToggleExpand} />
+      </div>
+    );
   }
 
   if (isToolItem(item)) {
-    return <ToolCard item={item} onToggleExpand={onToggleExpand} />;
+    return (
+      <div className={cardClasses}>
+        <ToolCard item={item} onToggleExpand={onToggleExpand} />
+      </div>
+    );
   }
 
   return null;
