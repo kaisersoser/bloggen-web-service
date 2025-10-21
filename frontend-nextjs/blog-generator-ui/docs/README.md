@@ -14,6 +14,7 @@ Design decisions, code structure, and architectural patterns.
 ### ✨ [Features](./features/)
 Feature-specific documentation and implementation details.
 
+- **[AGENT_FLOW_IMPLEMENTATION_PLAN.md](./features/AGENT_FLOW_IMPLEMENTATION_PLAN.md)** - ⭐ Interactive agent workflow visualization (NEW)
 - **[PAGE_REFRESH_RECOVERY.md](./features/PAGE_REFRESH_RECOVERY.md)** - State persistence across page refreshes
 - **[PERFORMANCE_ENHANCEMENTS.md](./features/PERFORMANCE_ENHANCEMENTS.md)** - Performance optimizations and improvements
 - **[SSE_RESILIENCE.md](./features/SSE_RESILIENCE.md)** - Server-Sent Events connection handling and resilience
@@ -91,10 +92,10 @@ When adding new documentation:
 
 ## 📊 Documentation Stats
 
-**Total Documents**: 26
+**Total Documents**: 27
 - **Architecture**: 3 documents
-- **Features**: 10 documents
+- **Features**: 11 documents (1 new implementation plan)
 - **Guides**: 6 documents
 - **Archive**: 8 documents
 
-**Last Updated**: January 2025
+**Last Updated**: January 21, 2025
