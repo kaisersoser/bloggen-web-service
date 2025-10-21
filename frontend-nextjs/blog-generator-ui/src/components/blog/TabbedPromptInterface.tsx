@@ -253,7 +253,8 @@ export const TabbedPromptInterface = ({
           {currentJobId ? (
             <div className="w-full h-[600px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
               <WorkflowTimeline 
-                taskId={currentJobId} 
+                taskId={currentJobId}
+                taskLogs={taskLogs?.[currentJobId] || []}
                 enableDebugLogging={process.env.NODE_ENV === 'development'}
               />
             </div>

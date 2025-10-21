@@ -11,13 +11,72 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ArrowRight, Zap } from 'lucide-react';
 import { TimelineCard } from './TimelineCard';
 import { TimelineParser } from '@/lib/timeline-parser';
-import { useWorkflowSSE } from '@/hooks/useWorkflowSSE';
 import type { TimelineState, TimelineItem } from '@/types/timeline';
+import type { LogEntry } from '@/types/blog';
 import type { SSEEvent } from '@/types/workflow-graph';
 
 interface WorkflowTimelineProps {
   taskId: string;
+  taskLogs?: LogEntry[];  // Receive logs from parent instead of creating SSE connection
   enableDebugLogging?: boolean;
+}
+
+/**
+ * Convert LogEntry to SSEEvent format for timeline parser
+ */
+function convertLogToSSEEvent(log: LogEntry): SSEEvent | null {
+  // Determine event type from message content
+  let eventType: SSEEvent['type'] = 'log';
+  
+  const msgLower = log.message.toLowerCase();
+  
+  if (msgLower.includes('phase in progress') || msgLower.includes('completed') || msgLower.includes('status:')) {
+    eventType = 'status';
+  } else if (log.message.includes('💭')) {
+    eventType = 'agent_thinking';
+  } else if (log.message.includes('🔧')) {
+    eventType = 'tool_usage';
+  }
+
+  // Extract agent name from thinking messages
+  const agentMatch = log.message.match(/💭\s*([A-Z][a-z\s]+?)(?:\s+(?:returned|completed|ready|starting|beginning))/i);
+  
+  // Extract tool name from tool messages
+  const toolMatch = log.message.match(/🔧\s*(?:Executing|Using)?\s*([a-z_]+)/i);
+
+  return {
+    type: eventType,
+    data: {
+      task_id: '',  // LogEntry doesn't have taskId
+      status: log.step,  // Use step field as status
+      message: log.message,
+      timestamp: log.timestamp,
+      progress: extractProgress(log.message) || log.progress,
+      agent_name: agentMatch ? agentMatch[1].trim() : undefined,
+      reasoning: eventType === 'agent_thinking' ? log.message.replace('💭', '').trim() : undefined,
+      tool_name: toolMatch ? toolMatch[1].trim() : undefined,
+    }
+  };
+}
+
+/**
+ * Extract progress percentage from message
+ */
+function extractProgress(message: string): number | undefined {
+  // Look for percentage in message
+  const match = message.match(/(\d+)%/);
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+  
+  // Infer progress from phase messages
+  if (message.toLowerCase().includes('research') && message.toLowerCase().includes('progress')) return 25;
+  if (message.toLowerCase().includes('content') && message.toLowerCase().includes('progress')) return 50;
+  if (message.toLowerCase().includes('fact') || message.toLowerCase().includes('validation')) return 75;
+  if (message.toLowerCase().includes('finalization') && message.toLowerCase().includes('progress')) return 90;
+  if (message.toLowerCase().includes('completed') || message.toLowerCase().includes('complete')) return 100;
+  
+  return undefined;
 }
 
 /**
@@ -34,44 +93,63 @@ function ConnectingArrow() {
 /**
  * Main Timeline component
  */
-export function WorkflowTimeline({ taskId, enableDebugLogging = false }: WorkflowTimelineProps) {
+export function WorkflowTimeline({ taskId, taskLogs = [], enableDebugLogging = false }: WorkflowTimelineProps) {
   const [timeline, setTimeline] = useState<TimelineState>({
     items: [],
     currentPhase: null,
     overallProgress: 0,
     startTime: new Date().toISOString(),
+    isComplete: false,
   });
 
   // Timeline parser instance (persisted across renders)
   const parserRef = useRef(new TimelineParser(enableDebugLogging));
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const lastProcessedIndex = useRef(0);
 
   /**
-   * Handle SSE events and update timeline
+   * Process task logs from parent component
    */
-  const handleSSEEvent = useCallback((event: SSEEvent) => {
+  useEffect(() => {
+    if (!taskLogs || taskLogs.length === 0) return;
+
+    // Only process new logs
+    const newLogs = taskLogs.slice(lastProcessedIndex.current);
+    if (newLogs.length === 0) return;
+
     if (enableDebugLogging) {
-      console.log('📅 [WorkflowTimeline] Received SSE event:', event.type);
+      console.log('📅 [WorkflowTimeline] Processing new logs:', {
+        total: taskLogs.length,
+        newCount: newLogs.length,
+        lastProcessed: lastProcessedIndex.current
+      });
     }
 
-    // Check if this is a completion event
-    const isCompletionEvent = 
-      event.type === 'status' && 
-      (event.data.status?.toLowerCase().includes('complete') || 
-       event.data.message?.toLowerCase().includes('complete'));
+    // Convert LogEntry to SSE events and process
+    newLogs.forEach((log) => {
+      const sseEvent = convertLogToSSEEvent(log);
+      if (sseEvent) {
+        // Check if this is a completion event
+        const isCompletionEvent = 
+          sseEvent.type === 'status' && 
+          (sseEvent.data.status?.toLowerCase().includes('complete') || 
+           sseEvent.data.message?.toLowerCase().includes('complete'));
 
-    const updatedTimeline = parserRef.current.processEvent(event);
+        parserRef.current.processEvent(sseEvent);
 
-    // If completion event, mark timeline as complete
-    if (isCompletionEvent && event.data.progress === 100) {
-      console.log('✅ [WorkflowTimeline] Blog generation complete, marking timeline');
-      parserRef.current.complete();
-      setTimeline(parserRef.current.getState());
-    } else {
-      setTimeline(updatedTimeline);
-    }
+        // If completion event, mark timeline as complete
+        if (isCompletionEvent && sseEvent.data.progress === 100) {
+          console.log('✅ [WorkflowTimeline] Blog generation complete, marking timeline');
+          parserRef.current.complete();
+        }
+      }
+    });
 
-    // Auto-scroll to the end when new items are added
+    // Update state
+    setTimeline(parserRef.current.getState());
+    lastProcessedIndex.current = taskLogs.length;
+
+    // Auto-scroll to the end
     if (timelineContainerRef.current) {
       setTimeout(() => {
         if (timelineContainerRef.current) {
@@ -82,14 +160,14 @@ export function WorkflowTimeline({ taskId, enableDebugLogging = false }: Workflo
         }
       }, 100);
     }
-  }, [enableDebugLogging]);
+  }, [taskLogs, enableDebugLogging]);
 
-  // Connect to SSE stream
-  const { isConnected } = useWorkflowSSE({
-    taskId,
-    onEvent: handleSSEEvent,
-    enabled: true,
-  });
+  // Remove old SSE hook code  
+  // const { isConnected } = useWorkflowSSE({
+  //   taskId,
+  //   onEvent: handleSSEEvent,
+  //   enabled: true,
+  // });
 
   // Reset timeline when taskId changes ONLY if not complete
   useEffect(() => {
@@ -128,6 +206,8 @@ export function WorkflowTimeline({ taskId, enableDebugLogging = false }: Workflo
   }, []);
 
   // Empty state
+  const isConnected = taskLogs && taskLogs.length > 0;
+
   if (timeline.items.length === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center">
