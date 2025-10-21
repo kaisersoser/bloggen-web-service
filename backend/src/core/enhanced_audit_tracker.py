@@ -201,7 +201,8 @@ class EnhancedDatabaseAuditTracker:
             if 'pool is closed' in error_msg or 'closed' in error_msg:
                 logger.debug("Database pool closed, skipping log operation")
             else:
-                logger.error(f"❌ Failed to process database log: {e}")
+                logger.error(f"❌ Failed to process database log: {e}", exc_info=True)
+                logger.error(f"Failed call data: model={call_data.get('model')}, session_id={call_data.get('session_id')}, tokens={call_data.get('input_tokens', 0) + call_data.get('output_tokens', 0)}")
 
     @classmethod
     async def _process_blog_id_update(cls, update_data: Dict[str, Any]):
