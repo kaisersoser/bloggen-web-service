@@ -69,47 +69,59 @@ export class WorkflowGraphBuilder {
   }
 
   /**
-   * Main entry point: Process an SSE event and return updated graph
+   * Main entry point: process an SSE event and return updated graph
    */
   processSSEEvent(event: SSEEvent): WorkflowGraph {
-    this.log('Processing SSE event', { type: event.type, data: event.data });
+    console.log('🎬 [GraphBuilder] ===== Processing SSE Event =====');
+    console.log('🎬 [GraphBuilder] Event Type:', event.type);
+    console.log('🎬 [GraphBuilder] Event Data:', JSON.stringify(event.data, null, 2));
+    console.log('🎬 [GraphBuilder] Current Graph State:', {
+      nodeCount: this.state.nodeMap.size,
+      edgeCount: this.graph.edges.length,
+      currentPhase: this.state.currentPhaseId
+    });
 
-    try {
-      switch (event.type) {
-        case 'status':
-          this.handleStatusEvent(event.data);
-          break;
-        case 'agent_thinking':
-          this.handleAgentThinkingEvent(event.data);
-          break;
-        case 'tool_usage':
-          this.handleToolUsageEvent(event.data);
-          break;
-        case 'content_stream':
-          this.handleContentStreamEvent(event.data);
-          break;
-        case 'error':
-          this.handleErrorEvent(event.data);
-          break;
-        case 'log':
-          // Log events are not visualized in the graph, only in console
-          break;
-        default:
-          this.log('Unknown event type', { type: event.type });
-      }
+    let result: WorkflowGraph;
 
-      // Return a new graph object to trigger React re-renders
-      return { ...this.graph };
-    } catch (error) {
-      console.error('Error processing SSE event:', error, event);
-      return { ...this.graph };
+    switch (event.type) {
+      case 'status':
+        console.log('➡️ [GraphBuilder] Routing to handleStatusEvent');
+        result = this.handleStatusEvent(event.data);
+        break;
+      case 'agent_thinking':
+        console.log('➡️ [GraphBuilder] Routing to handleAgentThinkingEvent');
+        result = this.handleAgentThinkingEvent(event.data);
+        break;
+      case 'tool_usage':
+        console.log('➡️ [GraphBuilder] Routing to handleToolUsageEvent');
+        result = this.handleToolUsageEvent(event.data);
+        break;
+      case 'content_stream':
+        console.log('➡️ [GraphBuilder] Routing to handleContentStreamEvent');
+        result = this.handleContentStreamEvent(event.data);
+        break;
+      case 'error':
+        console.log('➡️ [GraphBuilder] Routing to handleErrorEvent');
+        result = this.handleErrorEvent(event.data);
+        break;
+      default:
+        console.log('⚠️ [GraphBuilder] Unknown event type, returning current graph');
+        result = this.getGraph();
     }
-  }
 
-  /**
+    console.log('✅ [GraphBuilder] After processing:', {
+      nodeCount: this.state.nodeMap.size,
+      edgeCount: this.graph.edges.length,
+      nodesArray: Array.from(this.state.nodeMap.keys())
+    });
+    console.log('🎬 [GraphBuilder] ===== Event Processing Complete =====\n');
+
+    return result;
+  }  /**
    * Handle 'status' events - creates/updates phase nodes
    */
-  private handleStatusEvent(data: SSEEventData): void {
+  private handleStatusEvent(data: SSEEventData): WorkflowGraph {
+    console.log('📊 [handleStatusEvent] Processing status event:', data);
     const { step, message, progress, timestamp } = data;
 
     // Extract phase information from step (e.g., "Step 2/5" or "Research")
@@ -158,17 +170,22 @@ export class WorkflowGraphBuilder {
     this.state.currentPhaseId = phaseId;
 
     this.log('Phase node updated', { phaseId, status: phaseNode.status, progress });
+    console.log('✅ [handleStatusEvent] Phase node created/updated:', phaseId);
+    
+    return this.getGraph();
   }
 
   /**
    * Handle 'agent_thinking' events - creates/updates agent nodes
    */
-  private handleAgentThinkingEvent(data: SSEEventData): void {
+  private handleAgentThinkingEvent(data: SSEEventData): WorkflowGraph {
+    console.log('🧠 [handleAgentThinkingEvent] Processing agent thinking:', data);
     const { agent_name, reasoning, timestamp } = data;
 
     if (!agent_name) {
       this.log('Agent thinking event missing agent_name', data);
-      return;
+      console.warn('⚠️ [handleAgentThinkingEvent] Missing agent_name, skipping');
+      return this.getGraph();
     }
 
     // Generate unique agent ID (append counter if multiple instances)
@@ -216,17 +233,22 @@ export class WorkflowGraphBuilder {
     this.state.currentAgentId = agentId;
 
     this.log('Agent node updated', { agentId, agentName: agent_name });
+    console.log('✅ [handleAgentThinkingEvent] Agent node created/updated:', agentId);
+    
+    return this.getGraph();
   }
 
   /**
    * Handle 'tool_usage' events - creates/updates tool nodes
    */
-  private handleToolUsageEvent(data: SSEEventData): void {
+  private handleToolUsageEvent(data: SSEEventData): WorkflowGraph {
+    console.log('🔧 [handleToolUsageEvent] Processing tool usage:', data);
     const { tool_name, tool_status, tool_output, tool_error, timestamp } = data;
 
     if (!tool_name) {
       this.log('Tool usage event missing tool_name', data);
-      return;
+      console.warn('⚠️ [handleToolUsageEvent] Missing tool_name, skipping');
+      return this.getGraph();
     }
 
     // Generate unique tool ID
@@ -273,20 +295,26 @@ export class WorkflowGraphBuilder {
     }
 
     this.log('Tool node updated', { toolId, toolName: tool_name, status: tool_status });
+    console.log('✅ [handleToolUsageEvent] Tool node created/updated:', toolId);
+    
+    return this.getGraph();
   }
 
   /**
    * Handle 'content_stream' events - stores draft content for preview
    */
-  private handleContentStreamEvent(data: SSEEventData): void {
+  private handleContentStreamEvent(data: SSEEventData): WorkflowGraph {
+    console.log('📝 [handleContentStreamEvent] Content stream received');
     // Content streams don't create nodes, but we could store for preview modal
     this.log('Content stream received', { length: data.content?.length });
+    return this.getGraph();
   }
 
   /**
    * Handle 'error' events - marks nodes as failed
    */
-  private handleErrorEvent(data: SSEEventData): void {
+  private handleErrorEvent(data: SSEEventData): WorkflowGraph {
+    console.log('❌ [handleErrorEvent] Error event received:', data);
     const { error } = data;
 
     // Mark currently active node as failed
@@ -295,8 +323,10 @@ export class WorkflowGraphBuilder {
       if (activeNode) {
         activeNode.status = 'failed';
         this.log('Node marked as failed', { nodeId: this.graph.activeNodeId, error });
+        console.log('❌ [handleErrorEvent] Node marked as failed:', this.graph.activeNodeId);
       }
     }
+    return this.getGraph();
   }
 
   /**

@@ -25,10 +25,16 @@ interface UseWorkflowSSEOptions {
  * Transform backend SSE event to WorkflowGraph SSEEvent format
  */
 function transformSSEEvent(rawData: any): SSEEvent | null {
-  if (!rawData) return null;
+  if (!rawData) {
+    console.warn('🔶 [transformSSEEvent] Received null/undefined rawData');
+    return null;
+  }
+
+  console.log('🔍 [transformSSEEvent] Input rawData:', JSON.stringify(rawData, null, 2));
 
   // Determine event type based on message_type or type field
   const messageType = rawData.message_type || rawData.type;
+  console.log('🏷️ [transformSSEEvent] Message type detected:', messageType);
   
   let eventType: SSEEvent['type'];
   
@@ -51,8 +57,11 @@ function transformSSEEvent(rawData: any): SSEEvent | null {
       eventType = 'error';
       break;
     default:
+      console.log('📝 [transformSSEEvent] Unknown message type, defaulting to "log"');
       eventType = 'log';
   }
+  
+  console.log('🎯 [transformSSEEvent] Mapped to event type:', eventType);
 
   return {
     type: eventType,
@@ -125,18 +134,30 @@ export function useWorkflowSSE({ taskId, onEvent, enabled = true }: UseWorkflowS
 
         eventSource.onopen = () => {
           logger.info('[useWorkflowSSE] Connection established', { taskId });
+          console.log('🟢 [useWorkflowSSE] SSE Connection OPEN for taskId:', taskId);
         };
 
         eventSource.onmessage = (event) => {
           try {
+            console.log('📨 [useWorkflowSSE] RAW SSE EVENT:', event.data);
             const rawData = JSON.parse(event.data);
+            console.log('📦 [useWorkflowSSE] PARSED DATA:', rawData);
+            
             const transformedEvent = transformSSEEvent(rawData);
+            console.log('🔄 [useWorkflowSSE] TRANSFORMED EVENT:', transformedEvent);
             
             if (transformedEvent && onEvent) {
+              console.log('✅ [useWorkflowSSE] Calling onEvent callback with:', transformedEvent.type);
               onEvent(transformedEvent);
+            } else {
+              console.warn('⚠️ [useWorkflowSSE] No transformed event or callback missing', { 
+                hasTransformedEvent: !!transformedEvent, 
+                hasCallback: !!onEvent 
+              });
             }
           } catch (error) {
             logger.error('[useWorkflowSSE] Failed to parse SSE message', error);
+            console.error('❌ [useWorkflowSSE] PARSE ERROR:', error, 'Raw data:', event.data);
           }
         };
 

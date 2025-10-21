@@ -124,8 +124,15 @@ export function WorkflowGraph({ taskId, onSSEEvent, enableDebugLogging = false }
    * Process SSE event and update graph
    */
   const handleSSEEvent = useCallback((event: SSEEvent) => {
+    console.log('🎨 [WorkflowGraph] handleSSEEvent called with:', event.type);
     const updatedGraph = graphBuilder.current.processSSEEvent(event);
+    console.log('🎨 [WorkflowGraph] Updated graph from builder:', {
+      nodeCount: updatedGraph.nodes.length,
+      edgeCount: updatedGraph.edges.length,
+      currentPhase: updatedGraph.currentPhase
+    });
     setGraph(updatedGraph);
+    console.log('🎨 [WorkflowGraph] setGraph called, React should re-render');
     
     if (onSSEEvent) {
       onSSEEvent(event);
@@ -141,6 +148,7 @@ export function WorkflowGraph({ taskId, onSSEEvent, enableDebugLogging = false }
 
   // Reset graph when taskId changes
   useEffect(() => {
+    console.log('🔄 [WorkflowGraph] TaskId changed, resetting graph:', taskId);
     graphBuilder.current.reset();
     setGraph({
       nodes: [],
@@ -150,7 +158,19 @@ export function WorkflowGraph({ taskId, onSSEEvent, enableDebugLogging = false }
       overallProgress: 0,
       taskId,
     });
+    console.log('🔄 [WorkflowGraph] Graph reset complete');
   }, [taskId]);
+
+  // Log graph state changes
+  useEffect(() => {
+    console.log('📈 [WorkflowGraph] Graph state updated:', {
+      nodeCount: graph.nodes.length,
+      edgeCount: graph.edges.length,
+      nodes: graph.nodes.map(n => ({ id: n.id, type: n.type, status: n.status })),
+      currentPhase: graph.currentPhase,
+      progress: graph.overallProgress
+    });
+  }, [graph]);
   const reactFlowNodes: Node[] = useMemo(() => {
     return graph.nodes.map((node) => ({
       id: node.id,
