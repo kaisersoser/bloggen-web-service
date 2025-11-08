@@ -70,6 +70,17 @@ export class TimelineParser {
    */
   private handleStatusEvent(event: SSEEvent): void {
     const { data } = event;
+    
+    // Check for connection/initialization messages
+    const msgLower = data.message?.toLowerCase() || '';
+    if (msgLower.includes('blog generation started') || 
+        msgLower.includes('setting up connection') ||
+        msgLower.includes('live updates connected')) {
+      // These are already handled by the constructor's initial connection event
+      // Skip to avoid duplicates
+      return;
+    }
+    
     const phaseName = this.extractPhaseName(data.message || data.status || '');
 
     if (!phaseName) return;

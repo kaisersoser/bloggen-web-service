@@ -233,6 +233,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Redis shutdown error: {e}")
 
+    # Shutdown audit tracker worker BEFORE closing database pool
+    # This ensures queued logs are processed before pool is closed
+    try:
+        await EnhancedDatabaseAuditTracker.shutdown_worker(timeout=5.0)
+        logger.info("✅ Audit tracker worker shutdown complete")
+    except Exception as e:
+        logger.warning(f"Audit tracker worker shutdown error: {e}")
+
     # Close database service pool before tearing down other resources
     try:
         await database_service.close()

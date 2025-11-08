@@ -124,6 +124,64 @@ class EnhancedDatabaseAuditTracker:
             cls._db_worker_running = False
 
     @classmethod
+    async def shutdown_worker(cls, timeout: float = 5.0):
+        """
+        Gracefully shutdown the database worker thread.
+        
+        This method should be called during application shutdown BEFORE
+        closing the database connection pool to ensure all queued logs
+        are processed without errors.
+        
+        Args:
+            timeout: Maximum time to wait for queue to drain (seconds)
+        """
+        if not cls._db_worker_running:
+            logger.debug("Audit tracker worker already stopped")
+            return
+        
+        logger.info("🛑 Shutting down audit tracker database worker...")
+        
+        # Signal worker to stop accepting new operations
+        cls._db_worker_running = False
+        
+        # Wait for queue to drain with timeout
+        queue_size = cls._db_queue.qsize()
+        if queue_size > 0:
+            logger.info(f"   Waiting for {queue_size} queued operations to complete...")
+            try:
+                # Give worker thread time to process remaining items
+                start_time = asyncio.get_event_loop().time() if asyncio.get_event_loop().is_running() else None
+                if start_time:
+                    # In async context
+                    while not cls._db_queue.empty() and (asyncio.get_event_loop().time() - start_time) < timeout:
+                        await asyncio.sleep(0.1)
+                else:
+                    # In sync context (shouldn't happen, but handle gracefully)
+                    import time
+                    start_time = time.time()
+                    while not cls._db_queue.empty() and (time.time() - start_time) < timeout:
+                        time.sleep(0.1)
+                
+                remaining = cls._db_queue.qsize()
+                if remaining > 0:
+                    logger.warning(f"   ⚠️  {remaining} operations remain in queue after timeout")
+                else:
+                    logger.info("   ✅ All queued operations completed")
+            except Exception as e:
+                logger.warning(f"   Error waiting for queue: {e}")
+        
+        # Wait for worker thread to finish
+        if cls._db_worker_thread and cls._db_worker_thread.is_alive():
+            logger.debug("   Waiting for worker thread to exit...")
+            cls._db_worker_thread.join(timeout=2.0)
+            if cls._db_worker_thread.is_alive():
+                logger.warning("   ⚠️  Worker thread did not exit cleanly")
+            else:
+                logger.info("   ✅ Worker thread exited")
+        
+        logger.info("✅ Audit tracker worker shutdown complete")
+
+    @classmethod
     async def _process_database_log(cls, call_data: Dict[str, Any]):
         """Process database logging operation."""
         try:
@@ -195,6 +253,9 @@ class EnhancedDatabaseAuditTracker:
                 f"✅ Logged API call to database: {call_data['model']} | ${total_cost:.4f}"
             )
 
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            # Handle timeout/cancellation errors during shutdown gracefully
+            logger.debug(f"Database operation cancelled during shutdown: {type(e).__name__}")
         except Exception as e:
             # Silently ignore errors during shutdown when pool is closed
             error_msg = str(e).lower()
@@ -233,8 +294,15 @@ class EnhancedDatabaseAuditTracker:
                 f"✅ Updated audit session with blog_id: {update_data['blog_id']}"
             )
 
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            # Handle timeout/cancellation errors during shutdown gracefully
+            logger.debug(f"Blog ID update cancelled during shutdown: {type(e).__name__}")
         except Exception as e:
-            logger.error(f"❌ Failed to update blog_id: {e}")
+            error_msg = str(e).lower()
+            if 'pool is closed' in error_msg or 'closed' in error_msg:
+                logger.debug("Database pool closed, skipping blog_id update")
+            else:
+                logger.error(f"❌ Failed to update blog_id: {e}")
 
     def _queue_database_operation(self, operation_type: str, data: Dict[str, Any]):
         """Queue a database operation for background processing."""

@@ -30,7 +30,14 @@ function convertLogToSSEEvent(log: LogEntry): SSEEvent | null {
   
   const msgLower = log.message.toLowerCase();
   
-  if (msgLower.includes('phase in progress') || msgLower.includes('completed') || msgLower.includes('status:')) {
+  // Detect connection events
+  if (msgLower.includes('blog generation started') || 
+      msgLower.includes('setting up connection') ||
+      msgLower.includes('live updates connected')) {
+    eventType = 'status';
+  } else if (msgLower.includes('phase in progress') || 
+             msgLower.includes('completed') || 
+             msgLower.includes('status:')) {
     eventType = 'status';
   } else if (log.message.includes('💭')) {
     eventType = 'agent_thinking';
@@ -111,24 +118,42 @@ export function WorkflowTimeline({ taskId, taskLogs = [], enableDebugLogging = f
    * Process task logs from parent component
    */
   useEffect(() => {
-    if (!taskLogs || taskLogs.length === 0) return;
+    console.log('📅 [WorkflowTimeline] useEffect triggered:', {
+      hasTaskLogs: !!taskLogs,
+      taskLogsLength: taskLogs?.length || 0,
+      lastProcessed: lastProcessedIndex.current,
+      currentItemsCount: timeline.items.length,
+      isComplete: timeline.isComplete
+    });
+
+    if (!taskLogs || taskLogs.length === 0) {
+      console.log('⚠️ [WorkflowTimeline] No taskLogs, skipping');
+      return;
+    }
 
     // Only process new logs
     const newLogs = taskLogs.slice(lastProcessedIndex.current);
-    if (newLogs.length === 0) return;
-
-    if (enableDebugLogging) {
-      console.log('📅 [WorkflowTimeline] Processing new logs:', {
-        total: taskLogs.length,
-        newCount: newLogs.length,
-        lastProcessed: lastProcessedIndex.current
-      });
+    if (newLogs.length === 0) {
+      console.log('⚠️ [WorkflowTimeline] No new logs to process');
+      return;
     }
 
+    console.log('� [WorkflowTimeline] Processing new logs:', {
+      total: taskLogs.length,
+      newCount: newLogs.length,
+      lastProcessed: lastProcessedIndex.current,
+      firstNewLog: newLogs[0]?.message.substring(0, 50)
+    });
+
     // Convert LogEntry to SSE events and process
-    newLogs.forEach((log) => {
+    let eventsProcessed = 0;
+    newLogs.forEach((log, index) => {
+      console.log(`📋 [WorkflowTimeline] Processing log ${lastProcessedIndex.current + index}:`, log.message.substring(0, 80));
+      
       const sseEvent = convertLogToSSEEvent(log);
       if (sseEvent) {
+        console.log(`  ↳ Converted to SSE event:`, sseEvent.type, sseEvent.data.message?.substring(0, 50));
+        
         // Check if this is a completion event
         const isCompletionEvent = 
           sseEvent.type === 'status' && 
@@ -136,17 +161,27 @@ export function WorkflowTimeline({ taskId, taskLogs = [], enableDebugLogging = f
            sseEvent.data.message?.toLowerCase().includes('complete'));
 
         parserRef.current.processEvent(sseEvent);
+        eventsProcessed++;
 
         // If completion event, mark timeline as complete
         if (isCompletionEvent && sseEvent.data.progress === 100) {
           console.log('✅ [WorkflowTimeline] Blog generation complete, marking timeline');
           parserRef.current.complete();
         }
+      } else {
+        console.log(`  ↳ Failed to convert log`);
       }
     });
 
     // Update state
-    setTimeline(parserRef.current.getState());
+    const newState = parserRef.current.getState();
+    console.log('📊 [WorkflowTimeline] Updating timeline state:', {
+      eventsProcessed,
+      newItemsCount: newState.items.length,
+      previousItemsCount: timeline.items.length
+    });
+    
+    setTimeline(newState);
     lastProcessedIndex.current = taskLogs.length;
 
     // Auto-scroll to the end
@@ -160,7 +195,7 @@ export function WorkflowTimeline({ taskId, taskLogs = [], enableDebugLogging = f
         }
       }, 100);
     }
-  }, [taskLogs, enableDebugLogging]);
+  }, [taskLogs, enableDebugLogging, timeline.items.length, timeline.isComplete]);
 
   // Remove old SSE hook code  
   // const { isConnected } = useWorkflowSSE({
@@ -171,16 +206,17 @@ export function WorkflowTimeline({ taskId, taskLogs = [], enableDebugLogging = f
 
   // Reset timeline when taskId changes ONLY if not complete
   useEffect(() => {
-    console.log('🔄 [WorkflowTimeline] TaskId changed, checking timeline state:', { 
+    console.log('🔄 [WorkflowTimeline] TaskId effect triggered:', { 
       taskId, 
       isComplete: timeline.isComplete,
       itemCount: timeline.items.length 
     });
     
-    // Only reset if timeline is not marked as complete
-    if (!timeline.isComplete) {
-      console.log('🔄 [WorkflowTimeline] Resetting timeline for new task');
+    // Don't reset if timeline is complete OR if we have items (to prevent clearing during generation)
+    if (!timeline.isComplete && timeline.items.length === 0) {
+      console.log('🔄 [WorkflowTimeline] Resetting timeline for new task (empty timeline)');
       parserRef.current.reset();
+      lastProcessedIndex.current = 0;
       setTimeline({
         items: [],
         currentPhase: null,
@@ -189,9 +225,12 @@ export function WorkflowTimeline({ taskId, taskLogs = [], enableDebugLogging = f
         isComplete: false,
       });
     } else {
-      console.log('✅ [WorkflowTimeline] Timeline is complete, preserving state');
+      console.log('✅ [WorkflowTimeline] Preserving timeline state:', {
+        reason: timeline.isComplete ? 'completed' : 'has items',
+        itemCount: timeline.items.length
+      });
     }
-  }, [taskId, timeline.isComplete]);
+  }, [taskId]);
 
   /**
    * Toggle expand/collapse for an item
