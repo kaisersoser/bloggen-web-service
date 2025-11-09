@@ -43,6 +43,7 @@ class EnhancedDatabaseAuditTracker:
     _db_queue = queue.Queue()
     _db_worker_running = False
     _db_worker_thread = None
+    _main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
     def __init__(self, session_type: str, user_id: str, blog_id: Optional[str]):
         """Initialize the enhanced audit tracker."""
@@ -76,6 +77,15 @@ class EnhancedDatabaseAuditTracker:
     def _ensure_db_worker(cls):
         """Ensure database worker thread is running."""
         if not cls._db_worker_running:
+            # Capture the main event loop if not already set
+            if cls._main_event_loop is None:
+                try:
+                    cls._main_event_loop = asyncio.get_running_loop()
+                    logger.info(f"📡 Captured main event loop: {cls._main_event_loop}")
+                except RuntimeError:
+                    # No running loop - will try again when worker needs it
+                    logger.warning("⚠️ No running event loop found during worker initialization")
+            
             cls._db_worker_running = True
             cls._db_worker_thread = threading.Thread(
                 target=cls._database_worker, daemon=True, name="AuditTrackerDBWorker"
@@ -88,40 +98,27 @@ class EnhancedDatabaseAuditTracker:
         """Background thread worker that processes database operations."""
         logger.info("💾 Audit tracker database worker started")
 
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Worker processes operations synchronously, submitting async work to main loop
+        while cls._db_worker_running:
+            try:
+                # Get operation from queue with timeout
+                operation = cls._db_queue.get(timeout=1.0)
 
-        async def process_operations():
-            while cls._db_worker_running:
-                try:
-                    # Get operation from queue with timeout
-                    operation = cls._db_queue.get(timeout=1.0)
+                if operation["type"] == "log_call":
+                    cls._process_database_log_sync(operation["data"])
+                elif operation["type"] == "update_blog_id":
+                    cls._process_blog_id_update_sync(operation["data"])
 
-                    if operation["type"] == "log_call":
-                        await cls._process_database_log(operation["data"])
-                    elif operation["type"] == "update_blog_id":
-                        await cls._process_blog_id_update(operation["data"])
+                cls._db_queue.task_done()
 
-                    cls._db_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"❌ Database worker error: {e}")
+                import traceback
+                traceback.print_exc()
 
-                except queue.Empty:
-                    continue
-                except Exception as e:
-                    logger.error(f"❌ Database worker error: {e}")
-
-        try:
-            loop.run_until_complete(process_operations())
-        except Exception as e:
-            logger.error(f"❌ Database worker loop error: {e}")
-        finally:
-            # DO NOT close the loop - it closes the shared database pool!
-            # asyncpg pools are tied to event loops, and closing this loop
-            # will mark the shared database_service._pool as closed.
-            # Just clear the reference instead.
-            asyncio.set_event_loop(None)
-            # loop.close()  # REMOVED: This was closing the database pool!
-            cls._db_worker_running = False
+        logger.info("💾 Audit tracker database worker stopped")
 
     @classmethod
     async def shutdown_worker(cls, timeout: float = 5.0):
@@ -180,6 +177,52 @@ class EnhancedDatabaseAuditTracker:
                 logger.info("   ✅ Worker thread exited")
         
         logger.info("✅ Audit tracker worker shutdown complete")
+
+    @classmethod
+    def _process_database_log_sync(cls, call_data: Dict[str, Any]):
+        """
+        Synchronous wrapper for _process_database_log.
+        Submits the async operation to the main event loop using run_coroutine_threadsafe.
+        """
+        if cls._main_event_loop is None:
+            logger.warning("⚠️ Main event loop not available - cannot log to database")
+            return
+        
+        try:
+            # Submit the coroutine to the main event loop and wait for result
+            future = asyncio.run_coroutine_threadsafe(
+                cls._process_database_log(call_data),
+                cls._main_event_loop
+            )
+            # Wait for completion with timeout
+            future.result(timeout=5.0)
+        except TimeoutError:
+            logger.warning(f"⏱️ Database log operation timed out for model={call_data.get('model')}")
+        except Exception as e:
+            logger.error(f"❌ Error in sync database log wrapper: {e}")
+
+    @classmethod
+    def _process_blog_id_update_sync(cls, update_data: Dict[str, Any]):
+        """
+        Synchronous wrapper for _process_blog_id_update.
+        Submits the async operation to the main event loop using run_coroutine_threadsafe.
+        """
+        if cls._main_event_loop is None:
+            logger.warning("⚠️ Main event loop not available - cannot update blog_id")
+            return
+        
+        try:
+            # Submit the coroutine to the main event loop and wait for result
+            future = asyncio.run_coroutine_threadsafe(
+                cls._process_blog_id_update(update_data),
+                cls._main_event_loop
+            )
+            # Wait for completion with timeout
+            future.result(timeout=5.0)
+        except TimeoutError:
+            logger.warning(f"⏱️ Blog ID update timed out for session={update_data.get('session_id')}")
+        except Exception as e:
+            logger.error(f"❌ Error in sync blog_id update wrapper: {e}")
 
     @classmethod
     async def _process_database_log(cls, call_data: Dict[str, Any]):

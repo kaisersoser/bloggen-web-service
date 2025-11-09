@@ -95,10 +95,12 @@ export const TabbedPromptInterface = ({
   });
 
   useEffect(() => {
+    // Auto-switch to console when generation starts (only from instructions tab)
+    // Users can freely switch between tabs during generation
     if (isGenerating && activeTab === "instructions") {
       setActiveTab("console");
     }
-  }, [isGenerating, activeTab]);
+  }, [isGenerating]); // Removed activeTab from dependencies to allow free switching
 
   // Keyboard shortcut: Space = toggle between workflow and console
   useEffect(() => {
@@ -203,8 +205,7 @@ export const TabbedPromptInterface = ({
           </TabsTrigger>
           <TabsTrigger
             value="workflow"
-            className="group flex items-center gap-2 rounded-lg transition-comfortable focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800/80 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={!currentJobId}
+            className="group flex items-center gap-2 rounded-lg transition-comfortable focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm dark:data-[state=active]:bg-slate-800/80"
           >
             <Workflow className="h-4 w-4" />
             Visual Flow

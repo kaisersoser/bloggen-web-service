@@ -32,6 +32,9 @@ from .tools_manager import ToolsManager
 from .topic_utils import generate_concise_topic
 from .content_validator import ContentValidator
 from .flow_post_processor import FlowPostProcessor
+from .research_parser import ResearchOutputParser
+from .quality_validator import QualityValidator
+from .schemas.research_schema import StructuredResearchOutput
 from .tools.content_integrity_validator import (
     ContentIntegrityValidator,
     format_integrity_report,
@@ -1070,45 +1073,125 @@ class BlogGenerationFlow(Flow):
             )
 
             result = self._execute(agent, task, "research")
-            self.flow_state.results["research"] = result
-
-            # Enhanced research findings broadcast with analysis
-            if result:
-                try:
-                    # Convert CrewOutput to string for broadcasting
-                    result_text = (
-                        str(result)
-                        if hasattr(result, "__str__")
-                        else result.raw if hasattr(result, "raw") else ""
-                    )
-                    if result_text and len(result_text) > 100:
-                        # Analyze and categorize findings
-                        self.status_manager.send_agent_thinking(
-                            agent_name="Senior Researcher",
-                            thought=f"Research completed. Found {len(result_text)} characters of content. Analyzing key insights...",
-                        )
-
-                        # Extract and broadcast key findings
-                        key_insights = self._extract_key_insights(result_text)
-                        for i, insight in enumerate(key_insights[:3], 1):
-                            self.status_manager.send_research_finding(
-                                finding=f"Key insight #{i}: {insight}",
-                                source="AI Research Analysis",
-                            )
-
-                        # Summary notification
-                        self.status_manager.send_agent_thinking(
-                            agent_name="Senior Researcher",
-                            thought=f"Research synthesis complete. Identified {len(key_insights)} major insights. Data quality: high. Ready for content generation phase.",
-                        )
-
-                except Exception as broadcast_error:
+            
+            # Parse structured research output
+            self._status("Parsing structured research...", step=2, detail="Validating format")
+            structured_research = ResearchOutputParser.parse_research_output(str(result))
+            
+            # Immediate data quantity check
+            if structured_research:
+                fact_count = len(structured_research.facts) if structured_research.facts else 0
+                stat_count = len(structured_research.statistics) if structured_research.statistics else 0
+                source_count = len(structured_research.unique_sources) if structured_research.unique_sources else 0
+                
+                logger.info(
+                    f"🔍 Research data quantities: {fact_count} facts, {stat_count} statistics, {source_count} sources"
+                )
+                
+                # Log warning if data seems sparse (before validation)
+                if fact_count < 15 or stat_count < 5 or source_count < 8:
                     logger.warning(
-                        f"Failed to broadcast research finding: {broadcast_error}"
+                        f"⚠️ Research output appears sparse: {fact_count}/20 facts, {stat_count}/8 stats, {source_count}/12 sources. "
+                        f"This may indicate insufficient web research tool usage."
                     )
-
-            self._status("Research completed", step=2, detail="Sources gathered")
-            return {**init_data, "research_results": result}
+            
+            if not structured_research and config.features.enable_quality_retries:
+                # Parsing failed - retry with feedback (if retries enabled)
+                logger.warning("Research output parsing failed - retrying with enhanced instructions")
+                self._status("Research format invalid - retrying...", step=2, detail="Enforcing JSON structure")
+                
+                self.status_manager.send_agent_thinking(
+                    agent_name="Senior Researcher",
+                    thought="Previous attempt did not produce valid JSON. Regenerating with strict format requirements.",
+                )
+                
+                # Add strict formatting reminder to task
+                task.description += "\n\n⚠️ CRITICAL RETRY: Previous attempt returned invalid JSON. You MUST return ONLY valid JSON matching the exact structure specified. No markdown, no explanations, ONLY the JSON object."
+                
+                result = self._execute(agent, task, "research_retry")
+                structured_research = ResearchOutputParser.parse_research_output(str(result))
+            
+            if not structured_research:
+                logger.error("Research agent failed to produce valid structured output" + 
+                           (" after retry" if config.features.enable_quality_retries else ""))
+                # Fall back to unstructured - store raw result
+                self.flow_state.results["research"] = result
+                self._status("Research completed (unstructured fallback)", step=2, detail="Using raw output")
+                return {**init_data, "research_results": result, "structured_research": None}
+            
+            # Store both raw and structured
+            self.flow_state.results["research_raw"] = result
+            self.flow_state.results["research_structured"] = structured_research
+            
+            # Validate research quality with enforced minimums
+            self._status("Validating research quality...", step=2, detail="Checking minimums")
+            is_valid, issues, metrics = QualityValidator.validate_research_quality(structured_research)
+            
+            if not is_valid and config.features.enable_quality_retries:
+                logger.warning(f"Research quality validation failed: {len(issues)} issues")
+                self._status("Research quality insufficient - regenerating...", step=2, detail=f"{len(issues)} issues found")
+                
+                # Build feedback message
+                feedback = QualityValidator.generate_feedback_message(issues, metrics, phase="research")
+                logger.info(f"Research retry feedback:\n{feedback}")
+                
+                # Retry with specific feedback
+                task.description += f"\n\n{feedback}\n\nYou MUST address these specific gaps in your research."
+                
+                result = self._execute(agent, task, "research_quality_retry")
+                structured_research = ResearchOutputParser.parse_research_output(str(result))
+                
+                if not structured_research:
+                    logger.error("Research failed to produce valid structured output after quality retry")
+                    # Allow to proceed but with warning
+                    logger.warning("Proceeding with initial research despite quality issues")
+                    structured_research = self.flow_state.results.get("research_structured")
+                
+                if structured_research:
+                    # Re-validate
+                    is_valid, issues, metrics = QualityValidator.validate_research_quality(structured_research)
+                    if not is_valid:
+                        logger.warning(f"Research still fails quality after retry: {issues}")
+                        # Allow to proceed but log warning
+                        logger.warning("Proceeding with research despite quality gaps")
+                    
+                    # Update stored research with improved version
+                    self.flow_state.results["research_raw"] = result
+                    self.flow_state.results["research_structured"] = structured_research
+            
+            # Log success metrics (get latest validation)
+            is_valid, issues, metrics = QualityValidator.validate_research_quality(structured_research)
+            logger.info(
+                f"✅ Research validation {'passed' if is_valid else 'completed'}: {metrics['fact_count']} facts, "
+                f"{metrics['statistic_count']} statistics, "
+                f"{metrics['source_count']} sources"
+            )
+            
+            # Enhanced research findings broadcast with structured data
+            self.status_manager.send_agent_thinking(
+                agent_name="Senior Researcher",
+                thought=f"Research structured and validated successfully: {metrics['fact_count']} facts, {metrics['statistic_count']} statistics, {metrics['expert_quote_count']} expert quotes, {metrics['case_study_count']} case studies. Quality threshold met.",
+            )
+            
+            # Broadcast key findings from structured data
+            if structured_research and structured_research.facts:
+                for i, fact in enumerate(structured_research.facts[:3], 1):
+                    self.status_manager.send_research_finding(
+                        finding=f"Fact #{i}: {fact.statement[:150]}...",
+                        source=fact.source_title,
+                    )
+            
+            self._status(
+                "Research completed", 
+                step=2, 
+                detail=f"{metrics['fact_count']} facts, {metrics['source_count']} sources"
+            )
+            
+            return {
+                **init_data, 
+                "research_results": result,
+                "structured_research": structured_research
+            }
         except Exception as e:  # pragma: no cover
             logger.exception("Research phase failed")
             self._error(f"Research failed: {e}")
@@ -1163,15 +1246,33 @@ class BlogGenerationFlow(Flow):
             )
 
             agent = self.agent_factory.create_content_creator(tools, year)
-            task = self.task_factory.create_content_task(
-                agent, topic, year, self.instructions
-            )
+            
+            # Use enhanced task with structured research if available
+            structured_research = research_data.get("structured_research")
+            if structured_research:
+                logger.info("✅ Using structured research for content generation")
+                self.status_manager.send_agent_thinking(
+                    agent_name="Expert Content Creator",
+                    thought=f"Structured research loaded: {structured_research.get_fact_count()} facts, {len(structured_research.statistics)} statistics available. Generating content with comprehensive research context.",
+                )
+                task = self.task_factory.create_content_task_with_structured_research(
+                    agent, topic, year, structured_research, self.instructions
+                )
+            else:
+                logger.warning("⚠️ No structured research available - using standard content task")
+                self.status_manager.send_agent_thinking(
+                    agent_name="Expert Content Creator",
+                    thought="No structured research available - using standard content generation approach.",
+                )
+                task = self.task_factory.create_content_task(
+                    agent, topic, year, self.instructions
+                )
 
             # Content generation strategy notification
             self._status(
                 "Generating draft content...",
                 step=3,
-                detail="Content generation (image generation disabled)",
+                detail="Content generation with structured research" if structured_research else "Content generation (standard)",
             )
 
             self.status_manager.send_agent_thinking(
@@ -1199,6 +1300,65 @@ class BlogGenerationFlow(Flow):
 
             # Execute main content generation
             draft = self._execute(agent, task, "content_generation")
+            
+            # Validate content quality
+            self._status("Validating content quality...", step=3, detail="Checking depth and citations")
+            structured_research = research_data.get("structured_research")
+            is_valid, issues, metrics = QualityValidator.validate_content_quality(
+                str(draft),
+                structured_research=structured_research,
+                min_words=1500,
+                min_paragraphs=10,
+                min_sections=4,
+                min_citations=5
+            )
+            
+            # Only retry if quality retries are enabled
+            if not is_valid and config.features.enable_quality_retries:
+                logger.warning(f"Content quality validation failed: {len(issues)} issues")
+                self._status(
+                    "Content quality insufficient - regenerating...", 
+                    step=3, 
+                    detail=f"Score: {metrics['quality_score']:.1f}/10"
+                )
+                
+                # Build feedback message
+                feedback = QualityValidator.generate_feedback_message(issues, metrics, phase="content")
+                logger.info(f"Content retry feedback:\n{feedback}")
+                
+                # Retry with specific feedback
+                task.description += f"\n\n{feedback}\n\nYou MUST produce more comprehensive content with proper citations and depth."
+                
+                draft = self._execute(agent, task, "content_quality_retry")
+                
+                # Re-validate
+                is_valid, issues, metrics = QualityValidator.validate_content_quality(
+                    str(draft), 
+                    structured_research
+                )
+                
+                if not is_valid:
+                    logger.warning(f"Content still fails quality after retry. Score: {metrics['quality_score']}/10")
+                    # Allow to proceed but log warning
+                    logger.warning(f"Proceeding with content (quality issues remain): {issues}")
+            elif not is_valid:
+                # Quality retries disabled - log warning and proceed
+                logger.warning(
+                    f"Content quality validation failed (retries disabled): "
+                    f"Score {metrics['quality_score']}/10, {len(issues)} issues"
+                )
+            
+            # Log quality metrics
+            logger.info(
+                f"✅ Content validation: Quality score {metrics['quality_score']}/10, "
+                f"{metrics['word_count']} words, {metrics['citation_count']} citations"
+            )
+            
+            self._status(
+                "Content validated", 
+                step=3, 
+                detail=f"Quality: {metrics['quality_score']:.1f}/10, {metrics['word_count']} words"
+            )
 
             # Enhanced content analysis and streaming
             if draft:

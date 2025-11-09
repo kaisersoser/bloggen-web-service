@@ -7,6 +7,7 @@ Follows Single Responsibility Principle - only creates and configures agents.
 
 from crewai import Agent, LLM
 from typing import List, Any, Optional
+from datetime import datetime
 import logging
 
 # Import configuration for model settings
@@ -35,6 +36,8 @@ class AgentFactory:
             return LLM(model=model_name, api_key=config.api.google_key)
         elif provider in ["openai", "gpt"]:
             return LLM(model=model_name, api_key=config.api.openai_key)
+        elif provider == "anthropic":
+            return LLM(model=model_name, api_key=config.api.anthropic_key)
         else:
             # For other providers, rely on environment variables or default configuration
             return LLM(model=model_name)
@@ -44,19 +47,37 @@ class AgentFactory:
         tools: List[Any], current_year: Optional[int] = None
     ) -> Agent:
         """Create a research agent for gathering information."""
+        year = current_year if current_year else datetime.now().year
         year_context = (
-            f" It is currently {current_year}, and you must focus on the most current developments and trends as of this year."
+            f" It is currently {year}, and you must focus on the most current developments and trends as of this year."
             if current_year
             else ""
         )
         return Agent(
             role="Senior Researcher",
-            goal="Uncover cutting-edge developments and insights in the given topic",
+            goal="Conduct deep, comprehensive research using web tools to uncover specific, detailed, and current information on the given topic",
             verbose=True,
-            backstory=f"""You work at a leading tech think tank.
-            Your expertise lies in identifying emerging trends and analyzing complex topics.
-            You're known for your ability to find credible sources and synthesize information
-            into valuable insights that drive strategic decisions.{year_context}""",
+            backstory=f"""You are a meticulous senior researcher at a leading tech think tank, known for your 
+            thoroughness and attention to detail. You NEVER rely on general knowledge - you always use your 
+            web research tools extensively to find the most current, specific information available.
+            
+            Your research methodology:
+            - Execute multiple targeted web searches to gather comprehensive data
+            - Always seek out SPECIFIC details: exact numbers, dates, company names, product versions
+            - Prioritize authoritative sources: research papers, official documentation, industry reports
+            - Extract measurable outcomes and concrete examples from case studies
+            - Capture full expert quotes with proper attribution
+            - Verify every fact with a credible source URL
+            
+            You take pride in delivering research that is:
+            - SPECIFIC (not vague or generic)
+            - CURRENT (from {year} or {year - 1})
+            - DETAILED (enough to support a comprehensive 2000+ word article)
+            - SOURCED (every claim backed by a credible URL)
+            
+            Your expertise lies in transforming broad topics into detailed, actionable research 
+            that provides writers with concrete facts, statistics, quotes, and examples they can 
+            immediately use. You understand that quality research is the foundation of quality content.{year_context}""",
             tools=tools,
             allow_delegation=False,
             llm=AgentFactory._create_llm(config.models.research_model),
