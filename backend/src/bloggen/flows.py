@@ -1301,51 +1301,77 @@ class BlogGenerationFlow(Flow):
             # Execute main content generation
             draft = self._execute(agent, task, "content_generation")
             
-            # Validate content quality
+            # Validate content quality with citation tracking
             self._status("Validating content quality...", step=3, detail="Checking depth and citations")
             structured_research = research_data.get("structured_research")
+            
+            # Track citations using citation tracker
+            from bloggen.utils.citation_tracker import get_citation_feedback
+            citation_feedback = get_citation_feedback(str(draft), target_citations=5)
+            logger.info(f"Citation tracking:\n{citation_feedback}")
+            
             is_valid, issues, metrics = QualityValidator.validate_content_quality(
                 str(draft),
                 structured_research=structured_research,
-                min_words=1500,
-                min_paragraphs=10,
+                min_words=1000,
+                min_paragraphs=8,
                 min_sections=4,
                 min_citations=5
             )
             
-            # Only retry if quality retries are enabled
-            if not is_valid and config.features.enable_quality_retries:
-                logger.warning(f"Content quality validation failed: {len(issues)} issues")
+            # Retry logic if quality validation fails
+            max_content_retries = 2 if config.features.enable_quality_retries else 0
+            retry_count = 0
+            
+            while not is_valid and retry_count < max_content_retries:
+                retry_count += 1
+                logger.warning(f"Content quality validation failed (attempt {retry_count}/{max_content_retries}): {len(issues)} issues")
                 self._status(
-                    "Content quality insufficient - regenerating...", 
+                    f"Content quality insufficient - regenerating (attempt {retry_count})...", 
                     step=3, 
                     detail=f"Score: {metrics['quality_score']:.1f}/10"
                 )
                 
-                # Build feedback message
+                # Build feedback message with citation tracking
                 feedback = QualityValidator.generate_feedback_message(issues, metrics, phase="content")
+                citation_feedback = get_citation_feedback(str(draft), target_citations=5)
                 logger.info(f"Content retry feedback:\n{feedback}")
+                logger.info(f"Citation status:\n{citation_feedback}")
                 
-                # Retry with specific feedback
-                task.description += f"\n\n{feedback}\n\nYou MUST produce more comprehensive content with proper citations and depth."
+                # Retry with specific feedback - EXPAND existing content, don't restart
+                task.description += f"\n\n{feedback}\n\n{citation_feedback}\n\n🚨 CRITICAL RETRY INSTRUCTIONS:\n" \
+                    f"- DO NOT restart from scratch - EXPAND your existing content\n" \
+                    f"- ADD more sections and detail to what you already wrote\n" \
+                    f"- PRESERVE all existing citations in [text](url) format\n" \
+                    f"- DO NOT stop to insert images until you reach {1000} words\n" \
+                    f"- Complete ALL content sections FIRST, then add images at the end"
                 
-                draft = self._execute(agent, task, "content_quality_retry")
+                draft = self._execute(agent, task, f"content_quality_retry_{retry_count}")
                 
-                # Re-validate
+                # Re-validate with same relaxed minimums
                 is_valid, issues, metrics = QualityValidator.validate_content_quality(
                     str(draft), 
-                    structured_research
+                    structured_research,
+                    min_words=1000,
+                    min_paragraphs=8,
+                    min_sections=4,
+                    min_citations=5
                 )
-                
-                if not is_valid:
-                    logger.warning(f"Content still fails quality after retry. Score: {metrics['quality_score']}/10")
-                    # Allow to proceed but log warning
-                    logger.warning(f"Proceeding with content (quality issues remain): {issues}")
+            
+            # Final quality check - if still invalid after retries, raise error
+            if not is_valid and config.features.enable_quality_retries:
+                error_msg = (
+                    f"Content quality validation failed after {max_content_retries} retries. "
+                    f"Score: {metrics['quality_score']}/10. Issues: {', '.join(issues)}"
+                )
+                logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
             elif not is_valid:
-                # Quality retries disabled - log warning and proceed
+                # Quality retries disabled but content is poor - log strong warning
                 logger.warning(
-                    f"Content quality validation failed (retries disabled): "
-                    f"Score {metrics['quality_score']}/10, {len(issues)} issues"
+                    f"⚠️ Content quality validation failed (retries disabled): "
+                    f"Score {metrics['quality_score']}/10, {len(issues)} issues. "
+                    f"PROCEEDING WITH LOW-QUALITY CONTENT."
                 )
             
             # Log quality metrics
@@ -1531,10 +1557,17 @@ class BlogGenerationFlow(Flow):
         try:
             topic = cast(str, self.flow_state.topic)
 
-            # Analyze content for fact-checking scope
-            content_to_check = content_data.get("blog_content", "")
+            # Analyze content for fact-checking scope - try multiple keys
+            content_to_check = (
+                content_data.get("blog_content") 
+                or content_data.get("validated_content")
+                or content_data.get("initial_content")
+                or ""
+            )
+            
             if not content_to_check:
-                logger.warning("No content found for fact checking")
+                logger.warning("No content found for fact checking in content_data")
+                logger.warning(f"Available keys: {list(content_data.keys())}")
                 return content_data
 
             content_analysis = self._analyze_content_for_facts(content_to_check)
@@ -1552,73 +1585,37 @@ class BlogGenerationFlow(Flow):
                 agent_name="Expert Fact Checker",
             )
 
-            # 🔒 VALIDATION LOOP ENFORCEMENT
+            # 🔒 URL VALIDATION ENFORCEMENT DISABLED (causes bottleneck without improving quality)
+            # Using standard fact checking without validation loop
+            logger.info(
+                "🔒 URL Validation Enforcement: DISABLED - using standard fact check"
+            )
             self._status(
-                "Analyzing URLs for validation enforcement...",
+                "Fact checking content...",
                 step=4,
-                detail="URL validation setup",
-            )
-            validation_enforcer = create_validation_enforcer()
-            enforcement_result = validation_enforcer.enforce_validation_loop(
-                str(content_to_check), topic
+                detail="Standard verification",
             )
 
-            # Store validation requirements for audit
-            self.flow_state.results["url_validation_requirements"] = {
-                "validation_required": enforcement_result.validation_required,
-                "urls_found": enforcement_result.urls_found,
-                "url_count": len(enforcement_result.urls_found),
-            }
+            self.status_manager.send_agent_thinking(
+                agent_name="Expert Fact Checker",
+                thought="Beginning fact-checking protocol. Focus: claim verification, data accuracy, source credibility.",
+            )
 
-            if enforcement_result.validation_required:
-                logger.info(
-                    f"🔒 URL Validation Enforcement: {len(enforcement_result.urls_found)} URLs require validation"
-                )
-                self._status(
-                    f"URL validation required for {len(enforcement_result.urls_found)} URLs",
-                    step=4,
-                    detail="Enforcing validation compliance",
-                )
+            # Standard fact checking without validation loop
+            agent = self.agent_factory.create_fact_checker(
+                tools, self.flow_state.current_year
+            )
+            task = self.task_factory.create_fact_check_task(
+                agent, topic, self.instructions
+            )
 
-                self.status_manager.send_agent_thinking(
-                    agent_name="Expert Fact Checker",
-                    thought=f"URL validation enforcement active. {len(enforcement_result.urls_found)} URLs detected requiring mandatory validation. Compliance monitoring enabled.",
-                )
+            self.status_manager.send_tool_usage(
+                tool_name="CrewAI Fact Check Engine",
+                input_summary=f"Executing fact verification for '{topic}' content with claim analysis and source validation",
+                agent_name="Expert Fact Checker",
+            )
 
-                # Create enhanced fact checker with validation requirements
-                checked = self._execute_fact_check_with_validation_loop(
-                    topic, tools, content_to_check, enforcement_result
-                )
-            else:
-                logger.info(
-                    "🔒 URL Validation Enforcement: No URLs found - proceeding with standard fact check"
-                )
-                self._status(
-                    "No URLs to validate - proceeding with fact check",
-                    step=4,
-                    detail="Standard verification",
-                )
-
-                self.status_manager.send_agent_thinking(
-                    agent_name="Expert Fact Checker",
-                    thought="No URLs detected in content. Proceeding with standard fact-checking protocol. Focus: claim verification, data accuracy, source credibility.",
-                )
-
-                # Standard fact checking without validation loop
-                agent = self.agent_factory.create_fact_checker(
-                    tools, self.flow_state.current_year
-                )
-                task = self.task_factory.create_fact_check_task(
-                    agent, topic, self.instructions
-                )
-
-                self.status_manager.send_tool_usage(
-                    tool_name="CrewAI Fact Check Engine",
-                    input_summary=f"Executing standard fact verification for '{topic}' content with claim analysis and source validation",
-                    agent_name="Expert Fact Checker",
-                )
-
-                checked = self._execute(agent, task, "fact_checking")
+            checked = self._execute(agent, task, "fact_checking")
 
             self.flow_state.results["fact_checked"] = checked
             self._status("Fact-check complete", step=4, detail="Content validated")

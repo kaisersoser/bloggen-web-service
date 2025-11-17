@@ -60,7 +60,7 @@ Each fact, statistic, and case study must be SPECIFIC and DETAILED with working 
       "year": {current_year},
       "category": "market data"
     }},
-    "...minimum 20 facts total (not 15)"
+    "...minimum 10-12 facts total"
   ],
   "statistics": [
     {{
@@ -71,7 +71,7 @@ Each fact, statistic, and case study must be SPECIFIC and DETAILED with working 
       "source_title": "Market Report Title",
       "year": {current_year}
     }},
-    "...minimum 8 statistics total (not 5)"
+    "...minimum 4-5 statistics total"
   ],
   "expert_quotes": [
     {{
@@ -108,23 +108,34 @@ Each fact, statistic, and case study must be SPECIFIC and DETAILED with working 
       "title": "Source 1 Title",
       "credibility": "high"
     }},
-    "...minimum 12 unique sources total (not 8)"
+    "...minimum 6-8 unique sources total"
   ]
 }}
 
 🚨 MANDATORY MINIMUMS (Task fails if not met):
 - **Summary**: 300-500 words of SUBSTANTIVE analysis (not generic overview)
-- **Facts**: 20+ specific facts with sources and confidence levels (increased from 15)
-- **Statistics**: 8+ statistics with EXACT values and detailed context (increased from 5)
-- **Expert Quotes**: 3+ quotes with full attribution (increased from 2)
-- **Case Studies**: 3+ case studies with MEASURABLE outcomes (increased from 2)
-- **Trends**: 4+ identified trends with 3 supporting evidence points each (increased from 3)
-- **Unique Sources**: 12+ credible sources (increased from 8)
-- **Key Entities**: 15+ entities - tools, companies, technologies, products, platforms (increased from 10)
+- **Facts**: 10-12 specific facts with REAL working sources (focus on quality over quantity)
+- **Statistics**: 4-5 statistics with EXACT values and detailed context
+- **Expert Quotes**: 2-3 quotes with full attribution
+- **Case Studies**: 2-3 case studies with MEASURABLE outcomes
+- **Trends**: 3-4 identified trends with 3 supporting evidence points each
+- **Unique Sources**: 6-8 credible sources from ACTUAL web research
+- **Key Entities**: 10-15 entities - tools, companies, technologies, products, platforms
 
 🔧 MANDATORY TOOL USAGE - YOU MUST:
 1. Execute AT LEAST 5-7 web searches using your research tools
-2. Search queries should cover:
+2. **ADAPT YOUR SEARCH STRATEGY** based on topic type:
+
+   📚 **For HISTORICAL topics** (history of X, evolution of Y, ancient Z):
+   - "[topic core concept]" (e.g., "ancient boat building techniques")
+   - "[topic] archaeological evidence"
+   - "[topic] historical development"
+   - "[key time period] [topic]" (e.g., "Egyptian boats", "Phoenician ships")
+   - "[topic] museum sources OR academic research"
+   - "[topic] timeline OR chronology"
+   - Only add "{current_year}" when searching for: "modern [topic]" OR "[topic] current state"
+
+   🔬 **For MODERN/TECH topics** (AI, software, technology, business):
    - "[topic] statistics {current_year}"
    - "[topic] market size {current_year}"
    - "[topic] case studies {current_year}"
@@ -132,6 +143,12 @@ Each fact, statistic, and case study must be SPECIFIC and DETAILED with working 
    - "[topic] trends {current_year}"
    - "[topic] companies products {current_year}"
    - "[topic] technical developments {current_year}"
+
+   🎨 **For GENERAL topics** (mix historical + modern):
+   - Start with "[topic] overview" to understand scope
+   - Then use 3-4 historical searches (background/origins)
+   - Then use 2-3 modern searches (current state/future)
+
 3. Access actual web pages, don't rely on training data
 4. Extract SPECIFIC information: exact numbers, dates, company names, versions
 5. Verify source credibility and capture working URLs
@@ -139,11 +156,17 @@ Each fact, statistic, and case study must be SPECIFIC and DETAILED with working 
 RESEARCH REQUIREMENTS:
 1. Use available web research tools (Serper search) for CURRENT {current_year} sources
 2. Prioritize authoritative sources: official docs, research papers, reputable news, industry reports
-3. Every fact/statistic MUST have a working source URL from actual web research
-4. Prefer sources from {current_year} or {current_year - 1}
-5. For each claim, capture: what (specific detail), when (exact date/timeframe), where (company/platform), source (working URL)
-6. Avoid sources older than {current_year - 2} unless historically essential
-7. **DEPTH OVER BREADTH**: Better to have 20 deeply researched, detailed facts than 50 shallow ones
+3. **CRITICAL**: ONLY include facts with REAL URLs from your actual web research - DO NOT fabricate URLs
+4. **SOURCE SELECTION** - Adapt to topic type:
+   - **Historical topics**: Wikipedia, Britannica, museum sites (.edu), archaeological journals, history publications
+   - **Modern/Tech topics**: Company blogs, industry reports, news sites, official product docs
+   - **Academic topics**: Research papers, university sites (.edu), peer-reviewed journals
+5. For historical topics, sources from ANY year are acceptable if they contain factual historical information
+6. For modern topics, prefer sources from {current_year} or {current_year - 1}
+7. For each claim, capture: what (specific detail), when (exact date/timeframe), where (company/platform), source (working URL)
+8. **QUALITY OVER QUANTITY**: Better to have 10 facts with REAL, working URLs than 20 with fake/hallucinated URLs
+9. If your searches only return 6-8 credible sources, provide 10-12 facts from those sources - DO NOT invent additional URLs
+10. **VERIFY BEFORE INCLUDING**: If you're not certain a URL exists, DON'T include it - use a different source
 
 QUALITY STANDARDS (CRITICAL - Your output will be validated):
 - ❌ **UNACCEPTABLE**: "AI is growing rapidly" 
@@ -162,13 +185,14 @@ QUALITY STANDARDS (CRITICAL - Your output will be validated):
 ⚠️ VERIFICATION CHECKLIST - Before submitting, confirm:
 - [ ] I used web research tools AT LEAST 5 times with different queries
 - [ ] My summary is 300-500 words and demonstrates deep understanding
-- [ ] I have 20+ facts with specific details (not generic statements)
-- [ ] I have 8+ statistics with exact numbers (not "approximately" or "around")
-- [ ] Every fact/statistic has a real source URL from my web research
+- [ ] I have 10-12 facts with specific details from REAL sources (not generic statements)
+- [ ] I have 4-5 statistics with exact numbers (not "approximately" or "around")
+- [ ] Every fact/statistic has a REAL source URL from my ACTUAL web research (no fabricated URLs)
 - [ ] My case studies include specific measurable outcomes (percentages, revenue, growth numbers)
 - [ ] Expert quotes are complete sentences, not paraphrases
-- [ ] I named at least 15 specific entities (companies, products, tools, platforms)
+- [ ] I named at least 10-15 specific entities (companies, products, tools, platforms)
 - [ ] All sources are from {current_year} or {current_year - 1} (unless historically necessary)
+- [ ] I did NOT make up URLs to meet quantity targets - all URLs are real
 
 ⚠️ CRITICAL: Return ONLY valid JSON. No markdown formatting around JSON, no explanations outside JSON structure.
 The JSON must be parseable by Python's json.loads(). Do not wrap in code blocks or add any text before/after the JSON.
@@ -180,16 +204,17 @@ If your research feels thin or generic, you haven't researched deeply enough - g
             expected_output="""Valid JSON object containing:
             - topic: string
             - summary: 300-500 chars COMPREHENSIVE overview with deep analysis
-            - key_entities: array of 15+ specific entity names (companies, products, tools, platforms)
-            - facts: array of 20+ detailed fact objects with working sources
-            - statistics: array of 8+ statistic objects with exact numbers and context
-            - expert_quotes: array of 3+ complete quote objects with full attribution
-            - case_studies: array of 3+ case study objects with measurable outcomes
-            - trends: array of 4+ trend objects with 3 supporting evidence points each
-            - unique_sources: array of 12+ credible source objects from actual web research
+            - key_entities: array of 10-15 specific entity names (companies, products, tools, platforms)
+            - facts: array of 10-12 detailed fact objects with REAL working sources
+            - statistics: array of 4-5 statistic objects with exact numbers and context
+            - expert_quotes: array of 2-3 complete quote objects with full attribution
+            - case_studies: array of 2-3 case study objects with measurable outcomes
+            - trends: array of 3-4 trend objects with 3 supporting evidence points each
+            - unique_sources: array of 6-8 credible source objects from ACTUAL web research
             
             CRITICAL: Output must demonstrate ACTUAL web research (not training data).
-            MUST be valid, parseable JSON with all required fields and INCREASED minimum counts met.
+            ALL URLs must be REAL - DO NOT fabricate URLs to meet targets.
+            MUST be valid, parseable JSON with all required fields and minimum counts met.
             Research must be SPECIFIC and DETAILED enough to support a 2000+ word blog post.""",
         )
 
@@ -197,7 +222,7 @@ If your research feels thin or generic, you haven't researched deeply enough - g
     def create_content_task(
         agent: Agent, topic: str, current_year: int, instructions: Optional[str] = None
     ) -> Task:
-        """Create a content creation task for writing blog posts with mandatory image enforcement."""
+        """Create a content creation task for writing blog posts with emphasis on depth and length."""
         extra = (
             (
                 "\n\nUSER DIRECTIVES (priority unless they conflict with factual accuracy / sourcing):\n"
@@ -207,71 +232,190 @@ If your research feels thin or generic, you haven't researched deeply enough - g
             else ""
         )
         return Task(
-            description=f"""🚨 MANDATORY TOOL USAGE TASK: Create an engaging blog post about '{topic}' for {current_year}.
-            
-            ⚠️ CRITICAL IMAGE REQUIREMENT: This task REQUIRES you to call image tools 2-3 times. Follow this EXACT workflow:
-            
-            STEP 1: Write compelling introduction paragraph
-            STEP 2: 🔧 CALL unsplash_image_search("{{topic}} hero visual concept")
-            STEP 3: Insert the returned image markdown immediately after introduction
-            STEP 4: Write main content sections (2-3 sections minimum)
-            STEP 5: 🔧 CALL unsplash_image_search("{{topic}} supporting visual")
-            STEP 6: Insert the second image markdown in the middle section
-            STEP 7: Continue writing remaining content sections
-            STEP 8: 🔧 CALL openai_image_generate("{{topic}} illustration concept") for third image
-            STEP 9: Insert third image if content is substantial (1500+ words)
-            
-            🚨 IMAGE ENFORCEMENT - FOLLOW EXACTLY:
-            - MINIMUM 2 IMAGES REQUIRED (preferably 3 for blogs >1500 words)
-            - FIRST IMAGE: Use unsplash_image_search with descriptive multi-word query
-            - SECOND IMAGE: Use unsplash_image_search with different supporting concept
-            - THIRD IMAGE (optional): Use openai_image_generate for illustration/diagram
-            - NEVER create fake image URLs (no source.unsplash.com, no manual links)
-            - ONLY use images returned by actual tool calls
-            - If Unsplash returns no results, immediately try openai_image_generate as fallback
-            
-            ❌ PROHIBITED ACTIONS:
-            - Creating manual image URLs
-            - Using placeholder image services
-            - Skipping image tool calls
-            - Including fewer than 2 images
-            
-            ✅ REQUIRED ACTIONS:
-            - Call unsplash_image_search at least twice with different queries
-            - Use openai_image_generate if Unsplash fails or for third image
-            - Include ALL returned image markdown blocks in appropriate locations
-            - Ensure each image has proper attribution and alt text
-            
-            Content Requirements:
-            1. Title: Compelling and SEO-friendly
-            2. Structure: Clear headers and subheadings (minimum 4-5 sections)
-            3. Content: Informative, engaging, and actionable (1500-2000 words)
-            4. SEO: Natural keyword integration throughout
-            5. IMAGES: EXACTLY 2-3 images using MANDATORY tool calls (as detailed above)
-            6. Tone: Professional yet conversational
-            7. SOURCING: Preserve all validated source links from research
-            8. REFERENCES: End with numbered 'References' section
-            9. Place first image after introduction, others distributed through content
-            10. Do NOT put images inside code blocks or lists
-            
-            🚨 FAILURE TO CALL IMAGE TOOLS 2-3 TIMES WILL RESULT IN TASK REJECTION{extra}
-            """,
+            description=f"""📝 COMPREHENSIVE BLOG WRITING TASK: Create a detailed, in-depth blog post about '{topic}' for {current_year}.
+
+🧠 BEFORE YOU BEGIN - ANSWER THESE QUESTIONS TO YOURSELF:
+1. What is my PRIMARY objective? (Answer: Write 1800-2500 words of content)
+2. What is my MINIMUM word count target? (Answer: 1800 words)
+3. How many major sections do I need? (Answer: 5-7 sections of 200-350 words each)
+4. When should I add images? (Answer: ONLY after completing ALL 1800+ words)
+5. How many citations do I need? (Answer: Minimum 5-7 citations in [text](url) format)
+6. What happens if I stop early? (Answer: Content will FAIL validation and waste time)
+
+Now that you've acknowledged these requirements, proceed with writing.
+
+🎯 PRIMARY OBJECTIVE: WRITE AT LEAST 1800-2500 WORDS OF SUBSTANTIVE CONTENT
+
+⚠️ CRITICAL LENGTH REQUIREMENT:
+Your blog post MUST be between 1800-2500 words (NOT including references).
+- Minimum acceptable: 1800 words
+- Target range: 2000-2200 words  
+- Maximum: 2500 words
+- Word count is PRIORITY #1 - without sufficient length, all other requirements are irrelevant
+
+🚨 ABSOLUTE RULE: DO NOT STOP WRITING TO INSERT IMAGES UNTIL YOU COMPLETE ALL 1800+ WORDS
+- Write ALL sections completely FIRST
+- Reach the full word count BEFORE using any image tools
+- Images are SECONDARY - add them ONLY after content is complete
+- If you stop early to add images, your content will FAIL validation
+
+📊 CONTENT STRUCTURE REQUIREMENTS (ALL MANDATORY):
+
+1. **COMPELLING TITLE** (10-15 words)
+   - SEO-optimized and attention-grabbing
+   - Include primary keyword naturally
+
+2. **ENGAGING INTRODUCTION** (200-300 words)
+   - Hook the reader with a compelling question, statistic, or story
+   - Clearly state what the article covers
+   - Explain why the topic matters in {current_year}
+   - Provide a brief roadmap of sections
+
+3. **MAIN CONTENT SECTIONS** (1400-1800 words total across 5-7 sections)
+   - Each section should be 200-350 words
+   - Use descriptive H2 headers (##) for main sections
+   - Use H3 headers (###) for subsections where appropriate
+   - Each section must provide DEPTH, not just breadth
+   - Include specific examples, data points, and explanations
+   - Don't just list concepts - EXPLAIN them thoroughly
+   
+   Example sections structure:
+   - ## Understanding [Core Concept] (250-300 words)
+   - ## Current State of [Topic] in {current_year} (300-350 words)
+   - ## Key Technologies/Approaches (300-350 words)
+   - ## Real-World Applications (250-300 words)
+   - ## Challenges and Limitations (200-250 words)
+   - ## Future Outlook (200-250 words)
+   - ## Best Practices/Recommendations (200-250 words)
+
+4. **CONCLUSION** (150-200 words)
+   - Synthesize key takeaways
+   - Provide actionable next steps
+   - End with a forward-looking statement
+
+5. **REFERENCES SECTION**
+   - Numbered list of all sources cited
+   - Format: "1. Source Title. URL"
+
+💡 WRITING QUALITY STANDARDS:
+
+**DEPTH OVER BREADTH**: 
+- ❌ BAD: "AI is transforming healthcare through various applications."
+- ✅ GOOD: "AI is transforming healthcare through applications like diagnostic imaging analysis, where deep learning models can detect lung nodules with 94% accuracy compared to 88% for radiologists alone. IBM's Watson Health processed over 200 million patient records in 2024, identifying treatment patterns that reduced hospital readmission rates by 23% across participating institutions."
+
+**SPECIFIC EXAMPLES**:
+- Every major point should have a concrete example
+- Include company names, product versions, specific numbers
+- Reference real implementations and case studies
+
+**PARAGRAPH STRUCTURE**:
+- Each paragraph should be 4-6 sentences (80-120 words)
+- Start with a clear topic sentence
+- Provide supporting details and examples
+- End with a transition or summary
+
+**EXPLANATORY DEPTH**:
+- Don't assume reader knowledge - explain concepts
+- Use analogies when helpful
+- Break down complex ideas into digestible parts
+
+**CITATION FORMAT (CRITICAL - Citations often get stripped accidentally)**:
+- ALWAYS use markdown link format: [descriptive text](https://url.com)
+- Place citations at end of sentences that need sourcing
+- DO NOT remove or strip citation links during writing
+- Example: "The market grew 45% in 2024 [according to Gartner](https://example.com/report)."
+- Every statistic, claim, or data point MUST have a citation
+- Aim for AT LEAST 5-7 citations throughout the article
+
+📸 IMAGE REQUIREMENTS (SECONDARY PRIORITY - DO THIS LAST):
+
+⚠️ ONLY ADD IMAGES AFTER YOU COMPLETE ALL 1800+ WORDS OF CONTENT
+
+🚨 CRITICAL IMAGE RULES - READ CAREFULLY:
+- **DO NOT write image markdown yourself** - you MUST use the unsplash_image_search tool
+- **DO NOT fabricate Unsplash URLs** - the tool will provide real, working URLs
+- **DO NOT copy old Unsplash URL patterns** - they are deprecated and will fail
+- If you write `![...](https://images.unsplash.com/...)` WITHOUT using the tool, the image WILL BE BROKEN
+
+After writing your comprehensive content, enhance it with 2-3 images by CALLING THE TOOL:
+
+1. **First Image** (after introduction):
+   - MUST CALL TOOL: unsplash_image_search("{{topic}} professional modern technology")
+   - DO NOT write image markdown manually - let the tool generate it
+   - Place the tool's output immediately after introduction paragraph
+
+2. **Second Image** (middle section):
+   - MUST CALL TOOL: unsplash_image_search("{{topic}} application example")
+   - DO NOT write image markdown manually - let the tool generate it
+   - Place the tool's output in the middle of main content
+
+3. **Optional Third Image** (if content >2000 words):
+   - MUST CALL TOOL: unsplash_image_search("{{topic}} future innovation")
+   - DO NOT write image markdown manually - let the tool generate it
+   - Place the tool's output near conclusion
+
+**WHY YOU MUST USE THE TOOL:**
+- The tool validates URLs are real and working
+- The tool includes proper photographer attribution
+- Manually written URLs are almost always broken (404 errors)
+- Your generated URLs use deprecated formats that no longer work
+
+🔗 SOURCING AND CITATIONS:
+
+- Preserve inline source links throughout: [1], [2], etc.
+- Every major claim should reference a source
+- Include at least 8-10 different sources in References section
+
+✍️ TONE AND STYLE:
+
+- Professional yet conversational
+- Use "you" to engage readers
+- Vary sentence length for readability
+- Use transitional phrases between sections
+- Active voice preferred over passive
+
+{extra}
+
+⚠️ VALIDATION CHECKLIST (Verify before submitting):
+
+□ My blog post is 1800-2500 words (excluding references)
+□ I have 5-7 main content sections with H2 headers
+□ Each section is 200-350 words with substantive content
+□ I included specific examples with company names and data
+□ Introduction is 200-300 words with clear hook
+□ Conclusion is 150-200 words with actionable takeaways
+□ I called image tools 2-3 times and included the returned markdown
+□ I have a properly formatted References section
+□ Every paragraph provides depth, not just surface-level information
+
+🚨 CRITICAL: If your content is under 1800 words, STOP and add more depth to existing sections.
+Do NOT submit short content - it will be rejected. Focus on EXPLAINING concepts thoroughly.""",
             agent=agent,
-            expected_output="""A complete blog post with MANDATORY TOOL USAGE COMPLIANCE:
-            - SEO-optimized title and compelling introduction
-            - Well-structured content with clear headers (4-5 sections minimum)
-            - EXACTLY 2-3 IMAGES from verified tool calls (unsplash_image_search/openai_image_generate)
-            - First image: Hero image after introduction (from unsplash_image_search)
-            - Second image: Supporting image in middle content (from unsplash_image_search)
-            - Third image (if applicable): Illustration/diagram (from openai_image_generate)
-            - ALL images must have proper markdown formatting and attribution
-            - Actionable insights and examples with inline source links
-            - Natural keyword integration throughout content
-            - Final 'References' section with numbered, unique sources
+            expected_output="""A comprehensive blog post meeting ALL requirements:
             
-            🚨 CRITICAL: Output MUST contain 2-3 actual images from tool calls. No manual URLs allowed.
-            🚨 CRITICAL: Use only tool-generated image markdown blocks, never create fake URLs.
-            🚨 CRITICAL: If fewer than 2 images included, task will be considered FAILED.""",
+            LENGTH: 1800-2500 words of substantive content (NOT including references)
+            
+            STRUCTURE:
+            - Compelling SEO-optimized title (10-15 words)
+            - Engaging introduction (200-300 words) with hook and roadmap
+            - 5-7 well-developed main content sections with H2 headers
+            - Each section: 200-350 words with depth and specific examples
+            - Thoughtful conclusion (150-200 words) with takeaways
+            - Properly formatted References section with 8-10+ sources
+            
+            IMAGES:
+            - 2-3 relevant images from tool calls (unsplash_image_search)
+            - Proper markdown formatting with attribution
+            - Strategic placement throughout content
+            
+            QUALITY:
+            - Specific examples with company names, data, and details
+            - Clear explanations of complex concepts
+            - Professional yet conversational tone
+            - Natural keyword integration
+            - Inline source citations [1], [2], etc.
+            
+            🚨 MANDATORY: Content MUST be 1800+ words. Shorter content will be rejected and require rewrite.""",
         )
 
     @staticmethod

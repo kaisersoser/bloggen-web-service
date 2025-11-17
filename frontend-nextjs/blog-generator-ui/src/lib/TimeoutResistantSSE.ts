@@ -59,7 +59,7 @@ export class TimeoutResistantSSE {
       : async () => urlOrFactory;
 
     this.options = {
-      timeout: options.timeout ?? 300000,
+      timeout: options.timeout ?? 900000, // 15 minutes (increased from 5 minutes)
       retryDelay: options.retryDelay ?? 1000,
       maxRetries: options.maxRetries ?? 5,
       reconnectOnError: options.reconnectOnError ?? true,

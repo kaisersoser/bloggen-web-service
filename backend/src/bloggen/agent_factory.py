@@ -113,40 +113,58 @@ class AgentFactory:
             - You MUST include 2-3 HIGHLY RELEVANT, PHOTOREALISTIC images in EVERY blog post
             - PHOTOREALISTIC QUALITY: Prioritize professional, stylish, photo-quality images that directly relate to your content
             - The enhanced unsplash_image_search tool automatically generates photorealistic AI images when Unsplash photos aren't relevant enough
-            - Use SPECIFIC, DESCRIPTIVE queries for better image relevance (e.g., "machine learning neural network photorealistic visualization" not just "technology")
+            - Use MULTIPLE SPECIFIC KEYWORDS for better image relevance (3-5 keywords per query)
             - For abstract concepts, the tool will automatically generate photorealistic AI illustrations
             - For real-world applications, the tool prioritizes high-quality Unsplash photography
             - ALWAYS ensure images are visually striking, modern, and directly relevant to your content
             
-            🎯 OPTIMAL PHOTOREALISTIC IMAGE STRATEGY:
-            1. HERO IMAGE: Use unsplash_image_search with your main topic + "photorealistic professional modern stylish"
-            2. SUPPORTING IMAGES: Use specific technical terms + "photorealistic professional" for each section
-            3. TRUST THE ENHANCED TOOL: Automatically produces photorealistic, premium-quality images
+            🎯 OPTIMAL PHOTOREALISTIC IMAGE QUERY FORMULA:
+            [Domain Context] + [Specific Subject] + [Visual Style Modifiers]
             
-            ✅ EXCELLENT PHOTOREALISTIC QUERY EXAMPLES:
-            - "artificial intelligence neural network photorealistic visualization professional"
-            - "data science team collaboration modern office photorealistic"
-            - "cybersecurity professional monitoring dashboard realistic modern"
-            - "cloud computing infrastructure photorealistic professional diagram"
-            - "agile development team planning meeting modern office realistic"
+            Example: "healthcare AI diagnosis doctor technology modern" 
+            NOT just: "AI" or "healthcare"
             
-            ❌ POOR QUERY EXAMPLES (too generic or non-photorealistic):
-            - "technology" (too generic)
+            1. HERO IMAGE: 
+               - Use 4-5 keywords: [main topic] + [industry] + "professional modern photorealistic"
+               - Example: "artificial intelligence healthcare diagnosis professional modern"
+            
+            2. SUPPORTING IMAGES: 
+               - Use 3-5 keywords specific to each section
+               - Include domain context + technical specifics
+               - Example: "financial trading algorithm dashboard analytics professional"
+            
+            3. TRUST THE ENHANCED TOOL: 
+               - Advanced relevance scoring ensures high-quality matches
+               - Automatically tries query variations if needed
+               - Falls back to AI generation only when necessary
+            
+            ✅ EXCELLENT MULTI-KEYWORD QUERY EXAMPLES:
+            - "artificial intelligence neural network visualization professional modern technology"
+            - "data science team collaboration analytics modern office professional"
+            - "cybersecurity professional monitoring dashboard security modern technology"
+            - "cloud computing infrastructure diagram professional modern technology"
+            - "agile development team planning meeting modern office professional"
+            - "healthcare AI diagnosis medical technology doctor modern professional"
+            - "financial technology trading analytics dashboard modern professional"
+            
+            ❌ POOR QUERY EXAMPLES (avoid these):
+            - "technology" (too generic - needs 3-5 keywords)
+            - "AI" (too vague - specify application domain)
             - "business cartoon" (avoid cartoon style)
             - "computer illustration" (prefer photorealistic)
-            - "people working drawing" (avoid drawn/illustrated style)
-            - "people working"
+            - "people working" (too generic - specify industry/context)
             
             🚨 MANDATORY REQUIREMENTS:
             - You MUST call unsplash_image_search for EACH image (the tool handles Unsplash vs AI intelligently)
-            - Use descriptive, specific queries that match your content context
+            - Use 3-5 descriptive, specific keywords per query that match your content context
+            - Always include domain context (healthcare, finance, education, etc.) when applicable
             - Copy the EXACT markdown returned by tools (including attribution)
             - Place images strategically to illustrate key points and break up text
             - NEVER create manual image URLs or skip tool calls
             - Focus on relevance - irrelevant images hurt user experience
             
-            The enhanced tool now provides intelligent fallback, so you can trust it to deliver
-            the most relevant images whether from Unsplash's photo collection or AI generation.""",
+            The enhanced tool now has intelligent query variation, semantic matching, and stricter 
+            relevance filtering (60% threshold) to ensure you get the most relevant images.""",
             tools=tools,
             allow_delegation=False,
             llm=AgentFactory._create_llm(config.models.content_model),

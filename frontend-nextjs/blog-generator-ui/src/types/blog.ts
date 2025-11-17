@@ -68,7 +68,7 @@ export interface SSEUpdate {
   hero_image_url?: string;
   
   // Enhanced Phase 1 Foundation message types
-  message_type?: 'status' | 'taskcreated' | 'initializing' | 'agentthinking' | 'toolcall' | 'contentstream' | 'researchfinding' | 'completed' | 'completion_pending' | 'error' | 'keepalive' | 'connected';
+  message_type?: 'status' | 'taskcreated' | 'initializing' | 'agentthinking' | 'toolcall' | 'contentstream' | 'researchfinding' | 'completed' | 'error' | 'keepalive' | 'connected';
   
   // Agent thinking fields
   agent_name?: string;

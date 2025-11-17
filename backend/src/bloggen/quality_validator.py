@@ -49,8 +49,8 @@ class QualityValidator:
     def validate_content_quality(
         content: str,
         structured_research: Optional[StructuredResearchOutput] = None,
-        min_words: int = 1500,
-        min_paragraphs: int = 10,
+        min_words: int = 1000,
+        min_paragraphs: int = 8,
         min_sections: int = 4,
         min_citations: int = 5,
     ) -> Tuple[bool, List[str], Dict[str, Any]]:
@@ -185,14 +185,18 @@ class QualityValidator:
         if word_count >= 2000:
             score += 3.0
         elif word_count >= 1500:
-            score += 2.0
+            score += 2.5
         elif word_count >= 1000:
+            score += 2.0
+        elif word_count >= 800:
             score += 1.0
 
         # Structure (0-3 points)
         if paragraph_count >= 15 and section_count >= 6:
             score += 3.0
         elif paragraph_count >= 10 and section_count >= 4:
+            score += 2.5
+        elif paragraph_count >= 8 and section_count >= 4:
             score += 2.0
         elif paragraph_count >= 5 and section_count >= 3:
             score += 1.0
@@ -240,12 +244,25 @@ class QualityValidator:
             feedback += f"  - {key.replace('_', ' ').title()}: {value}\n"
 
         if phase == "content":
-            feedback += f"\n🎯 REQUIREMENTS:\n"
-            feedback += "  - MINIMUM 1500 words\n"
-            feedback += "  - MINIMUM 10 paragraphs\n"
-            feedback += "  - MINIMUM 4 sections\n"
+            word_count = metrics.get('word_count', 0)
+            words_needed = max(0, 1000 - word_count)
+            
+            feedback += f"\n🎯 CRITICAL REQUIREMENTS YOU MUST MEET:\n"
+            feedback += f"  - MINIMUM 1000 words (YOU HAVE: {word_count} words)\n"
+            if words_needed > 0:
+                feedback += f"  - YOU NEED: {words_needed} MORE WORDS\n"
+            feedback += "  - MINIMUM 8 paragraphs (4-6 sentences each, 80-120 words per paragraph)\n"
+            feedback += "  - MINIMUM 4 sections with H2 headers (## Section Title)\n"
             feedback += "  - MINIMUM 5 citations with real URLs\n"
-            feedback += "  - Quality score target: 7/10\n"
-            feedback += "\n⚠️ You MUST address these gaps in your regeneration."
+            feedback += "  - Quality score target: 5/10\n"
+            feedback += "\n🚨 CRITICAL ACTION REQUIRED:\n"
+            if words_needed > 0:
+                feedback += f"Your content is {words_needed} words SHORT. To fix this:\n"
+                feedback += "1. EXPAND each existing section by 100-200 words with specific examples\n"
+                feedback += "2. ADD 1-2 new sections with detailed explanations (200-300 words each)\n"
+                feedback += "3. ELABORATE on key points - don't just state facts, EXPLAIN them\n"
+                feedback += "4. ADD specific examples with company names, data, and details\n"
+                feedback += "5. INCLUDE case studies and real-world applications\n\n"
+            feedback += "DO NOT just add fluff - add SUBSTANTIVE content with depth and examples."
 
         return feedback

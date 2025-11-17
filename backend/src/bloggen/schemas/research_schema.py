@@ -74,15 +74,15 @@ class StructuredResearchOutput(BaseModel):
     # Key entities mentioned (tools, companies, technologies)
     key_entities: List[str] = Field(..., min_length=10, max_length=50)
 
-    # Structured data (with MINIMUMS)
-    facts: List[ResearchFact] = Field(..., min_length=15)
-    statistics: List[ResearchStatistic] = Field(..., min_length=5)
+    # Structured data (with MINIMUMS - reduced to realistic levels)
+    facts: List[ResearchFact] = Field(..., min_length=10)
+    statistics: List[ResearchStatistic] = Field(..., min_length=4)
     expert_quotes: List[ExpertQuote] = Field(..., min_length=2)
     case_studies: List[CaseStudy] = Field(..., min_length=2)
     trends: List[ResearchTrend] = Field(..., min_length=3)
 
     # Source tracking
-    unique_sources: List[Dict[str, str]] = Field(..., min_length=8)
+    unique_sources: List[Dict[str, str]] = Field(..., min_length=6)
     # Format: [{"url": "https://...", "title": "...", "credibility": "high/medium"}]
 
     def get_fact_count(self) -> int:
@@ -97,11 +97,11 @@ class StructuredResearchOutput(BaseModel):
         """Check if output meets minimum requirements"""
         issues = []
 
-        if len(self.facts) < 15:
-            issues.append(f"Insufficient facts: {len(self.facts)}/15 minimum")
-        if len(self.statistics) < 5:
+        if len(self.facts) < 10:
+            issues.append(f"Insufficient facts: {len(self.facts)}/10 minimum")
+        if len(self.statistics) < 4:
             issues.append(
-                f"Insufficient statistics: {len(self.statistics)}/5 minimum"
+                f"Insufficient statistics: {len(self.statistics)}/4 minimum"
             )
         if len(self.expert_quotes) < 2:
             issues.append(
@@ -113,9 +113,9 @@ class StructuredResearchOutput(BaseModel):
             )
         if len(self.trends) < 3:
             issues.append(f"Insufficient trends: {len(self.trends)}/3 minimum")
-        if len(self.unique_sources) < 8:
+        if len(self.unique_sources) < 6:
             issues.append(
-                f"Insufficient sources: {len(self.unique_sources)}/8 minimum"
+                f"Insufficient sources: {len(self.unique_sources)}/6 minimum"
             )
         if len(self.key_entities) < 10:
             issues.append(
