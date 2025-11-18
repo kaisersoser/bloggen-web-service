@@ -41,6 +41,7 @@ class APIConfig:
     """External API configuration"""
 
     openai_key: Optional[str]
+    anthropic_key: Optional[str]
     google_key: Optional[str]
     serper_key: Optional[str]
     unsplash_key: Optional[str]
@@ -108,6 +109,11 @@ class FeatureConfig:
     enable_ai_image_generation: bool = True
     enable_hero_image_generation: bool = True
     enable_content_image_injection: bool = True
+    
+    # Quality improvement system configuration
+    enable_quality_retries: bool = True
+    max_research_retries: int = 2
+    max_content_retries: int = 1
 
 
 @dataclass
@@ -191,7 +197,7 @@ class UnifiedConfig:
         self.env = EnvironmentManager()
         self.logger = logging.getLogger(__name__)
 
-        # Initialize all configuration sections
+        # Initialize configuration sections
         self.paths = self._init_paths()
         self.server = self._init_server()
         self.database = self._init_database()
@@ -246,8 +252,13 @@ class UnifiedConfig:
         if google_key:
             os.environ["GOOGLE_API_KEY"] = google_key
 
+        anthropic_key = self.env.get_optional("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            os.environ["ANTHROPIC_API_KEY"] = anthropic_key
+
         return APIConfig(
             openai_key=self.env.get_optional("OPENAI_API_KEY"),
+            anthropic_key=anthropic_key,
             google_key=google_key,
             serper_key=self.env.get_optional("SERPER_API_KEY"),
             unsplash_key=self.env.get_optional("UNSPLASH_ACCESS_KEY"),
@@ -260,12 +271,12 @@ class UnifiedConfig:
     def _init_models(self) -> ModelsConfig:
         """Initialize model configuration from environment variables."""
         return ModelsConfig(
-            content_model=os.getenv("CONTENT_MODEL", "gpt-5-mini"),
-            research_model=os.getenv("RESEARCH_MODEL", "gpt-5"),
-            fact_check_model=os.getenv("FACT_CHECK_MODEL", "gpt-5"),
-            finalization_model=os.getenv("FINALIZATION_MODEL", "gpt-5-mini"),
-            default_model=os.getenv("DEFAULT_MODEL", "gpt-5-nano"),
-            summary_model=os.getenv("SUMMARY_MODEL", "gpt-5-nano"),
+            content_model=os.getenv("CONTENT_MODEL", "gpt-4o-mini"),
+            research_model=os.getenv("RESEARCH_MODEL", "gpt-4o"),
+            fact_check_model=os.getenv("FACT_CHECK_MODEL", "gpt-4o"),
+            finalization_model=os.getenv("FINALIZATION_MODEL", "gpt-4o-mini"),
+            default_model=os.getenv("DEFAULT_MODEL", "gpt-4o-mini"),
+            summary_model=os.getenv("SUMMARY_MODEL", "gpt-4o-mini"),
         )
 
     def _init_security(self) -> SecurityConfig:
@@ -306,6 +317,15 @@ class UnifiedConfig:
             ),
             enable_content_image_injection=self.env.get_bool(
                 "ENABLE_CONTENT_IMAGE_INJECTION", False
+            ),
+            enable_quality_retries=self.env.get_bool(
+                "ENABLE_QUALITY_RETRIES", True
+            ),
+            max_research_retries=self.env.get_int(
+                "MAX_RESEARCH_RETRIES", 2
+            ),
+            max_content_retries=self.env.get_int(
+                "MAX_CONTENT_RETRIES", 1
             ),
         )
 

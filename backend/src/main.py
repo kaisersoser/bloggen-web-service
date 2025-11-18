@@ -233,6 +233,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Redis shutdown error: {e}")
 
+    # Shutdown audit tracker worker BEFORE closing database pool
+    # This ensures queued logs are processed before pool is closed
+    try:
+        await EnhancedDatabaseAuditTracker.shutdown_worker(timeout=5.0)
+        logger.info("✅ Audit tracker worker shutdown complete")
+    except Exception as e:
+        logger.warning(f"Audit tracker worker shutdown error: {e}")
+
     # Close database service pool before tearing down other resources
     try:
         await database_service.close()
@@ -271,13 +279,25 @@ app = FastAPI(
 
 # CORS configuration
 allowed_origins = get_cors_origins()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-)
+
+# In development, allow any localhost port (for VS Code port forwarding)
+if config.server.environment == "development":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://localhost:\d+",
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["*"],
+    )
+else:
+    # Production: strict origin list
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["*"],
+    )
 
 
 # Metrics tracking middleware
