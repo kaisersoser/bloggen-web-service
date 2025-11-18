@@ -43,6 +43,7 @@ class EnhancedDatabaseAuditTracker:
     _db_queue = queue.Queue()
     _db_worker_running = False
     _db_worker_thread = None
+    _main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
     def __init__(self, session_type: str, user_id: str, blog_id: Optional[str]):
         """Initialize the enhanced audit tracker."""
@@ -76,6 +77,15 @@ class EnhancedDatabaseAuditTracker:
     def _ensure_db_worker(cls):
         """Ensure database worker thread is running."""
         if not cls._db_worker_running:
+            # Capture the main event loop if not already set
+            if cls._main_event_loop is None:
+                try:
+                    cls._main_event_loop = asyncio.get_running_loop()
+                    logger.info(f"📡 Captured main event loop: {cls._main_event_loop}")
+                except RuntimeError:
+                    # No running loop - will try again when worker needs it
+                    logger.warning("⚠️ No running event loop found during worker initialization")
+            
             cls._db_worker_running = True
             cls._db_worker_thread = threading.Thread(
                 target=cls._database_worker, daemon=True, name="AuditTrackerDBWorker"
@@ -88,40 +98,131 @@ class EnhancedDatabaseAuditTracker:
         """Background thread worker that processes database operations."""
         logger.info("💾 Audit tracker database worker started")
 
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Worker processes operations synchronously, submitting async work to main loop
+        while cls._db_worker_running:
+            try:
+                # Get operation from queue with timeout
+                operation = cls._db_queue.get(timeout=1.0)
 
-        async def process_operations():
-            while cls._db_worker_running:
-                try:
-                    # Get operation from queue with timeout
-                    operation = cls._db_queue.get(timeout=1.0)
+                if operation["type"] == "log_call":
+                    cls._process_database_log_sync(operation["data"])
+                elif operation["type"] == "update_blog_id":
+                    cls._process_blog_id_update_sync(operation["data"])
 
-                    if operation["type"] == "log_call":
-                        await cls._process_database_log(operation["data"])
-                    elif operation["type"] == "update_blog_id":
-                        await cls._process_blog_id_update(operation["data"])
+                cls._db_queue.task_done()
 
-                    cls._db_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"❌ Database worker error: {e}")
+                import traceback
+                traceback.print_exc()
 
-                except queue.Empty:
-                    continue
-                except Exception as e:
-                    logger.error(f"❌ Database worker error: {e}")
+        logger.info("💾 Audit tracker database worker stopped")
 
+    @classmethod
+    async def shutdown_worker(cls, timeout: float = 5.0):
+        """
+        Gracefully shutdown the database worker thread.
+        
+        This method should be called during application shutdown BEFORE
+        closing the database connection pool to ensure all queued logs
+        are processed without errors.
+        
+        Args:
+            timeout: Maximum time to wait for queue to drain (seconds)
+        """
+        if not cls._db_worker_running:
+            logger.debug("Audit tracker worker already stopped")
+            return
+        
+        logger.info("🛑 Shutting down audit tracker database worker...")
+        
+        # Signal worker to stop accepting new operations
+        cls._db_worker_running = False
+        
+        # Wait for queue to drain with timeout
+        queue_size = cls._db_queue.qsize()
+        if queue_size > 0:
+            logger.info(f"   Waiting for {queue_size} queued operations to complete...")
+            try:
+                # Give worker thread time to process remaining items
+                start_time = asyncio.get_event_loop().time() if asyncio.get_event_loop().is_running() else None
+                if start_time:
+                    # In async context
+                    while not cls._db_queue.empty() and (asyncio.get_event_loop().time() - start_time) < timeout:
+                        await asyncio.sleep(0.1)
+                else:
+                    # In sync context (shouldn't happen, but handle gracefully)
+                    import time
+                    start_time = time.time()
+                    while not cls._db_queue.empty() and (time.time() - start_time) < timeout:
+                        time.sleep(0.1)
+                
+                remaining = cls._db_queue.qsize()
+                if remaining > 0:
+                    logger.warning(f"   ⚠️  {remaining} operations remain in queue after timeout")
+                else:
+                    logger.info("   ✅ All queued operations completed")
+            except Exception as e:
+                logger.warning(f"   Error waiting for queue: {e}")
+        
+        # Wait for worker thread to finish
+        if cls._db_worker_thread and cls._db_worker_thread.is_alive():
+            logger.debug("   Waiting for worker thread to exit...")
+            cls._db_worker_thread.join(timeout=2.0)
+            if cls._db_worker_thread.is_alive():
+                logger.warning("   ⚠️  Worker thread did not exit cleanly")
+            else:
+                logger.info("   ✅ Worker thread exited")
+        
+        logger.info("✅ Audit tracker worker shutdown complete")
+
+    @classmethod
+    def _process_database_log_sync(cls, call_data: Dict[str, Any]):
+        """
+        Synchronous wrapper for _process_database_log.
+        Submits the async operation to the main event loop using run_coroutine_threadsafe.
+        """
+        if cls._main_event_loop is None:
+            logger.warning("⚠️ Main event loop not available - cannot log to database")
+            return
+        
         try:
-            loop.run_until_complete(process_operations())
+            # Submit the coroutine to the main event loop and wait for result
+            future = asyncio.run_coroutine_threadsafe(
+                cls._process_database_log(call_data),
+                cls._main_event_loop
+            )
+            # Wait for completion with timeout
+            future.result(timeout=5.0)
+        except TimeoutError:
+            logger.warning(f"⏱️ Database log operation timed out for model={call_data.get('model')}")
         except Exception as e:
-            logger.error(f"❌ Database worker loop error: {e}")
-        finally:
-            # DO NOT close the loop - it closes the shared database pool!
-            # asyncpg pools are tied to event loops, and closing this loop
-            # will mark the shared database_service._pool as closed.
-            # Just clear the reference instead.
-            asyncio.set_event_loop(None)
-            # loop.close()  # REMOVED: This was closing the database pool!
-            cls._db_worker_running = False
+            logger.error(f"❌ Error in sync database log wrapper: {e}")
+
+    @classmethod
+    def _process_blog_id_update_sync(cls, update_data: Dict[str, Any]):
+        """
+        Synchronous wrapper for _process_blog_id_update.
+        Submits the async operation to the main event loop using run_coroutine_threadsafe.
+        """
+        if cls._main_event_loop is None:
+            logger.warning("⚠️ Main event loop not available - cannot update blog_id")
+            return
+        
+        try:
+            # Submit the coroutine to the main event loop and wait for result
+            future = asyncio.run_coroutine_threadsafe(
+                cls._process_blog_id_update(update_data),
+                cls._main_event_loop
+            )
+            # Wait for completion with timeout
+            future.result(timeout=5.0)
+        except TimeoutError:
+            logger.warning(f"⏱️ Blog ID update timed out for session={update_data.get('session_id')}")
+        except Exception as e:
+            logger.error(f"❌ Error in sync blog_id update wrapper: {e}")
 
     @classmethod
     async def _process_database_log(cls, call_data: Dict[str, Any]):
@@ -195,13 +296,17 @@ class EnhancedDatabaseAuditTracker:
                 f"✅ Logged API call to database: {call_data['model']} | ${total_cost:.4f}"
             )
 
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            # Handle timeout/cancellation errors during shutdown gracefully
+            logger.debug(f"Database operation cancelled during shutdown: {type(e).__name__}")
         except Exception as e:
             # Silently ignore errors during shutdown when pool is closed
             error_msg = str(e).lower()
             if 'pool is closed' in error_msg or 'closed' in error_msg:
                 logger.debug("Database pool closed, skipping log operation")
             else:
-                logger.error(f"❌ Failed to process database log: {e}")
+                logger.error(f"❌ Failed to process database log: {e}", exc_info=True)
+                logger.error(f"Failed call data: model={call_data.get('model')}, session_id={call_data.get('session_id')}, tokens={call_data.get('input_tokens', 0) + call_data.get('output_tokens', 0)}")
 
     @classmethod
     async def _process_blog_id_update(cls, update_data: Dict[str, Any]):
@@ -232,8 +337,15 @@ class EnhancedDatabaseAuditTracker:
                 f"✅ Updated audit session with blog_id: {update_data['blog_id']}"
             )
 
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            # Handle timeout/cancellation errors during shutdown gracefully
+            logger.debug(f"Blog ID update cancelled during shutdown: {type(e).__name__}")
         except Exception as e:
-            logger.error(f"❌ Failed to update blog_id: {e}")
+            error_msg = str(e).lower()
+            if 'pool is closed' in error_msg or 'closed' in error_msg:
+                logger.debug("Database pool closed, skipping blog_id update")
+            else:
+                logger.error(f"❌ Failed to update blog_id: {e}")
 
     def _queue_database_operation(self, operation_type: str, data: Dict[str, Any]):
         """Queue a database operation for background processing."""

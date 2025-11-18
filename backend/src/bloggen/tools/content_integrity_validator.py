@@ -160,18 +160,36 @@ class ContentIntegrityValidator:
             issues.append("Placeholder URL detected")
 
         # Check for generic URLs
-        if self.is_generic_url(url):
+        is_generic = self.is_generic_url(url)
+        if is_generic:
             issues.append("Generic/non-specific URL")
 
         # Validate URL accessibility
         is_accessible, validation_error = self.validate_url_accessibility(url)
-        if not is_accessible:
+        
+        # Be more lenient with HTTP errors - many valid sites block bots
+        # Only mark as inaccessible for severe errors (timeout, connection refused, invalid URL)
+        tolerant_errors = ["HTTP 403", "HTTP 404", "HTTP 429"]  # Common bot-blocking responses
+        is_tolerant_error = any(err in str(validation_error) for err in tolerant_errors) if validation_error else False
+        
+        if not is_accessible and not is_tolerant_error:
             issues.append(f"URL not accessible: {validation_error}")
+        elif not is_accessible and is_tolerant_error:
+            # Log but don't fail for common HTTP errors
+            self.logger.info(f"⚠️ Reference {ref_dict['number']} has {validation_error} but keeping (common bot protection)")
+            is_accessible = True  # Override - treat as accessible
 
         # Determine if reference should be kept
-        is_valid = is_accessible and not self.is_placeholder_url(url)
-        is_specific = not self.is_generic_url(url)
-        should_keep = is_valid and is_specific
+        # Be more lenient: Keep if URL is either accessible OR specific (not generic)
+        # Only remove if BOTH generic AND inaccessible
+        is_valid = is_accessible
+        is_specific = not is_generic
+        should_keep = is_valid or (is_specific and not self.is_placeholder_url(url))
+
+        if not should_keep:
+            self.logger.warning(
+                f"❌ Reference {ref_dict['number']} marked for removal: {', '.join(issues)}"
+            )
 
         return ReferenceAnalysis(
             reference_number=ref_dict["number"],

@@ -443,7 +443,7 @@ class RedisManager:
             return None
 
     async def wait_for_completion_acknowledgment(
-        self, task_id: str, timeout: int = 30
+        self, task_id: str, timeout: int = 120  # Increased default from 30s to 120s
     ) -> bool:
         """
         Wait for completion acknowledgment from frontend.

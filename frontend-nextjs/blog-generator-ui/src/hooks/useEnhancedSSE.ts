@@ -159,9 +159,9 @@ export function useEnhancedSSEConnection() {
           }
           break;
         case 'completed':
-          // Handle direct completion messages (new format)
+          // Handle completion messages - send acknowledgment
           if (canLogVerbose) {
-            logger.info('🎉 Direct completion message received', { taskId });
+            logger.info('🎉 Completion message received', { taskId });
           }
           if (!completedTasksRef.current.has(taskId)) {
             completedTasksRef.current.add(taskId);
@@ -171,38 +171,14 @@ export function useEnhancedSSEConnection() {
             onCompletion(taskId, finalContent, heroImageUrl);
             contentCacheRef.current.delete(taskId);
             
-            // Send acknowledgment to backend for 2-phase completion protocol
+            // Send acknowledgment to backend
             try {
               await sendCompletionAcknowledgment(taskId);
               if (canLogVerbose) {
-                logger.info('✅ Completion acknowledgment sent to backend for task', { taskId });
+                logger.info('✅ Completion acknowledgment sent', { taskId });
               }
             } catch (error) {
-              logger.warn('⚠️ Failed to send completion acknowledgment', error);
-            }
-          }
-          break;
-        case 'completion_pending':
-          // Handle 2-phase completion protocol
-          if (canLogVerbose) {
-            logger.info('⏳ Completion pending message received', { taskId });
-          }
-          if (!completedTasksRef.current.has(taskId)) {
-            completedTasksRef.current.add(taskId);
-            const cachedContent = contentCacheRef.current.get(taskId);
-            const finalContent = data.final_content || data.content || cachedContent || '';
-            const heroImageUrl = data.hero_image_url;
-            onCompletion(taskId, finalContent, heroImageUrl);
-            contentCacheRef.current.delete(taskId);
-            
-            // Send acknowledgment to backend for 2-phase completion protocol
-            try {
-              await sendCompletionAcknowledgment(taskId);
-              if (canLogVerbose) {
-                logger.info('✅ Completion acknowledgment sent to backend for task', { taskId });
-              }
-            } catch (error) {
-              logger.warn('⚠️ Failed to send completion acknowledgment', error);
+              logger.warn('⚠️ Failed to send acknowledgment', error);
             }
           }
           break;
@@ -265,34 +241,7 @@ export function useEnhancedSSEConnection() {
           progress: data.progress || 0
         });
       }
-      if (data.status === 'completed') {
-        if (!completedTasksRef.current.has(taskId)) {
-          completedTasksRef.current.add(taskId);
-          const cachedContent = contentCacheRef.current.get(taskId);
-          const finalContent = data.result || cachedContent || '';
-          onCompletion(taskId, finalContent, (data as any).hero_image_url);
-          contentCacheRef.current.delete(taskId);
-          // Close the SSE connection when task completes
-          if (sseConnectionRef.current) {
-            if (canLogVerbose) {
-              logger.info('✅ Legacy task completed - closing SSE connection', { taskId });
-            }
-            sseConnectionRef.current.close();
-            sseConnectionRef.current = null;
-            
-            // Add "Connection closed" message to console
-            if (onLogUpdate) {
-              const connectionClosedMessage = {
-                timestamp: new Date().toISOString(),
-                step: 'connection',
-                message: 'Connection closed',
-                progress: 100
-              };
-              onLogUpdate(taskId, connectionClosedMessage);
-            }
-          }
-        }
-      }
+      // Note: Completion now handled via 'completed' message type, not status field
       if (data.status === 'failed' && data.error) {
         onError(taskId, data.error);
         contentCacheRef.current.delete(taskId);
@@ -340,12 +289,7 @@ export function useEnhancedSSEConnection() {
           currentStep: data.current_step || 'Processing...',
           progress: Math.round((data.progress || 0) * 100)
         });
-        if (data.status === 'completed' && data.result) {
-          if (!completedTasksRef.current.has(data.task_id)) {
-            completedTasksRef.current.add(data.task_id);
-            onCompletion(data.task_id, data.result);
-          }
-        }
+        // Note: Completion now handled via 'completed' message type, not status_update
         if (data.status === 'failed' && data.error) {
           onError(data.task_id, data.error);
         }
@@ -582,7 +526,6 @@ export function useEnhancedSSEConnection() {
         'contentstream',
         'researchfinding',
         'completed',
-        'completion_pending',
         'error',
         'keepalive',
         'connected',

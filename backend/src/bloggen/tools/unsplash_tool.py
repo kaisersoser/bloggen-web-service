@@ -111,15 +111,33 @@ class UnsplashImageTool(BaseTool):
                 logging.info("No Unsplash API key - falling back to AI generation")
                 return self._fallback_to_ai_generation(query, count, orientation)
 
-            # Search for images
-            images = self._search_unsplash_images(query, count, orientation)
+            # Search for images with progressive threshold strategy
+            # Try strict quality first (0.55), then relax if needed
+            images = self._search_unsplash_images(query, count, orientation, min_relevance=0.55)
 
             if not images:
-                # No relevant images found - fallback to AI generation
+                # No relevant images found - try query variations with progressive thresholds
                 logging.info(
-                    f"No relevant Unsplash images found for '{query}' - falling back to AI generation"
+                    f"No relevant images at 0.55 threshold - trying query variations with relaxed thresholds"
                 )
-                return self._fallback_to_ai_generation(query, count, orientation)
+                
+                query_variations = self._generate_query_variations(query)
+                thresholds = [0.50, 0.45]  # Progressive relaxation for each variation
+                
+                for i, variation in enumerate(query_variations):
+                    threshold = thresholds[i] if i < len(thresholds) else 0.45
+                    logging.info(f"Trying query variation {i+1}/{len(query_variations)}: '{variation}' (threshold: {threshold})")
+                    images = self._search_unsplash_images(variation, count, orientation, min_relevance=threshold)
+                    if images:
+                        logging.info(f"✅ Found {len(images)} relevant images with variation at threshold {threshold}")
+                        break
+                
+                if not images:
+                    # Still no relevant images - fallback to AI generation
+                    logging.info(
+                        f"No relevant Unsplash images found after {len(query_variations)} variations - falling back to AI generation"
+                    )
+                    return self._fallback_to_ai_generation(query, count, orientation)
 
             # Format as Markdown
             result = self._format_images_as_markdown(images, query)
@@ -191,9 +209,13 @@ class UnsplashImageTool(BaseTool):
             return self._generate_placeholder_images(query, count, orientation)
 
     def _search_unsplash_images(
-        self, query: str, count: int, orientation: str
+        self, query: str, count: int, orientation: str, min_relevance: float = 0.55
     ) -> List[Dict]:
-        """Search Unsplash API for images."""
+        """Search Unsplash API for images with configurable relevance threshold.
+        
+        Requests 10 images from Unsplash, scores all of them, and returns the top N
+        based on relevance scores to maximize quality and reduce AI fallback costs.
+        """
         try:
             # Clean and enhance the search query
             clean_query = self._enhance_search_query(query)
@@ -207,9 +229,11 @@ class UnsplashImageTool(BaseTool):
                 "Accept-Version": "v1",
             }
 
+            # Request 10 images to have a wider selection for scoring
+            # We'll return the top N based on relevance
             params = {
                 "query": clean_query,
-                "per_page": count,
+                "per_page": 10,  # Cast wider net for better selection
                 "orientation": orientation,
                 "order_by": "relevant",
                 "content_filter": "high",  # Family-friendly content
@@ -256,8 +280,8 @@ class UnsplashImageTool(BaseTool):
 
             logging.info(f"Unsplash returned {len(results)} images")
 
-            # Validate that we have proper image data and check relevance
-            valid_results = []
+            # Score all images and store with their scores
+            scored_images = []
             for i, result in enumerate(results):
                 if (
                     result.get("urls")
@@ -267,37 +291,55 @@ class UnsplashImageTool(BaseTool):
                         for key in ["regular", "full", "raw", "small"]
                     )
                 ):
-
                     # Score image relevance
                     relevance_score = self._score_image_relevance(
                         result, query, clean_query
                     )
-
-                    if relevance_score >= 0.3:  # Minimum relevance threshold
-                        valid_results.append(result)
-                        logging.info(
-                            f"Image {i+1} relevance score: {relevance_score:.2f} - ACCEPTED"
-                        )
-                    else:
-                        logging.info(
-                            f"Image {i+1} relevance score: {relevance_score:.2f} - REJECTED (too irrelevant)"
-                        )
+                    
+                    # Store image with its score
+                    scored_images.append({
+                        "image": result,
+                        "score": relevance_score
+                    })
+                    
+                    logging.info(
+                        f"Image {i+1} relevance score: {relevance_score:.2f}"
+                    )
                 else:
                     logging.warning(
                         f"Skipping invalid image result {i}: missing required fields"
                     )
 
+            # Sort by score (highest first) and filter by threshold
+            scored_images.sort(key=lambda x: x["score"], reverse=True)
+            
+            # Filter images that meet the minimum relevance threshold
+            valid_results = []
+            for item in scored_images:
+                if item["score"] >= min_relevance:
+                    valid_results.append(item["image"])
+                    logging.info(
+                        f"✅ Image with score {item['score']:.2f} ACCEPTED (threshold: {min_relevance})"
+                    )
+                else:
+                    logging.info(
+                        f"❌ Image with score {item['score']:.2f} REJECTED (below {min_relevance})"
+                    )
+            
+            # Return top N images (limited by requested count)
+            top_images = valid_results[:count]
+            
             logging.info(
-                f"Found {len(valid_results)} relevant images out of {len(results)} returned"
+                f"Found {len(valid_results)} relevant images, returning top {len(top_images)} (requested: {count})"
             )
 
             # If no images meet relevance criteria, return empty for AI fallback
-            if len(valid_results) == 0 and len(results) > 0:
+            if len(top_images) == 0 and len(results) > 0:
                 logging.warning(
                     "All Unsplash images failed relevance check - triggering AI fallback"
                 )
                 return []
-            return valid_results
+            return top_images
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Unsplash API request failed: {str(e)}")
@@ -316,7 +358,7 @@ class UnsplashImageTool(BaseTool):
         """Enhance search query for better Unsplash results with intelligent keyword extraction."""
         import re
 
-        # Comprehensive stop words for better filtering
+        # Reduced stop words - keep context and domain words
         stop_words = {
             "blog",
             "post",
@@ -330,29 +372,42 @@ class UnsplashImageTool(BaseTool):
             "analysis",
             "discussion",
             "exploration",
-            "deep",
             "dive",
-            "comprehensive",
-            "ultimate",
-            "complete",
             "beginner",
-            "advanced",
             "tips",
             "how",
             "what",
             "why",
             "when",
             "where",
-            "best",
             "practices",
-            "strategy",
-            "strategies",
             "method",
             "methods",
             "approach",
             "approaches",
             "way",
             "ways",
+        }
+
+        # KEEP these context words - they improve specificity
+        context_words = {
+            "future", "emerging", "trends", "modern", "new", "advanced",
+            "comprehensive", "ultimate", "complete", "best", "strategy",
+            "strategies", "deep", "advanced"
+        }
+        
+        # KEEP domain indicators - critical for relevance
+        domain_words = {
+            "healthcare", "medical", "clinical", "hospital",
+            "finance", "financial", "banking", "investment",
+            "education", "educational", "learning", "academic",
+            "technology", "tech", "digital", "software",
+            "business", "corporate", "enterprise", "professional",
+            "security", "cyber", "safety", "protection",
+            "manufacturing", "industrial", "production",
+            "retail", "commerce", "shopping",
+            "energy", "renewable", "sustainable",
+            "transportation", "automotive", "logistics"
         }
 
         # Clean and normalize the query
@@ -363,18 +418,20 @@ class UnsplashImageTool(BaseTool):
         # Filter out stop words but keep meaningful terms
         enhanced_words = []
         for word in words:
-            # Keep important technical terms even if they might be stop words
+            # Keep important technical terms, context words, and domain indicators
             if (
-                word not in stop_words
-                or len(word) > 8  # Keep longer technical terms
-                or word in ["ai", "ml", "api", "ui", "ux"]
-            ):  # Keep tech abbreviations
+                word not in stop_words  # Not a stop word
+                or word in context_words  # Or is a context word
+                or word in domain_words  # Or is a domain indicator
+                or len(word) > 8  # Or is a longer technical term
+                or word in ["ai", "ml", "api", "ui", "ux", "iot", "ar", "vr", "xr"]  # Tech abbreviations
+            ):
                 enhanced_words.append(word)
 
         # If we filtered too much, keep the most important words
         if len(enhanced_words) < 2 and len(words) >= 2:
             # Keep the longest words as they're likely most specific
-            enhanced_words = sorted(words, key=len, reverse=True)[:3]
+            enhanced_words = sorted(words, key=len, reverse=True)[:4]
         elif len(enhanced_words) == 0:
             return query  # Fallback to original
 
@@ -387,6 +444,55 @@ class UnsplashImageTool(BaseTool):
 
         logging.debug(f"Enhanced query: '{query}' -> '{enhanced_query}'")
         return enhanced_query
+
+    def _generate_query_variations(self, query: str) -> List[str]:
+        """Generate alternative query formulations for better search results."""
+        variations = []
+        query_lower = query.lower().strip()
+        words = query_lower.split()
+        
+        if len(words) < 2:
+            return variations  # No variations for single-word queries
+        
+        # Variation 1: Reorder words (put most specific terms first)
+        # Longer words are often more specific
+        sorted_words = sorted(words, key=len, reverse=True)
+        variation_1 = " ".join(sorted_words[:4])  # Top 4 most specific words
+        if variation_1 != query_lower and len(variation_1.split()) >= 2:
+            variations.append(variation_1)
+        
+        # Variation 2: Add contextual modifiers based on domain
+        domain_modifiers = {
+            "ai": "artificial intelligence technology",
+            "ml": "machine learning data",
+            "healthcare": "medical health clinical",
+            "finance": "financial banking business",
+            "education": "learning academic training",
+            "technology": "digital tech innovation",
+            "business": "corporate professional workplace",
+        }
+        
+        for keyword, modifier in domain_modifiers.items():
+            if keyword in query_lower:
+                variation_2 = f"{modifier} {query_lower}".strip()
+                # Take first few words to avoid over-long queries
+                variation_2_words = variation_2.split()[:5]
+                variation_2 = " ".join(variation_2_words)
+                if variation_2 not in variations:
+                    variations.append(variation_2)
+                    break  # Only add one domain-specific variation
+        
+        # Variation 3: Simplify to core concepts (remove modifiers, keep nouns)
+        # Remove common modifiers that might be too specific
+        modifiers_to_remove = ["future", "emerging", "trends", "modern", "new", "advanced"]
+        simplified_words = [w for w in words if w not in modifiers_to_remove]
+        if len(simplified_words) >= 2 and simplified_words != words:
+            variation_3 = " ".join(simplified_words)
+            if variation_3 not in variations:
+                variations.append(variation_3)
+        
+        # Limit to 2-3 variations to avoid excessive API calls
+        return variations[:2]
 
     def _get_visual_modifiers(self, query: str) -> str:
         """Add visual context modifiers based on query content."""
@@ -436,7 +542,7 @@ class UnsplashImageTool(BaseTool):
     def _score_image_relevance(
         self, image: Dict, original_query: str, enhanced_query: str
     ) -> float:
-        """Score image relevance based on metadata and search terms."""
+        """Score image relevance based on metadata and search terms with weighted scoring."""
         score = 0.0
 
         # Get image metadata
@@ -458,35 +564,38 @@ class UnsplashImageTool(BaseTool):
         enhanced_terms = set(enhanced_query.lower().split())
         all_query_terms = original_terms.union(enhanced_terms)
 
-        # Score based on direct term matches
-        term_matches = 0
+        # WEIGHTED SCORING: Exact term matches (highest weight)
+        exact_matches = 0
         for term in all_query_terms:
             if len(term) > 2 and term in image_text:  # Ignore very short terms
-                term_matches += 1
-                score += 0.2  # Each relevant term adds to score
+                exact_matches += 1
+                score += 0.3  # Exact match: +0.3 points per term (increased weight)
 
-        # Bonus for multiple term matches (indicates strong relevance)
-        if term_matches >= 2:
-            score += 0.3
+        # Bonus for multiple exact matches (indicates strong relevance)
+        if exact_matches >= 3:
+            score += 0.2  # Strong relevance bonus
+        elif exact_matches >= 2:
+            score += 0.1  # Good relevance bonus
 
-        # Semantic relevance scoring
-        score += self._calculate_semantic_relevance(image_text, original_query)
+        # WEIGHTED SCORING: Semantic relevance (medium weight)
+        semantic_score = self._calculate_semantic_relevance(image_text, original_query)
+        score += semantic_score  # Semantic matches worth up to 0.5 points
 
-        # Quality indicators (downloads, likes) add minor score boost
+        # WEIGHTED SCORING: Quality indicators (minor boost)
         downloads = image.get("downloads", 0)
         likes = image.get("likes", 0)
 
         if downloads > 1000:  # Popular images are often more relevant
-            score += 0.1
-        if likes > 100:
             score += 0.05
+        if likes > 100:
+            score += 0.03
 
         # Cap the score at 1.0
         return min(score, 1.0)
 
     def _calculate_semantic_relevance(self, image_text: str, query: str) -> float:
         """Calculate semantic relevance between image metadata and query."""
-        # Simple semantic scoring based on domain-specific keyword groups
+        # Expanded semantic scoring with comprehensive domain-specific keyword groups
         semantic_groups = {
             "technology": [
                 "tech",
@@ -496,6 +605,9 @@ class UnsplashImageTool(BaseTool):
                 "coding",
                 "algorithm",
                 "system",
+                "programming",
+                "developer",
+                "hardware",
             ],
             "ai_ml": [
                 "artificial",
@@ -505,6 +617,9 @@ class UnsplashImageTool(BaseTool):
                 "neural",
                 "deep",
                 "model",
+                "algorithm",
+                "automation",
+                "robot",
             ],
             "business": [
                 "business",
@@ -513,6 +628,10 @@ class UnsplashImageTool(BaseTool):
                 "professional",
                 "meeting",
                 "team",
+                "entrepreneur",
+                "startup",
+                "enterprise",
+                "strategy",
             ],
             "data": [
                 "data",
@@ -521,8 +640,23 @@ class UnsplashImageTool(BaseTool):
                 "graph",
                 "visualization",
                 "dashboard",
+                "metric",
+                "statistic",
+                "insight",
+                "report",
             ],
-            "security": ["security", "cyber", "protection", "safe", "secure", "lock"],
+            "security": [
+                "security",
+                "cyber",
+                "protection",
+                "safe",
+                "secure",
+                "lock",
+                "firewall",
+                "encryption",
+                "privacy",
+                "defense",
+            ],
             "innovation": [
                 "innovation",
                 "creative",
@@ -530,6 +664,121 @@ class UnsplashImageTool(BaseTool):
                 "startup",
                 "entrepreneur",
                 "future",
+                "disrupt",
+                "transform",
+                "breakthrough",
+                "pioneer",
+            ],
+            "healthcare": [
+                "healthcare",
+                "medical",
+                "hospital",
+                "doctor",
+                "patient",
+                "clinical",
+                "diagnosis",
+                "treatment",
+                "physician",
+                "nurse",
+                "health",
+            ],
+            "finance": [
+                "finance",
+                "financial",
+                "banking",
+                "investment",
+                "trading",
+                "market",
+                "stock",
+                "currency",
+                "money",
+                "economy",
+                "wealth",
+            ],
+            "education": [
+                "education",
+                "learning",
+                "student",
+                "teacher",
+                "classroom",
+                "study",
+                "academic",
+                "training",
+                "course",
+                "university",
+                "school",
+            ],
+            "manufacturing": [
+                "manufacturing",
+                "factory",
+                "production",
+                "industrial",
+                "assembly",
+                "quality",
+                "supply",
+                "chain",
+                "automation",
+                "process",
+            ],
+            "retail": [
+                "retail",
+                "shopping",
+                "store",
+                "commerce",
+                "customer",
+                "sale",
+                "product",
+                "consumer",
+                "merchandise",
+                "ecommerce",
+            ],
+            "energy": [
+                "energy",
+                "power",
+                "renewable",
+                "solar",
+                "wind",
+                "sustainable",
+                "green",
+                "electric",
+                "battery",
+                "fuel",
+            ],
+            "transportation": [
+                "transportation",
+                "transport",
+                "vehicle",
+                "automotive",
+                "logistics",
+                "shipping",
+                "delivery",
+                "traffic",
+                "mobility",
+                "fleet",
+            ],
+            "communication": [
+                "communication",
+                "network",
+                "internet",
+                "wireless",
+                "connect",
+                "signal",
+                "broadcast",
+                "media",
+                "social",
+                "messaging",
+            ],
+            "real_estate": [
+                "real",
+                "estate",
+                "property",
+                "building",
+                "architecture",
+                "construction",
+                "housing",
+                "residential",
+                "commercial",
+                "urban",
             ],
         }
 
@@ -544,10 +793,14 @@ class UnsplashImageTool(BaseTool):
                 image_matches = sum(1 for keyword in keywords if keyword in image_text)
                 if image_matches > 0:
                     # Score based on how many related terms match
-                    group_score = min(image_matches / len(keywords), 0.3)
+                    # Higher weight for more matches
+                    group_score = min(image_matches / len(keywords), 0.25)
+                    # Bonus for multiple matches indicating strong relevance
+                    if image_matches >= 2:
+                        group_score += 0.1
                     semantic_score += group_score
 
-        return semantic_score
+        return min(semantic_score, 0.5)  # Cap at 0.5 to leave room for other scoring factors
 
     def _format_images_as_markdown(self, images: List[Dict], query: str) -> str:
         """Format Unsplash images as Markdown with proper attribution."""

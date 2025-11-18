@@ -52,7 +52,7 @@ class SSEHandler:
         task_manager,
         message_buffer=None,
         heartbeat_interval: int = 15,
-        timeout_seconds: int = 420,
+        timeout_seconds: int = 480,
     ):
         """
         Initialize SSE Handler.
@@ -62,7 +62,7 @@ class SSEHandler:
             task_manager: TaskManager instance for task state
             message_buffer: Optional message buffer for immediate message handling
             heartbeat_interval: Seconds between heartbeat pings (default: 15s)
-            timeout_seconds: Maximum connection duration (default: 420s = 7 min)
+            timeout_seconds: Maximum connection duration (default: 480s = 8 min)
         """
         self.redis_manager = redis_manager
         self.task_manager = task_manager
@@ -242,9 +242,10 @@ class SSEHandler:
                 # Check timeout
                 elapsed = (datetime.utcnow() - start_time).total_seconds()
                 if elapsed > self.timeout_seconds:
-                    logger.warning(
-                        f"⏰ Redis listener timeout for task {task_id} after "
-                        f"{elapsed:.1f}s (limit: {self.timeout_seconds}s)"
+                    logger.info(
+                        f"⏰ Redis listener reached timeout for task {task_id} after "
+                        f"{elapsed:.1f}s (limit: {self.timeout_seconds}s) - "
+                        f"this is normal for long-running generations"
                     )
                     break
                 

@@ -11,6 +11,15 @@ module.exports = {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'
       },
+      keyframes: {
+        'pulse-border': {
+          '0%, 100%': { borderColor: 'currentColor', opacity: '1' },
+          '50%': { borderColor: 'currentColor', opacity: '0.5' }
+        }
+      },
+      animation: {
+        'pulse-border': 'pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

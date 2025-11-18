@@ -929,21 +929,14 @@ class TaskManager:
                 import json
                 import redis
 
-                # ENHANCED COMPLETION PROTOCOL - 2-Phase completion with acknowledgment
+                # SIMPLIFIED COMPLETION PROTOCOL
+                # Just send one completion message and wait for ack - no need for Phase 3 confirmation
                 timestamp = time.time()
-                sequence_id = int(timestamp * 1000000)  # Microsecond precision
+                sequence_id = int(timestamp * 1000000)
 
-                logger.warning(
-                    f"🔍 REDIS SEQUENCE #{sequence_id} - ENHANCED COMPLETION PROTOCOL START:"
-                )
-                logger.warning(f"   task_id: {task_id}")
-                logger.warning(f"   content length: {len(content) if content else 0}")
-                logger.warning(
-                    f"   content preview: {content[:200] if content else 'NO CONTENT TO SEND'}..."
-                )
-                logger.warning(f"   timestamp: {timestamp}")
+                logger.info(f"🔍 COMPLETION SEQUENCE #{sequence_id} START for {task_id}")
 
-                # Use sync Redis to match the pattern from send_redis_only_update method
+                # Use sync Redis for publishing
                 sync_redis = redis.Redis.from_url(
                     self._redis_manager.redis_url,
                     encoding="utf-8",
@@ -951,80 +944,35 @@ class TaskManager:
                 )
                 task_channel = f"task_updates:{task_id}"
 
-                # PHASE 1: Send completion_pending message with content
-                completion_pending_message = {
-                    "message_type": "completion_pending",
+                # Send single completion message with all data
+                completion_message = {
+                    "message_type": "completed",
                     "task_id": task_id,
                     "message": f"Blog generation completed ({self._count_words(content)} words)",
                     "timestamp": datetime.utcnow().isoformat(),
-                    "type": "completion_pending",
+                    "type": "completed",
                     "final_content": content,
                     "word_count": self._count_words(content),
                     "hero_image_url": hero_image_url,
                 }
 
-                logger.warning(
-                    f"🔍 REDIS SEQUENCE #{sequence_id} - PHASE 1: SENDING COMPLETION_PENDING:"
-                )
-                logger.warning(
-                    f"   completion_pending keys: {list(completion_pending_message.keys())}"
-                )
-                logger.warning(
-                    f"   final_content length: {len(completion_pending_message['final_content']) if completion_pending_message['final_content'] else 0}"
-                )
+                logger.info(f"📤 Publishing completion message to {task_channel}")
+                sync_redis.publish(task_channel, json.dumps(completion_message))
+                logger.info(f"✅ Completion message published for {task_id}")
 
-                sync_redis.publish(task_channel, json.dumps(completion_pending_message))
-                logger.warning(
-                    f"✅ REDIS SEQUENCE #{sequence_id} - PHASE 1: COMPLETION_PENDING PUBLISHED to {task_channel}"
-                )
-
-                # PHASE 2: Wait for acknowledgment from frontend
-                logger.info(
-                    f"⏳ PHASE 2: Waiting for completion acknowledgment for {task_id}"
-                )
+                # Wait for acknowledgment from frontend (optional - for monitoring)
                 ack_received = (
                     await self._redis_manager.wait_for_completion_acknowledgment(
-                        task_id, timeout=30
+                        task_id, timeout=120
                     )
                 )
 
-                # PHASE 3: Send final confirmation based on acknowledgment
                 if ack_received:
-                    # Send completion_confirmed message
-                    confirmation_message = {
-                        "message_type": "completion_confirmed",
-                        "task_id": task_id,
-                        "message": "Blog generation confirmed and delivered",
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "type": "completion_confirmed",
-                    }
-
-                    sync_redis.publish(task_channel, json.dumps(confirmation_message))
-                    logger.warning(
-                        f"✅ REDIS SEQUENCE #{sequence_id} - PHASE 3: COMPLETION_CONFIRMED sent for {task_id}"
-                    )
-
+                    logger.info(f"✅ Frontend acknowledged completion for {task_id}")
                 else:
-                    # Send completion_timeout message (fallback)
-                    timeout_message = {
-                        "message_type": "completion_timeout",
-                        "task_id": task_id,
-                        "message": "Blog generation completed (delivery confirmed via timeout)",
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "type": "completion_timeout",
-                        "final_content": content,  # Resend content as fallback
-                        "word_count": self._count_words(content),
-                        "hero_image_url": hero_image_url,
-                    }
+                    logger.warning(f"⏰ No acknowledgment received for {task_id} within 120s (blog still delivered)")
 
-                    sync_redis.publish(task_channel, json.dumps(timeout_message))
-                    logger.warning(
-                        f"⏰ REDIS SEQUENCE #{sequence_id} - PHASE 3: COMPLETION_TIMEOUT sent for {task_id} (no ack received)"
-                    )
-
-                logger.warning(
-                    f"🏁 REDIS SEQUENCE #{sequence_id} - ENHANCED COMPLETION PROTOCOL COMPLETE for {task_id}"
-                )
+                logger.info(f"🏁 COMPLETION SEQUENCE #{sequence_id} COMPLETE for {task_id}")
 
             except Exception as e:
                 logger.error(
