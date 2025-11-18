@@ -52,7 +52,7 @@ class SSEHandler:
         task_manager,
         message_buffer=None,
         heartbeat_interval: int = 15,
-        timeout_seconds: int = 480,
+        timeout_seconds: int = 1800,  # 30 minutes (increased from 8 minutes for long blog generation)
     ):
         """
         Initialize SSE Handler.
@@ -62,7 +62,7 @@ class SSEHandler:
             task_manager: TaskManager instance for task state
             message_buffer: Optional message buffer for immediate message handling
             heartbeat_interval: Seconds between heartbeat pings (default: 15s)
-            timeout_seconds: Maximum connection duration (default: 480s = 8 min)
+            timeout_seconds: Maximum connection duration (default: 1800s = 30 min)
         """
         self.redis_manager = redis_manager
         self.task_manager = task_manager

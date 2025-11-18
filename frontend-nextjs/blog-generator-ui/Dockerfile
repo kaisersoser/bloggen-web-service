@@ -13,7 +13,8 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma
 
 # Install ALL dependencies (including devDependencies needed for build)
-RUN npm ci
+# Using npm install instead of npm ci to handle package-lock.json sync issues
+RUN npm install
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder

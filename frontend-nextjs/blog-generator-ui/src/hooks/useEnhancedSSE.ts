@@ -367,7 +367,7 @@ export function useEnhancedSSEConnection() {
   await getAuthToken();
 
       const sseOptions = {
-        timeout: 600000,
+        timeout: 1800000, // 30 minutes (increased from 10 minutes for long blog generation)
         retryDelay: 2500,
         maxRetries: 8,
         reconnectOnError: true,

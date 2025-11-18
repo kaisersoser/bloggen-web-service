@@ -1060,7 +1060,7 @@ async def stream_task(task_id: str, token: str):
         task_manager=task_manager,
         message_buffer=message_buffer if message_buffer else None,
         heartbeat_interval=15,  # seconds
-        timeout_seconds=420,  # 7 minutes for complex blog generation
+        timeout_seconds=1800,  # 30 minutes for complex blog generation (increased from 7 minutes)
     )
     
     async def event_generator():
