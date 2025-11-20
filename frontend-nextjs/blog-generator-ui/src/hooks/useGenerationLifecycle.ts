@@ -21,7 +21,7 @@ interface UseGenerationLifecycleParams {
   addTemporaryJob: (job: JobState) => void;
   addTemporaryBlog: (blog: BlogData) => void;
   updateTemporaryBlog: (blogId: string, updates: Partial<BlogData>) => void;
-  removeTemporaryBlog: (blogId: string) => void;
+  removeTemporaryBlog: (blogId: string, shouldRefresh?: boolean) => void;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
 }
@@ -123,7 +123,7 @@ export function useGenerationLifecycle({
         heroImageUrl: heroImageUrl || null,
       };
       
-      // Immediately update the temporary blog card to completed state
+      // Update blog to completed in activeBlogs
       updateTemporaryBlog(taskId, {
         status: 'completed',
         progress: 100,
@@ -140,15 +140,17 @@ export function useGenerationLifecycle({
 
     deleteJob(taskId);
 
-    // Refresh blog list in background to get the persisted version from backend
+    // Remove from activeBlogs and refresh persisted blogs
     setTimeout(async () => {
       try {
-        await Promise.all([refetchStats(), fetchPreviousBlogs()]);
+        // Remove completed blog from activeBlogs and fetch fresh data
+        removeTemporaryBlog(taskId, true);
+        await refetchStats();
       } catch (error) {
         logger.error('Failed to refresh data after completion', error);
       }
     }, 500);
-  }, [actions, deleteJob, fetchPreviousBlogs, jobs, previousBlogs.length, refetchStats, resetActiveConnection, state.activeConnectionId, updateJob, updateTemporaryBlog]);
+  }, [actions, deleteJob, jobs, previousBlogs.length, refetchStats, removeTemporaryBlog, resetActiveConnection, state.activeConnectionId, updateJob, updateTemporaryBlog]);
 
   const handleTaskError = useCallback(async (taskId: string, errorMessage: string) => {
     const errorInfo: ErrorInfo = {
@@ -171,7 +173,7 @@ export function useGenerationLifecycle({
       connectionUpdatedAt: new Date().toISOString(),
     });
     
-    // Immediately update the temporary blog card to failed state
+    // Update blog to failed in activeBlogs
     updateTemporaryBlog(taskId, {
       status: 'failed',
       progress: 0,
@@ -186,12 +188,13 @@ export function useGenerationLifecycle({
 
     try {
       await blogService.updateBlogCompletion(taskId, 'failed', undefined, errorInfo);
-      // Refresh to get updated blog from backend
-      await fetchPreviousBlogs();
+      // Remove from activeBlogs and refresh persisted blogs
+      removeTemporaryBlog(taskId, true);
+      await refetchStats();
     } catch (error) {
       logger.error('Failed to persist error state', error);
     }
-  }, [fetchPreviousBlogs, resetActiveConnection, state.activeConnectionId, updateJob, updateTemporaryBlog]);
+  }, [refetchStats, removeTemporaryBlog, resetActiveConnection, state.activeConnectionId, updateJob, updateTemporaryBlog]);
 
   // Start polling for queued blogs that transition to IN_PROGRESS
   const startPollingForNextBlog = useCallback(() => {
