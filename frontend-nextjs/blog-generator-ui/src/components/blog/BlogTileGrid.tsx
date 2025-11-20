@@ -15,6 +15,10 @@ interface BlogTileGridProps {
   onBulkDeleteBlogs?: (blogIds: string[]) => void;
   isLoading?: boolean;
   className?: string;
+  // Queue-related optional handlers
+  onViewLogs?: (taskId: string) => void;
+  onViewDraft?: (taskId: string) => void;
+  onRetry?: (blogId: string) => void;
 }
 
 type SortOption = 'newest' | 'oldest' | 'title-asc' | 'title-desc';
@@ -26,7 +30,10 @@ export function BlogTileGrid({
   onBlogDelete,
   onBulkDeleteBlogs, 
   isLoading = false, 
-  className = "" 
+  className = "",
+  onViewLogs,
+  onViewDraft,
+  onRetry
 }: BlogTileGridProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
@@ -250,11 +257,14 @@ export function BlogTileGrid({
           onSelectionToggle={toggleBlogSelection}
           onLongPress={handleLongPress}
           onMouseUp={handleMouseUp}
+          onViewLogs={onViewLogs}
+          onViewDraft={onViewDraft}
+          onRetry={onRetry}
           className="h-full"
         />
       </div>
     );
-  }, [columnCount, handleLongPress, handleMouseUp, onBlogDelete, onBlogView, processedBlogs, selectionState.isSelectionMode, selectionState.pulsingBlogId, selectionState.selectedBlogIds, toggleBlogSelection]);
+  }, [columnCount, handleLongPress, handleMouseUp, onBlogDelete, onBlogView, onViewLogs, onViewDraft, onRetry, processedBlogs, selectionState.isSelectionMode, selectionState.pulsingBlogId, selectionState.selectedBlogIds, toggleBlogSelection]);
 
   const renderListItem = useCallback(({ index, style }: ListChildComponentProps) => {
     const blog = processedBlogs[index];
@@ -271,11 +281,14 @@ export function BlogTileGrid({
           onSelectionToggle={toggleBlogSelection}
           onLongPress={handleLongPress}
           onMouseUp={handleMouseUp}
+          onViewLogs={onViewLogs}
+          onViewDraft={onViewDraft}
+          onRetry={onRetry}
           className="w-full"
         />
       </div>
     );
-  }, [handleLongPress, handleMouseUp, onBlogDelete, onBlogView, processedBlogs, selectionState.isSelectionMode, selectionState.pulsingBlogId, selectionState.selectedBlogIds, toggleBlogSelection]);
+  }, [handleLongPress, handleMouseUp, onBlogDelete, onBlogView, onViewLogs, onViewDraft, onRetry, processedBlogs, selectionState.isSelectionMode, selectionState.pulsingBlogId, selectionState.selectedBlogIds, toggleBlogSelection]);
 
   const gridItemKey = useCallback(({ columnIndex, rowIndex }: { columnIndex: number; rowIndex: number }) => {
     const index = rowIndex * columnCount + columnIndex;
@@ -470,6 +483,9 @@ export function BlogTileGrid({
                   onSelectionToggle={toggleBlogSelection}
                   onLongPress={handleLongPress}
                   onMouseUp={handleMouseUp}
+                  onViewLogs={onViewLogs}
+                  onViewDraft={onViewDraft}
+                  onRetry={onRetry}
                   className={viewMode === 'list' ? 'max-w-none' : ''}
                 />
               ))}

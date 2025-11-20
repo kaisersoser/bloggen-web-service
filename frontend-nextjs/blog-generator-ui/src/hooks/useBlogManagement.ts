@@ -156,6 +156,57 @@ export function useBlogManagement() {
     });
   }, []);
 
+  // Add a temporary blog to the previousBlogs list immediately when generation starts
+  const addTemporaryBlog = useCallback((blog: BlogData) => {
+    queryClient.setQueryData<BlogData[]>(['blogs'], (prev = []) => {
+      // Check if blog already exists
+      const existingIndex = prev.findIndex(b => b.id === blog.id);
+      if (existingIndex >= 0) {
+        // Update existing
+        const newBlogs = [...prev];
+        newBlogs[existingIndex] = { ...newBlogs[existingIndex], ...blog };
+        return newBlogs;
+      } else {
+        // Add new blog at the beginning
+        return [blog, ...prev];
+      }
+    });
+  }, [queryClient]);
+
+  // Update a temporary blog's status/progress
+  const updateTemporaryBlog = useCallback((blogId: string, updates: Partial<BlogData>) => {
+    logger.info('[updateTemporaryBlog] Updating blog', { blogId, updates });
+    
+    queryClient.setQueryData<BlogData[]>(['blogs'], (prev = []) => {
+      logger.info('[updateTemporaryBlog] Previous blogs count', { count: prev.length });
+      
+      // Create a completely new array to force React Query to detect the change
+      const updated = prev.map(blog => {
+        if (blog.id === blogId) {
+          const newBlog = { ...blog, ...updates, updatedAt: new Date().toISOString() };
+          logger.info('[updateTemporaryBlog] Found and updating blog', { 
+            blogId, 
+            oldStatus: blog.status, 
+            newStatus: newBlog.status 
+          });
+          return newBlog;
+        }
+        return blog;
+      });
+      
+      logger.info('[updateTemporaryBlog] Returning new array', { count: updated.length });
+      // Return a new array reference
+      return [...updated];
+    });
+  }, [queryClient]);
+
+  // Remove temporary blog (used when generation fails or is cancelled)
+  const removeTemporaryBlog = useCallback((blogId: string) => {
+    queryClient.setQueryData<BlogData[]>(['blogs'], (prev = []) => {
+      return prev.filter(blog => blog.id !== blogId);
+    });
+  }, [queryClient]);
+
   return {
     jobs,
     previousBlogs,
@@ -168,6 +219,9 @@ export function useBlogManagement() {
     deleteBlog,
     deleteTask,
     convertBlogToJob,
-    addTemporaryJob
+    addTemporaryJob,
+    addTemporaryBlog,
+    updateTemporaryBlog,
+    removeTemporaryBlog
   };
 }
