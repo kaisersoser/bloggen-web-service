@@ -18,11 +18,12 @@ import asyncio
 import gc
 import json
 import os
+import random
 import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import openai
 import uvicorn
@@ -72,12 +73,22 @@ from core.sse_message_types import (
     create_task_created_message,
 )
 from core.task_manager import task_manager
+from core.generation_queue_manager import queue_manager
+from core.generation_log_manager import GenerationLogManager
+from core.draft_content_manager import DraftContentManager
 
 from bloggen.flows import BlogGenerationFlow
 from bloggen.topic_utils import generate_concise_topic
 
 # Authentication (we'll migrate this next)
 # from auth_middleware import AuthMiddleware
+
+# =============================================================================
+# Global State and Event Loop Reference
+# =============================================================================
+
+# Global main event loop reference (set in lifespan startup)
+_main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # =============================================================================
 # FastAPI Application Setup with Lifespan Events
@@ -110,7 +121,9 @@ async def lifespan(app: FastAPI):
                 logger.addHandler(_handler)
             logger.setLevel(_logging.INFO)
 
-    logger.info("🚀 Starting FastAPI Blog Generation Service")
+    global _main_event_loop
+    _main_event_loop = asyncio.get_running_loop()
+    logger.info(f"🚀 Starting FastAPI Blog Generation Service (loop={id(_main_event_loop)})")
 
     # Set up LLM interceptor with context variables
     setup_llm_interceptor()
@@ -167,6 +180,12 @@ async def lifespan(app: FastAPI):
     message_buffer = RedisMessageBuffer(redis_manager, buffer_ttl_minutes=30)
     logger.info("✅ Redis message buffer initialized")
 
+    # Initialize generation log and draft managers
+    global log_manager, draft_manager
+    log_manager = GenerationLogManager(redis_manager)
+    draft_manager = DraftContentManager(redis_manager)
+    logger.info("✅ Generation log and draft managers initialized")
+
     # Connect managers to TaskManager for real-time updates
     task_manager.set_redis_manager(redis_manager)
     task_manager.set_content_streaming_manager(content_streaming_manager)
@@ -198,12 +217,33 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to initialize S3 cleanup queue: {e}")
 
+    # Register generation callback for queue manager
+    try:
+        queue_manager.set_generation_callback(async_blog_generation)
+        logger.info("✅ Queue manager generation callback registered")
+    except Exception as e:
+        logger.error(f"❌ Failed to register generation callback: {e}")
+
+    # Start generation queue worker
+    try:
+        await queue_manager.start_queue_worker()
+        logger.info("✅ Generation queue worker started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start queue worker: {e}")
+
     logger.info("✅ FastAPI application startup complete")
 
     yield  # Application runs here
 
     # Shutdown
     logger.info("🛑 Shutting down FastAPI Blog Generation Service")
+
+    # Stop generation queue worker
+    try:
+        await queue_manager.stop_queue_worker()
+        logger.info("✅ Generation queue worker stopped")
+    except Exception as e:
+        logger.warning(f"Queue worker shutdown error: {e}")
 
     # Shutdown S3 cleanup queue
     try:
@@ -375,6 +415,58 @@ class TitleGenerationResponse(BaseModel):
 
     title: str
     success: bool = True
+
+
+class RandomTopicResponse(BaseModel):
+    """Response model for random topic generation."""
+
+    topic: str
+    category: str
+    success: bool = True
+
+
+class QueueStatusResponse(BaseModel):
+    """Response model for queue status."""
+
+    current_job: Optional[str]
+    status: str
+    queued_count: int
+    user_queued_count: int
+    estimated_wait_time_seconds: int
+    stats: Dict[str, int]
+
+
+class LogEntry(BaseModel):
+    """Single log entry model."""
+
+    timestamp: str
+    step: str
+    message: str
+    progress: int
+    level: str = "info"
+
+
+class GenerationLogsResponse(BaseModel):
+    """Response model for generation logs."""
+
+    logs: List[LogEntry]
+    status: str
+
+
+class DraftContentResponse(BaseModel):
+    """Response model for draft content."""
+
+    draft: Dict[str, Any]
+    status: str
+
+
+class RegenerateResponse(BaseModel):
+    """Response model for blog regeneration."""
+
+    task_id: str
+    status: str
+    retry_count: int
+    message: str
 
 
 class TaskStatus(BaseModel):
@@ -741,6 +833,156 @@ async def get_system_metrics():
 # =============================================================================
 
 
+@app.post("/generate-random-topic", response_model=RandomTopicResponse)
+async def generate_random_topic(user: User = Depends(get_current_user)) -> RandomTopicResponse:
+    """
+    Generate a random, interesting blog topic using AI.
+    
+    This endpoint uses the configured default model (from .env DEFAULT_MODEL)
+    to dynamically generate creative and diverse blog topics across various 
+    categories including technology, business, health, science, culture, and more.
+    
+    Note: This endpoint uses config.models.default_model rather than hardcoding
+    any specific LLM model, following our configuration-first architecture principle.
+    """
+    try:
+        # Define diverse topic categories and prompts
+        categories = [
+            "Technology & Innovation",
+            "Artificial Intelligence & Machine Learning",
+            "Virtual Reality & Augmented Reality",
+            "Space Exploration & Astronomy",
+            "Futurism & Emerging Technologies",
+            "Business & Entrepreneurship",
+            "Leadership & Management",
+            "Career Development & Job Market",
+            "Remote Work & Freelancing",
+            "Workplace Culture & HR",
+            "Health & Wellness",
+            "Nutrition & Diet",
+            "Alternative Medicine & Holistic Health",
+            "Mindfulness & Meditation",
+            "Mental Health Awareness",
+            "Productivity & Personal Development",
+            "Environment & Sustainability",
+            "Science & Research",
+            "Society & Culture",
+            "Politics & Current Affairs",
+            "Human Rights & Social Justice",
+            "Philosophy & Ethics",
+            "Religion & Spirituality",
+            "Globalization & International Relations",
+            "Finance & Economics",
+            "Financial Planning & Investing Tips",
+            "Cryptocurrency & Blockchain",
+            "Education & Learning",
+            "Creative & Design",
+            "Photography & Visual Arts",
+            "DIY Tutorials & Guides",
+            "Tech Hacks & Coding",
+            "Travel & Exploration",
+            "Food & Culinary Arts",
+            "Cooking Recipes & Kitchen Hacks",
+            "Arts & Entertainment",
+            "Film & Television Reviews",
+            "Music & Performing Arts",
+            "Gaming & Esports",
+            "Social Media & Online Trends",
+            "History & Heritage",
+            "Psychology & Behavior",
+            "Sports & Fitness",
+            "Home & Interior Design",
+            "Parenting & Family Life",
+            "Relationships & Dating",
+            "Fashion & Style",
+            "Beauty & Grooming",
+            "Hobbies & DIY Projects",
+            "Pet Care & Animal Welfare",
+            "Automotive & Transportation",
+            "E-scooters & Urban Mobility",
+            "Luxury & Lifestyle",
+            "Collectibles & Pop Culture"
+        ]
+
+        
+        selected_category = random.choice(categories)
+        
+        # Use litellm for unified LLM interface (supports any model via configuration)
+        try:
+            import litellm
+        except ImportError:
+            logger.error("LiteLLM not available for topic generation")
+            raise HTTPException(
+                status_code=500, 
+                detail="LLM library not configured"
+            )
+        
+        prompt = f"""Generate ONE unique, interesting, and specific blog topic in the category: {selected_category}
+
+Requirements:
+- Be specific and engaging (e.g., "The future of quantum computing in drug discovery" not just "quantum computing")
+- 8-15 words maximum
+- Make it timely and relevant to 2025
+- Should inspire curiosity and be researchable
+- Use active, compelling language
+- Do NOT use questions or imperatives
+- Return ONLY the topic, nothing else
+
+Examples of good topics:
+- "The intersection of AI and personalized medicine in cancer treatment"
+- "Circular economy strategies transforming the fashion industry"
+- "Neuroscience insights into remote work productivity and focus"""
+        
+        # Use litellm.completion for unified interface across all LLM providers
+        response = litellm.completion(
+            model=config.models.default_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a creative blog topic generator. You produce specific, engaging, and researchable blog topics."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=50,
+            temperature=0.9,  # Higher temperature for more creativity
+        )
+        
+        # Extract topic from response (type: ignore for litellm dynamic response structure)
+        if not response or not response.choices:  # type: ignore
+            raise ValueError("Empty response from LLM")
+        
+        topic_content = response.choices[0].message.content  # type: ignore
+        if not topic_content:
+            raise ValueError("No content in LLM response")
+            
+        topic = topic_content.strip().strip('"').strip("'")
+        
+        logger.info(f"🎲 Generated random topic for user {user.email}: {topic} (category: {selected_category}, model: {config.models.default_model})")
+        
+        return RandomTopicResponse(
+            topic=topic,
+            category=selected_category,
+            success=True
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to generate random topic: {e}")
+        # Fallback to a predefined interesting topic if AI generation fails
+        fallback_topics = [
+            ("The evolution of artificial intelligence in creative industries", "Technology & Innovation"),
+            ("Sustainable business practices reshaping corporate culture", "Business & Entrepreneurship"),
+            ("The science behind habit formation and behavioral change", "Health & Wellness"),
+            ("Remote work productivity strategies for distributed teams", "Productivity & Personal Development"),
+            ("Renewable energy innovations powering the future", "Environment & Sustainability"),
+        ]
+        topic, category = random.choice(fallback_topics)
+        return RandomTopicResponse(
+            topic=topic,
+            category=category,
+            success=True
+        )
+
+
 @app.post("/generate-task-id")
 async def generate_task_id(user: User = Depends(get_current_user)) -> dict:
     """
@@ -911,23 +1153,26 @@ async def generate_blog(
                 logger.warning(f"Failed to send initial SSE messages: {e}")
                 # Don't fail the request for SSE issues - continue without real-time updates
 
-        # Start background blog generation
-        background_tasks.add_task(
-            async_blog_generation,
+        # Enqueue blog for generation (queue manager handles single-worker processing)
+        queue_result = await queue_manager.enqueue_blog(
             task_id=task_id,
-            topic=normalized_topic,  # may be None for auto-generation
             user_id=user.id,
-            instructions=normalized_instructions,
+            topic=normalized_topic,
+            instructions=normalized_instructions
         )
+        
+        # NOTE: Queue manager will trigger async_blog_generation via callback when ready
+        # Do NOT call background_tasks.add_task here - that bypasses the queue!
 
         logger.info(
-            f"🚀 Blog generation started: {task_id} for user {user.id} (correlation: {correlation_id})"
+            f"📥 Blog enqueued: {task_id} for user {user.id} "
+            f"(queue position: {queue_result.get('queue_position', '?')}, correlation: {correlation_id})"
         )
 
         return BlogGenerationResponse(
             task_id=task_id,
             status="queued",
-            message="Blog generation started. Connect to SSE stream for real-time updates.",
+            message=f"Blog queued for generation (position: {queue_result.get('queue_position', '?')}). Connect to SSE stream for real-time updates.",
         )
 
     except HTTPException:
@@ -941,6 +1186,250 @@ async def generate_blog(
         raise error_response_to_http_exception(
             create_system_error("blog_generation_init", str(e), correlation_id)
         )
+
+
+@app.get("/queue-status", response_model=QueueStatusResponse)
+async def get_queue_status(user: User = Depends(get_current_user)) -> QueueStatusResponse:
+    """
+    Get current generation queue status.
+    
+    Returns information about:
+    - Currently processing blog
+    - Number of queued blogs (total and user-specific)
+    - Estimated wait time
+    - Queue statistics
+    """
+    try:
+        status = await queue_manager.get_queue_status(user.id)
+        return QueueStatusResponse(**status)
+    except Exception as e:
+        logger.error(f"Error getting queue status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to get queue status")
+
+
+@app.get("/blogs/{task_id}/status")
+async def get_blog_status(
+    task_id: str,
+    user: User = Depends(get_current_user)
+):
+    """
+    Get current status of a blog generation task.
+    Used by frontend to poll for status changes without creating SSE connection.
+    """
+    try:
+        blog = await database_service.fetch_one(
+            "SELECT id, status, progress, current_step FROM blogs WHERE id = $1 AND user_id = $2",
+            task_id, user.id
+        )
+        
+        if not blog:
+            raise HTTPException(status_code=404, detail="Blog not found")
+        
+        return {
+            "task_id": task_id,
+            "status": blog["status"],
+            "progress": blog.get("progress", 0),
+            "currentStep": blog.get("current_step")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting blog status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to get blog status")
+
+
+@app.get("/generation-logs/{task_id}", response_model=GenerationLogsResponse)
+async def get_generation_logs(
+    task_id: str,
+    user: User = Depends(get_current_user)
+) -> GenerationLogsResponse:
+    """
+    Get generation logs for a task (only available during generation).
+    
+    Logs are automatically deleted after blog generation completes.
+    """
+    try:
+        # Verify user owns this task
+        task = await task_manager.get_task(task_id)
+        if not task or task.get("user_id") != user.id:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # Check if logs still exist
+        logs_exist = await log_manager.check_logs_exist(task_id)
+        if not logs_exist:
+            raise HTTPException(
+                status_code=404,
+                detail="Logs no longer available. Generation logs are only kept during active generation."
+            )
+        
+        # Get logs
+        logs = await log_manager.get_logs(task_id)
+        task_status = task.get("status", "unknown")
+        
+        return GenerationLogsResponse(
+            logs=[LogEntry(**log) for log in logs],
+            status=task_status
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting generation logs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve logs")
+
+
+@app.get("/draft/{task_id}", response_model=DraftContentResponse)
+async def get_draft_content(
+    task_id: str,
+    user: User = Depends(get_current_user)
+) -> DraftContentResponse:
+    """
+    Get partial draft content for a blog being generated.
+    
+    Draft content is only available during generation and is deleted on completion.
+    """
+    try:
+        # Verify user owns this task
+        task = await task_manager.get_task(task_id)
+        if not task or task.get("user_id") != user.id:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # Check if draft exists
+        has_draft = await draft_manager.has_draft(task_id)
+        if not has_draft:
+            raise HTTPException(
+                status_code=404,
+                detail="No draft available. Drafts are only available during active generation."
+            )
+        
+        # Get draft
+        draft = await draft_manager.get_draft(task_id)
+        task_status = task.get("status", "unknown")
+        
+        return DraftContentResponse(
+            draft=draft or {},
+            status=task_status
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting draft content: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve draft")
+
+
+@app.post("/regenerate-blog/{blog_id}", response_model=RegenerateResponse)
+async def regenerate_blog(
+    blog_id: str,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user)
+) -> RegenerateResponse:
+    """
+    Regenerate a failed blog.
+    
+    Creates a new task with incremented retry count.
+    Maximum 3 retries allowed per blog.
+    """
+    try:
+        # Get original blog
+        blog = await database_service.fetchrow(
+            """
+            SELECT id, user_id, topic, instructions, status, 
+                   COALESCE(retry_count, 0) as retry_count,
+                   COALESCE(max_retries, 3) as max_retries
+            FROM blogs
+            WHERE id = $1
+            """,
+            blog_id
+        )
+        
+        if not blog:
+            raise HTTPException(status_code=404, detail="Blog not found")
+        
+        # Verify ownership
+        if blog["user_id"] != user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to regenerate this blog")
+        
+        # Check if blog is in FAILED status
+        if blog["status"] != "FAILED":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Can only regenerate failed blogs. Current status: {blog['status']}"
+            )
+        
+        # Check retry limit
+        retry_count = blog["retry_count"]
+        max_retries = blog["max_retries"]
+        
+        if retry_count >= max_retries:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum retries ({max_retries}) exceeded. Please create a new blog request."
+            )
+        
+        # Create new task for retry
+        new_task_id = str(uuid.uuid4())
+        correlation_id = str(uuid.uuid4())[:8]
+        
+        # Set request context
+        set_request_context(
+            request_id=str(uuid.uuid4()),
+            task_id=new_task_id,
+            user_id=user.id,
+            user_email=user.email,
+            user_role=user.role,
+            blog_id=new_task_id,
+            topic=blog["topic"] or "<auto>",
+        )
+        
+        # Create new task with incremented retry count
+        await task_manager.create_task(
+            new_task_id,
+            user.id,
+            blog["topic"] or "<auto-generating>",
+            blog["instructions"]
+        )
+        
+        # Update retry count in database
+        await database_service.execute(
+            """
+            UPDATE blogs
+            SET retry_count = $1,
+                last_retry_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            """,
+            retry_count + 1,
+            new_task_id
+        )
+        
+        # Enqueue for generation (queue manager will handle via callback)
+        queue_result = await queue_manager.enqueue_blog(
+            task_id=new_task_id,
+            user_id=user.id,
+            topic=blog["topic"],
+            instructions=blog["instructions"]
+        )
+        
+        # NOTE: Queue manager will trigger async_blog_generation via callback when ready
+        # Do NOT call background_tasks.add_task here - that bypasses the queue!
+        
+        logger.info(
+            f"♻️ Blog regeneration enqueued: {new_task_id} (retry {retry_count + 1}/{max_retries}, "
+            f"original: {blog_id}, queue position: {queue_result.get('queue_position', '?')}, correlation: {correlation_id})"
+        )
+        
+        return RegenerateResponse(
+            task_id=new_task_id,
+            status="queued",
+            retry_count=retry_count + 1,
+            message=f"Blog re-queued for generation (attempt {retry_count + 1}/{max_retries})"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error regenerating blog: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to regenerate blog")
 
 
 @app.get("/tasks/active")
@@ -1329,6 +1818,47 @@ async def async_blog_generation(
             logger.info(
                 f"🔢 Task {task_id}: step {step} progress {progress}% (message: {message})"
             )
+            
+            # CRITICAL FIX: Append log to log_manager for retrieval via /generation-logs endpoint
+            # Use asyncio.run_coroutine_threadsafe to schedule in main event loop
+            try:
+                if _main_event_loop:
+                    # Schedule coroutine in the main event loop from background thread
+                    asyncio.run_coroutine_threadsafe(
+                        log_manager.append_log(
+                            task_id,
+                            step=message_type,
+                            message=message,
+                            progress=progress
+                        ),
+                        _main_event_loop
+                    )
+                else:
+                    logger.warning(f"Main event loop not available, skipping log append for {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to append log for task {task_id}: {e}", exc_info=True)
+            
+            # CRITICAL: Publish SSE message for real-time log updates in UI
+            try:
+                # Publish to Redis for SSE streaming
+                if task_manager._redis_manager and _main_event_loop:
+                    asyncio.run_coroutine_threadsafe(
+                        task_manager._redis_manager.publish_immediate_message(
+                            task_id,
+                            {
+                                "message_type": message_type,
+                                "message": message,
+                                "step": message_type,
+                                "progress": progress,
+                                "timestamp": datetime.utcnow().isoformat(),
+                            }
+                        ),
+                        _main_event_loop
+                    )
+                else:
+                    logger.warning(f"Redis or main loop not available, skipping SSE message for {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to publish SSE message for task {task_id}: {e}", exc_info=True)
 
             # Detect if running in CrewAI Flow thread context to avoid asyncio conflicts
             import threading
@@ -1623,6 +2153,15 @@ async def async_blog_generation(
                 logger.info(
                     f"✅ Task {task_id} completed - Blog content length: {len(blog_content)} chars"
                 )
+                
+                # Mark job as completed in queue manager
+                await queue_manager.mark_job_completed(task_id, success=True)
+                logger.info(f"✅ Queue manager: Job {task_id} marked as completed")
+                
+                # Cleanup logs and drafts after successful completion
+                await log_manager.cleanup_logs(task_id)
+                await draft_manager.cleanup_draft(task_id)
+                logger.info(f"🗑️ Logs and drafts cleaned up for {task_id}")
 
         # End the audit session AFTER hero image to include its cost
         if audit_tracker:
@@ -1670,6 +2209,15 @@ async def async_blog_generation(
         # Update task with enhanced error details for SSE visibility
         error_details = f"{type(e).__name__}: {str(e)}"
         await task_manager.fail_task(task_id, error_details)
+        
+        # Mark job as failed in queue manager
+        await queue_manager.mark_job_completed(task_id, success=False)
+        logger.info(f"❌ Queue manager: Job {task_id} marked as failed")
+        
+        # Cleanup logs and drafts after failure
+        await log_manager.cleanup_logs(task_id, delay_seconds=60)  # Keep for 1 minute
+        await draft_manager.cleanup_draft(task_id)
+        logger.info(f"🗑️ Logs and drafts cleanup scheduled for {task_id}")
 
         # Cleanup all resources for this task
         if cleanup_context:

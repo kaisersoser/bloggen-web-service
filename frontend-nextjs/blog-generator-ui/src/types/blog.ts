@@ -30,6 +30,7 @@ export interface BlogData {
   createdAt: string; // ISO
   updatedAt: string; // ISO
   completedAt: string | null; // ISO or null
+  taskId?: string; // Optional task ID for tracking generation progress
 }
 
 export interface BlogGenerationResponse {
@@ -138,6 +139,7 @@ export interface LogEntry {
   step: string;
   message: string;
   progress: number;
+  level?: string; // 'info', 'success', 'warning', 'error'
 }
 
 export interface LogUpdate {
