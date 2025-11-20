@@ -57,7 +57,7 @@ export function BlogGenerationConsole({ isGenerating, logs, generationStartTime 
       {!consoleCollapsed && (
         <div ref={logsRef} className="h-64 overflow-y-auto bg-black dark:bg-gray-950 p-4 font-mono text-sm">
           {logs.length === 0 && isGenerating ? (
-            <div className="text-gray-400"><span className="animate-pulse">Initializing CrewAI workflow...</span></div>
+            <div className="text-gray-400"><span className="animate-pulse">Initializing blog generation...</span></div>
           ) : (
             <div className="space-y-1">
               {logs.map((log, idx) => (

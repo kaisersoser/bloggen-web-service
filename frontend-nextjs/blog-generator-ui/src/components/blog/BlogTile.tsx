@@ -11,7 +11,9 @@ import {
   Sparkles,
   CheckCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  FileText,
+  RefreshCw
 } from "lucide-react";
 import { formatDistanceToNow } from 'date-fns';
 
@@ -24,11 +26,12 @@ const getWordCount = (content: string | null | undefined): number => {
 interface BlogTileProps {
   blog: {
     id: string;
+    taskId?: string;
     topic?: string;
     instructions?: string | null;
     heroImageUrl?: string | null;
     createdAt?: string;
-    status?: 'completed' | 'generating' | 'error';
+    status?: 'completed' | 'generating' | 'error' | 'in_progress' | 'queued' | 'failed';
     progress?: number;
     content?: string | null;
   };
@@ -41,6 +44,10 @@ interface BlogTileProps {
   onLongPress?: (blogId: string) => void;
   onMouseUp?: () => void;
   className?: string;
+  // Queue-related optional handlers
+  onViewLogs?: (taskId: string) => void;
+  onViewDraft?: (taskId: string) => void;
+  onRetry?: (blogId: string) => void;
 }
 
 function BlogTileComponent({ 
@@ -53,7 +60,10 @@ function BlogTileComponent({
   onSelectionToggle,
   onLongPress,
   onMouseUp,
-  className = "" 
+  className = "",
+  onViewLogs,
+  onViewDraft,
+  onRetry
 }: BlogTileProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -87,8 +97,12 @@ function BlogTileComponent({
       case 'completed':
         return <CheckCircle className="w-4 h-4 text-green-500" />;
       case 'generating':
+      case 'in_progress':
         return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+      case 'queued':
+        return <Sparkles className="w-4 h-4 text-purple-500" />;
       case 'error':
+      case 'failed':
         return <AlertCircle className="w-4 h-4 text-red-500" />;
       default:
         return <CheckCircle className="w-4 h-4 text-green-500" />;
@@ -100,8 +114,12 @@ function BlogTileComponent({
       case 'completed':
         return 'Published';
       case 'generating':
+      case 'in_progress':
         return 'Generating...';
+      case 'queued':
+        return 'Queued';
       case 'error':
+      case 'failed':
         return 'Failed';
       default:
         return 'Published';
@@ -197,8 +215,10 @@ function BlogTileComponent({
               backdrop-blur-sm border
               ${blog.status === 'completed' 
                 ? 'bg-green-50/80 text-green-700 border-green-200' 
-                : blog.status === 'generating'
+                : (blog.status === 'generating' || blog.status === 'in_progress')
                 ? 'bg-blue-50/80 text-blue-700 border-blue-200'
+                : blog.status === 'queued'
+                ? 'bg-purple-50/80 text-purple-700 border-purple-200'
                 : 'bg-red-50/80 text-red-700 border-red-200'
               }
             `}>
@@ -211,18 +231,70 @@ function BlogTileComponent({
           {!isSelectionMode && (
             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
               <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onView(blog);
-                  }}
-                >
-                  <Eye className="w-4 h-4 mr-1" />
-                  View
-                </Button>
+                {/* View Logs Button - shown for in_progress or failed blogs */}
+                {(blog.status === 'in_progress' || blog.status === 'generating' || blog.status === 'failed' || blog.status === 'queued') && onViewLogs && (blog.taskId || blog.id) && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewLogs(blog.taskId || blog.id);
+                    }}
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    Logs
+                  </Button>
+                )}
+                
+                {/* View Draft Button - shown for in_progress blogs */}
+                {(blog.status === 'in_progress' || blog.status === 'generating') && onViewDraft && (blog.taskId || blog.id) && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewDraft(blog.taskId || blog.id);
+                    }}
+                  >
+                    <FileText className="w-4 h-4 mr-1" />
+                    Draft
+                  </Button>
+                )}
+                
+                {/* Retry Button - shown for failed blogs */}
+                {blog.status === 'failed' && onRetry && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="bg-amber-500/90 hover:bg-amber-600 text-white backdrop-blur-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRetry(blog.id);
+                    }}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                    Retry
+                  </Button>
+                )}
+                
+                {/* View Button - always shown for completed blogs */}
+                {blog.status === 'completed' && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onView(blog);
+                    }}
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    View
+                  </Button>
+                )}
+                
                 <Button
                   size="sm"
                   variant="destructive"
@@ -282,6 +354,7 @@ function areBlogPropsEqual(prev: BlogTileProps, next: BlogTileProps): boolean {
 
   const blogChanged =
     prevBlog.id !== nextBlog.id ||
+    prevBlog.taskId !== nextBlog.taskId ||
     prevBlog.topic !== nextBlog.topic ||
     prevBlog.instructions !== nextBlog.instructions ||
     prevBlog.heroImageUrl !== nextBlog.heroImageUrl ||

@@ -65,22 +65,33 @@ model VerificationToken {
 }
 
 model Blog {
-  id            String         @id
-  userId        String         @map("user_id")
-  topic         String
-  instructions  String?
-  content       String?
-  status        BlogStatus     @default(QUEUED)
-  progress      Int            @default(0)
-  currentStep   String?        @map("current_step")
-  error         String?
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  completedAt   DateTime?      @map("completed_at")
-  heroImageUrl  String?        @map("hero_image_url")
-  auditSessions AuditSession[]
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String         @id
+  userId          String         @map("user_id")
+  topic           String
+  instructions    String?
+  content         String?
+  status          BlogStatus     @default(QUEUED)
+  progress        Int            @default(0)
+  currentStep     String?        @map("current_step")
+  error           String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  completedAt     DateTime?      @map("completed_at")
+  heroImageUrl    String?        @map("hero_image_url")
+  
+  // Queue management fields
+  queuePosition   Int?           @map("queue_position")
+  retryCount      Int            @default(0) @map("retry_count")
+  maxRetries      Int            @default(3) @map("max_retries")
+  failureReason   String?        @map("failure_reason")
+  lastRetryAt     DateTime?      @map("last_retry_at")
+  
+  auditSessions   AuditSession[]
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([status, createdAt])
+  @@index([userId, status, createdAt])
+  @@index([queuePosition])
   @@map("blogs")
 }
 
