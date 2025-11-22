@@ -1,4 +1,5 @@
 import { BlogData, BlogGenerationResponse, ApiBlogDto, mapApiBlog, ErrorInfo } from '@/types/blog';
+import { QueueStatus, GenerationLog, DraftContent } from '@/types/queue';
 import { api } from '../api-client';
 import { getBackendUrl } from '@/config/protocol';
 import { logger } from '@/lib/logger';
@@ -99,6 +100,43 @@ class BlogService {
     }
   }
 
+  async getBlogStatus(taskId: string): Promise<{ task_id: string; status: string; progress: number; currentStep?: string }> {
+    const backendUrl = getBackendUrl();
+    
+    try {
+      let token: string | null = null;
+      try {
+        token = await authTokenManager.getToken();
+      } catch (error) {
+        if (error instanceof AuthTokenError && error.status === 401) {
+          throw new Error('Authentication required');
+        }
+        throw new Error('Failed to get auth token');
+      }
+
+      if (!token) {
+        throw new Error('Failed to get auth token');
+      }
+
+      const response = await fetch(`${backendUrl}/blogs/${taskId}/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get blog status: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      logger.error('Error getting blog status', { error });
+      throw error;
+    }
+  }
+
   async updateBlogCompletion(blogId: string, status: string, content?: string, error?: ErrorInfo, heroImageUrl?: string) {
     // Ensure status is exactly what the API expects
     const validStatus = status === 'completed' ? 'completed' : 'failed';
@@ -145,6 +183,109 @@ class BlogService {
       // Fallback to a simple truncated version of instructions
       return instructions.substring(0, 50) + '...';
     }
+  }
+
+  // ========== Queue Management Methods ==========
+  
+  async getQueueStatus(): Promise<QueueStatus> {
+    const backendUrl = getBackendUrl();
+    const token = await authTokenManager.getToken();
+    
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+
+    const response = await fetch(`${backendUrl}/queue-status`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch queue status: ${response.statusText}`);
+    }
+
+    return await response.json();
+  }
+
+  async getGenerationLogs(taskId: string): Promise<GenerationLog[]> {
+    const backendUrl = getBackendUrl();
+    const token = await authTokenManager.getToken();
+    
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+
+    const response = await fetch(`${backendUrl}/generation-logs/${taskId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return []; // Logs have been cleaned up
+      }
+      throw new Error(`Failed to fetch generation logs: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.logs || [];
+  }
+
+  async getDraft(taskId: string): Promise<DraftContent | null> {
+    const backendUrl = getBackendUrl();
+    const token = await authTokenManager.getToken();
+    
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+
+    const response = await fetch(`${backendUrl}/draft/${taskId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null; // No draft available
+      }
+      throw new Error(`Failed to fetch draft: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.draft || null;
+  }
+
+  async retryBlog(blogId: string): Promise<{ task_id: string; message: string }> {
+    const backendUrl = getBackendUrl();
+    const token = await authTokenManager.getToken();
+    
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+
+    const response = await fetch(`${backendUrl}/regenerate-blog/${blogId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: response.statusText }));
+      throw new Error(error.message || 'Failed to retry blog generation');
+    }
+
+    return await response.json();
   }
 }
 

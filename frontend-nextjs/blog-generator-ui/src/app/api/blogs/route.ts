@@ -14,7 +14,14 @@ export async function GET() {
 
     const blogs = await BlogService.getUserBlogs(session.user.id)
 
-    return NextResponse.json({ blogs })
+    // Normalize status values from database enum (UPPERCASE) to lowercase for frontend
+    const normalizedBlogs = blogs.map(blog => ({
+      ...blog,
+      status: blog.status.toLowerCase(), // Convert QUEUED -> queued, IN_PROGRESS -> in_progress, etc.
+      taskId: blog.id, // Ensure taskId is available for log/draft fetching
+    }))
+
+    return NextResponse.json({ blogs: normalizedBlogs })
 
   } catch (error) {
     serverLogger.error("Error fetching user blogs", error)

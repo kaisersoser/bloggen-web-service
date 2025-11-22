@@ -1,19 +1,12 @@
 "use client";
 
-import React, { useId } from "react";
+import React, { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Send, Clock } from "lucide-react";
+import { Loader2, Send, Clock, Wand2 } from "lucide-react";
 
 type UserRole = "FREE" | "PREMIUM" | "ADMIN";
-
-const SUGGESTIONS = [
-  "AI and machine learning trends",
-  "Sustainable business practices",
-  "Remote work productivity tips",
-  "Digital marketing strategies",
-];
 
 interface PromptInstructionsPanelProps {
   prompt: string;
@@ -43,9 +36,49 @@ export function PromptInstructionsPanel({
   userRole,
 }: PromptInstructionsPanelProps) {
   const textareaId = useId();
+  const [isGeneratingTopic, setIsGeneratingTopic] = useState(false);
 
-  const handleSuggestionClick = (suggestion: string) => {
-    onPromptChange(suggestion);
+  const handleFeelingLucky = async () => {
+    setIsGeneratingTopic(true);
+    
+    try {
+      // Get JWT token for API authentication
+      const tokenResponse = await fetch('/api/auth/jwt-token');
+      if (!tokenResponse.ok) {
+        throw new Error('Failed to get authentication token');
+      }
+      const { token } = await tokenResponse.json();
+      
+      // Call backend API to generate random topic
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-random-topic`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate topic');
+      }
+      
+      const data = await response.json();
+      onPromptChange(data.topic);
+    } catch (error) {
+      console.error('Error generating random topic:', error);
+      // Fallback to a simple predefined topic if API fails
+      const fallbackTopics = [
+        "The evolution of artificial intelligence in creative industries",
+        "Sustainable business practices reshaping corporate culture",
+        "The science behind habit formation and behavioral change",
+        "Remote work productivity strategies for distributed teams",
+        "Renewable energy innovations powering the future",
+      ];
+      const randomTopic = fallbackTopics[Math.floor(Math.random() * fallbackTopics.length)];
+      onPromptChange(randomTopic);
+    } finally {
+      setIsGeneratingTopic(false);
+    }
   };
 
   const isSubmitDisabled =
@@ -94,19 +127,22 @@ export function PromptInstructionsPanel({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <span className="text-sm text-gray-500 dark:text-gray-400 mr-2">Try:</span>
-          {SUGGESTIONS.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              onClick={() => handleSuggestionClick(suggestion)}
-              disabled={isGenerating || disabled || isAtLimit}
-              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full transition-comfortable disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {suggestion}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            onClick={handleFeelingLucky}
+            disabled={isGenerating || disabled || isAtLimit || isGeneratingTopic}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 dark:from-purple-900/20 dark:to-blue-900/20 dark:hover:from-purple-900/30 dark:hover:to-blue-900/30 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 transition-comfortable disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isGeneratingTopic ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Wand2 className="w-4 h-4" />
+            )}
+            <span>Inspire Me</span>
+          </Button>
           {typeof remainingGenerations === 'number' && !isAtLimit && (
             <div className="ml-auto flex items-center gap-1 text-xs text-gray-400 transition-comfortable">
               <Clock className="w-3 h-3" />

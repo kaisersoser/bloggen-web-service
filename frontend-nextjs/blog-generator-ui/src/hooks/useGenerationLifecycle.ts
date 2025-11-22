@@ -19,6 +19,9 @@ interface UseGenerationLifecycleParams {
   refetchStats: () => Promise<unknown>;
   fetchPreviousBlogs: () => Promise<unknown>;
   addTemporaryJob: (job: JobState) => void;
+  addTemporaryBlog: (blog: BlogData) => void;
+  updateTemporaryBlog: (blogId: string, updates: Partial<BlogData>) => void;
+  removeTemporaryBlog: (blogId: string, shouldRefresh?: boolean) => void;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
 }
@@ -40,9 +43,15 @@ export function useGenerationLifecycle({
   refetchStats,
   fetchPreviousBlogs,
   addTemporaryJob,
+  addTemporaryBlog,
+  updateTemporaryBlog,
+  removeTemporaryBlog,
   isAuthenticated,
   isAuthLoading,
 }: UseGenerationLifecycleParams): UseGenerationLifecycleReturn {
+  // Polling state - only poll when no SSE connection is active
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isPollingRef = useRef(false);
   const { handleAuthError } = useAuthenticationErrorHandler();
   const { connectToTaskStream, closeConnection, completedTasksRef } = useEnhancedSSEConnection();
   const firstUpdateReceivedRef = useRef<string | null>(null);
@@ -113,18 +122,35 @@ export function useGenerationLifecycle({
         completedAt: new Date().toISOString(),
         heroImageUrl: heroImageUrl || null,
       };
+      
+      // Update blog to completed in activeBlogs
+      updateTemporaryBlog(taskId, {
+        status: 'completed',
+        progress: 100,
+        currentStep: 'Blog generation complete!',
+        content,
+        heroImageUrl: heroImageUrl || null,
+        completedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      
       actions.setSelectedBlog(blogData);
       actions.setShowBlogModal(true);
     }
 
     deleteJob(taskId);
 
-    try {
-      await Promise.all([refetchStats(), fetchPreviousBlogs()]);
-    } catch (error) {
-      logger.error('Failed to refresh data after completion', error);
-    }
-  }, [actions, deleteJob, fetchPreviousBlogs, jobs, previousBlogs.length, refetchStats, resetActiveConnection, state.activeConnectionId, updateJob]);
+    // Remove from activeBlogs and refresh persisted blogs
+    setTimeout(async () => {
+      try {
+        // Remove completed blog from activeBlogs and fetch fresh data
+        removeTemporaryBlog(taskId, true);
+        await refetchStats();
+      } catch (error) {
+        logger.error('Failed to refresh data after completion', error);
+      }
+    }, 500);
+  }, [actions, deleteJob, jobs, previousBlogs.length, refetchStats, removeTemporaryBlog, resetActiveConnection, state.activeConnectionId, updateJob, updateTemporaryBlog]);
 
   const handleTaskError = useCallback(async (taskId: string, errorMessage: string) => {
     const errorInfo: ErrorInfo = {
@@ -146,6 +172,15 @@ export function useGenerationLifecycle({
       connectionMessage: errorMessage,
       connectionUpdatedAt: new Date().toISOString(),
     });
+    
+    // Update blog to failed in activeBlogs
+    updateTemporaryBlog(taskId, {
+      status: 'failed',
+      progress: 0,
+      currentStep: 'Generation failed',
+      error: errorInfo,
+      updatedAt: new Date().toISOString(),
+    });
 
     if (state.activeConnectionId === taskId) {
       resetActiveConnection();
@@ -153,10 +188,135 @@ export function useGenerationLifecycle({
 
     try {
       await blogService.updateBlogCompletion(taskId, 'failed', undefined, errorInfo);
+      // Remove from activeBlogs and refresh persisted blogs
+      removeTemporaryBlog(taskId, true);
+      await refetchStats();
     } catch (error) {
       logger.error('Failed to persist error state', error);
     }
-  }, [resetActiveConnection, state.activeConnectionId, updateJob]);
+  }, [refetchStats, removeTemporaryBlog, resetActiveConnection, state.activeConnectionId, updateJob, updateTemporaryBlog]);
+
+  // Start polling for queued blogs that transition to IN_PROGRESS
+  const startPollingForNextBlog = useCallback(() => {
+    // Don't start polling if already polling or if SSE connection is active
+    if (isPollingRef.current || state.activeConnectionId) {
+      return;
+    }
+
+    isPollingRef.current = true;
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        // Find all queued blogs (both from jobs and temporary blogs)
+        const queuedBlogs = jobs.filter(job => job.status === 'queued');
+        const queuedTempBlogs = previousBlogs.filter(blog => blog.status === 'queued');
+        
+        // Check each queued blog's status
+        for (const blog of [...queuedBlogs, ...queuedTempBlogs]) {
+          const taskId = blog.id;
+          
+          try {
+            const statusResponse = await blogService.getBlogStatus(taskId);
+            
+            // If status changed to IN_PROGRESS, stop polling and connect SSE
+            if (statusResponse.status === 'IN_PROGRESS') {
+              logger.info(`Blog ${taskId} started processing, connecting SSE`, statusResponse);
+              
+              // Stop polling
+              stopPollingForNextBlog();
+              
+              // Update blog card to show in_progress (lowercase for frontend display)
+              updateTemporaryBlog(taskId, {
+                status: 'in_progress',
+                progress: statusResponse.progress || 0,
+                currentStep: statusResponse.currentStep || 'Processing...',
+                updatedAt: new Date().toISOString(),
+              });
+              
+              updateJob(taskId, {
+                status: 'in_progress',
+                progress: statusResponse.progress || 0,
+                currentStep: statusResponse.currentStep || 'Processing...',
+              });
+              
+              // Now create SSE connection
+              await connectToTaskStream(
+                taskId,
+                (updateTaskId: string, updates: Partial<JobState>) => {
+                  if (logger.shouldLog('debug')) {
+                    logger.debug('SSE Update received', { updateTaskId, updates });
+                  }
+                  updateJob(updateTaskId, updates);
+                  
+                  updateTemporaryBlog(updateTaskId, {
+                    status: updates.status || 'in_progress',
+                    progress: updates.progress,
+                    currentStep: updates.currentStep,
+                    updatedAt: new Date().toISOString(),
+                  });
+                  
+                  if (firstUpdateReceivedRef.current !== updateTaskId) {
+                    firstUpdateReceivedRef.current = updateTaskId;
+                  }
+                },
+                (completeTaskId: string, content: string, heroImageUrl?: string) => {
+                  handleTaskCompletion(completeTaskId, content, heroImageUrl);
+                  // After completion, resume polling for next queued blog
+                  startPollingForNextBlog();
+                },
+                (errorTaskId: string, errorMessage: string) => {
+                  handleTaskError(errorTaskId, errorMessage);
+                  // After error, resume polling for next queued blog
+                  startPollingForNextBlog();
+                },
+                (logTaskId: string, log: LogEntry) => {
+                  actions.appendTaskLog(logTaskId, log);
+                },
+                handleConnectionStateChange
+              );
+              
+              actions.setActiveConnectionId(taskId);
+              
+              // Only connect to one blog at a time
+              break;
+            }
+          } catch (error) {
+            logger.error(`Error checking status for blog ${taskId}`, error);
+          }
+        }
+        
+        // If no queued blogs found, stop polling
+        if (queuedBlogs.length === 0 && queuedTempBlogs.length === 0) {
+          stopPollingForNextBlog();
+        }
+      } catch (error) {
+        logger.error('Error in polling loop', error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    if (logger.shouldLog('debug')) {
+      logger.debug('Started polling for next blog in queue');
+    }
+  }, [state.activeConnectionId, jobs, previousBlogs, updateJob, updateTemporaryBlog, actions, connectToTaskStream, handleConnectionStateChange, handleTaskCompletion, handleTaskError]);
+
+  const stopPollingForNextBlog = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    isPollingRef.current = false;
+    
+    if (logger.shouldLog('debug')) {
+      logger.debug('Stopped polling for next blog');
+    }
+  }, []);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopPollingForNextBlog();
+    };
+  }, [stopPollingForNextBlog]);
 
   const handleGenerateBlog = useCallback(async (topic: string, instructions: string) => {
     if (logger.shouldLog('debug')) {
@@ -181,16 +341,19 @@ export function useGenerationLifecycle({
       return;
     }
 
-    if (state.activeConnectionId) {
-      closeConnection();
-      actions.setActiveConnectionId(null);
-    }
+    // Don't close existing connections - we support multiple concurrent generations
+    // if (state.activeConnectionId) {
+    //   closeConnection();
+    //   actions.setActiveConnectionId(null);
+    // }
 
     try {
       actions.setGenerationError(null);
-      actions.setIsGenerating(true);
+      // Don't block the form - user can submit multiple blogs
+      // actions.setIsGenerating(true); // REMOVED - no need to block
       actions.setCreatingNew(false);
-      completedTasksRef.current.clear();
+      // Don't clear completed tasks - we track multiple
+      // completedTasksRef.current.clear();
       firstUpdateReceivedRef.current = null;
 
       const taskId = await blogService.generateTaskId();
@@ -209,7 +372,31 @@ export function useGenerationLifecycle({
 
       createJob(taskId, trimmedTopic, trimmedInstructions);
       actions.setCurrentJobId(taskId);
-      actions.setActiveConnectionId(taskId);
+      // Track this as an active connection (we support multiple now)
+      // Don't overwrite - just add to the list
+      if (!state.activeConnectionId) {
+        actions.setActiveConnectionId(taskId);
+      }
+
+      // Create temporary blog card immediately so it appears in the UI
+      // Start with 'queued' status - backend will update to 'in_progress' when it starts processing
+      const temporaryBlog: BlogData = {
+        id: taskId,
+        userId: '',
+        topic: trimmedTopic,
+        instructions: trimmedInstructions || null,
+        content: null,
+        status: 'queued',
+        progress: 0,
+        currentStep: 'Queued for generation...',
+        error: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        completedAt: null,
+        heroImageUrl: null,
+        taskId: taskId,
+      };
+      addTemporaryBlog(temporaryBlog);
 
       const generationResponse = await blogService.generateBlog(trimmedTopic, trimmedInstructions, taskId);
 
@@ -229,41 +416,12 @@ export function useGenerationLifecycle({
 
       actions.appendTaskLog(taskId, connectionLog);
 
-      try {
-        await connectToTaskStream(
-          taskId,
-          (updateTaskId: string, updates: Partial<JobState>) => {
-            if (logger.shouldLog('debug')) {
-              logger.debug('SSE Update received', { updateTaskId, updates });
-            }
-            updateJob(updateTaskId, updates);
-            if (firstUpdateReceivedRef.current !== updateTaskId) {
-              firstUpdateReceivedRef.current = updateTaskId;
-            }
-          },
-          (completeTaskId: string, content: string, heroImageUrl?: string) => {
-            actions.setIsGenerating(false);
-            handleTaskCompletion(completeTaskId, content, heroImageUrl);
-          },
-          handleTaskError,
-          (logTaskId: string, log: LogEntry) => {
-            actions.appendTaskLog(logTaskId, log);
-          },
-          handleConnectionStateChange
-        );
-      } catch (connectionError) {
-        logger.error('Failed to start SSE stream', connectionError);
-
-        if (connectionError instanceof Error) {
-          const wasAuthError = handleAuthError(connectionError);
-          if (wasAuthError) {
-            actions.setIsGenerating(false);
-            return;
-          }
-        }
-
-        actions.setGenerationError('Real-time updates unavailable, but your blog is being generated in the background. Refresh the page in a few minutes to see your completed blog.');
-        actions.setIsGenerating(false);
+      // Don't create SSE connection immediately - wait for backend to start processing
+      // Start polling to detect when this blog transitions from QUEUED to IN_PROGRESS
+      startPollingForNextBlog();
+      
+      if (logger.shouldLog('debug')) {
+        logger.debug('Started polling for blog to begin processing', { taskId });
       }
     } catch (error) {
       logger.error('Error starting blog generation', error);
@@ -271,7 +429,6 @@ export function useGenerationLifecycle({
       if (error instanceof Error) {
         const wasAuthError = handleAuthError(error);
         if (wasAuthError) {
-          actions.setIsGenerating(false);
           return;
         }
       }
@@ -282,10 +439,8 @@ export function useGenerationLifecycle({
       if (state.activeConnectionId) {
         actions.setActiveConnectionId(null);
       }
-
-      actions.setIsGenerating(false);
     }
-  }, [actions, canGenerate, closeConnection, completedTasksRef, connectToTaskStream, createJob, handleAuthError, handleTaskCompletion, handleTaskError, handleConnectionStateChange, state.activeConnectionId, state.taskLogs, updateJob]);
+  }, [actions, addTemporaryBlog, canGenerate, createJob, handleAuthError, startPollingForNextBlog, state.activeConnectionId, state.taskLogs, updateTemporaryBlog]);
 
   // Recover any active jobs on initial load
   useEffect(() => {

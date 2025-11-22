@@ -290,7 +290,7 @@ async def get_user_blogs_rls(user_id: str) -> list:
         result = await conn.fetch(
             """
             SELECT * FROM blogs
-            ORDER BY "createdAt" DESC
+            ORDER BY created_at DESC
         """
         )
         return [dict(row) for row in result]
@@ -303,7 +303,7 @@ async def get_user_blog_logs_rls(user_id: str, blog_id: Optional[str] = None) ->
             result = await conn.fetch(
                 """
                 SELECT * FROM blog_logs
-                WHERE "blogId" = $1
+                WHERE blog_id = $1
                 ORDER BY timestamp DESC
             """,
                 blog_id,
@@ -312,9 +312,11 @@ async def get_user_blog_logs_rls(user_id: str, blog_id: Optional[str] = None) ->
             result = await conn.fetch(
                 """
                 SELECT bl.* FROM blog_logs bl
-                JOIN blogs b ON bl."blogId" = b.id
+                JOIN blogs b ON bl.blog_id = b.id
+                WHERE b.user_id = $1
                 ORDER BY bl.timestamp DESC
-            """
+            """,
+                user_id,
             )
         return [dict(row) for row in result]
 
@@ -325,11 +327,11 @@ async def get_user_audit_summary_rls(user_id: str) -> dict:
         result = await conn.fetch(
             """
             SELECT
-                COALESCE(SUM("totalCost"), 0) as total_cost,
-                COALESCE(SUM("totalTokens"), 0) as total_tokens,
+                COALESCE(SUM(total_cost), 0) as total_cost,
+                COALESCE(SUM(total_tokens), 0) as total_tokens,
                 COUNT(*) as session_count
             FROM audit_sessions
-            WHERE "userId" = $1
+            WHERE user_id = $1
         """,
             user_id,
         )
@@ -351,7 +353,7 @@ async def admin_get_all_users_rls() -> list:
         result = await conn.fetch(
             """
             SELECT * FROM users
-            ORDER BY "createdAt" DESC
+            ORDER BY created_at DESC
         """
         )
         return [dict(row) for row in result]

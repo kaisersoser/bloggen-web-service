@@ -24,6 +24,9 @@ export function useBlogGenerator() {
     deleteTask,
     deleteJob,
     addTemporaryJob,
+    addTemporaryBlog,
+    updateTemporaryBlog,
+    removeTemporaryBlog,
   } = useBlogManagement();
 
   const { state, actions } = useGenerationStateManager();
@@ -63,6 +66,9 @@ export function useBlogGenerator() {
     refetchStats,
     fetchPreviousBlogs,
     addTemporaryJob,
+    addTemporaryBlog,
+    updateTemporaryBlog,
+    removeTemporaryBlog,
     isAuthenticated,
     isAuthLoading: isLoading,
   });

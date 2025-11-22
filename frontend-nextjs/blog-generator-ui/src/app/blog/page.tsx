@@ -1,14 +1,20 @@
 "use client"
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { UserProfileDropdown } from "@/components/auth/UserProfileDropdown";
 import { TabbedPromptInterface } from "@/components/blog/TabbedPromptInterface";
 import { BlogTileGrid } from "@/components/blog/BlogTileGrid";
+import { GenerationLogModal } from "@/components/blog/GenerationLogModal";
+import { DraftPreviewModal } from "@/components/blog/DraftPreviewModal";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useBlogGenerator } from "@/hooks/useBlogGenerator";
+import { useGenerationLogs } from "@/hooks/useGenerationLogs";
+import { useDraftContent } from "@/hooks/useDraftContent";
 import { signIn } from "next-auth/react";
 import { logger } from "@/lib/logger";
+import { blogService } from "@/lib/services/blog";
 
 const DeleteConfirmationDialog = dynamic(
   () => import("@/components/blog/DeleteConfirmationDialog").then((mod) => mod.DeleteConfirmationDialog),
@@ -22,7 +28,12 @@ const BlogViewModal = dynamic(
 
 export default function BlogGenerator() {
   const { theme, setTheme } = useTheme();
-
+  
+  // Queue modal states
+  const [showLogsModal, setShowLogsModal] = useState(false);
+  const [showDraftModal, setShowDraftModal] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  
   const {
     isAuthenticated,
     isLoading,
@@ -52,13 +63,61 @@ export default function BlogGenerator() {
     setShowDeleteDialog,
     setGenerationError
   } = useBlogGenerator();
+  
+  // Determine if a blog is actively generating (for live log updates)
+  // MUST be defined AFTER previousBlogs is available
+  const isLiveGeneration = (taskId: string | null) => {
+    if (!taskId) return false;
+    const blog = previousBlogs?.find(b => b.id === taskId);
+    return blog?.status === 'in_progress' || blog?.status === 'IN_PROGRESS';
+  };
+  
+  // Fetch logs for selected task - disable polling if task is live (SSE will handle it)
+  const shouldPollLogs = selectedTaskId ? !isLiveGeneration(selectedTaskId) : false;
+  const { logs, isLoading: logsLoading, refresh: refreshLogs } = useGenerationLogs(
+    selectedTaskId,
+    showLogsModal && selectedTaskId !== null && shouldPollLogs,
+    2000
+  );
+  
+  const { draft, isLoading: draftLoading, refresh: refreshDraft } = useDraftContent(
+    selectedTaskId,
+    showDraftModal && selectedTaskId !== null,
+    3000
+  );
+  
+  // Queue action handlers
+  const handleViewLogs = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    setShowLogsModal(true);
+  };
+  
+  const handleViewDraft = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    setShowDraftModal(true);
+  };
+  
+  const handleRetry = async (blogId: string) => {
+    try {
+      await blogService.retryBlog(blogId);
+      // Blog list will refresh automatically
+    } catch (error: any) {
+      setGenerationError(error.message || 'Failed to retry blog generation');
+    }
+  };
 
-  // Debug logging to track duplicate blog cards
+  // Debug logging
   logger.debug('Blog page render debug', {
     jobsCount: jobs?.length || 0,
     previousBlogsCount: previousBlogs?.length || 0,
     jobsData: jobs?.map(j => ({ id: j.id, topic: j.topic, status: j.status })) || [],
-    previousBlogsData: previousBlogs?.map(b => ({ id: b.id, topic: b.topic, status: b.status, hasContent: !!b.content, hasHeroImage: !!b.heroImageUrl })) || []
+    previousBlogsData: previousBlogs?.map(b => ({ 
+      id: b.id, 
+      topic: b.topic, 
+      status: b.status,
+      hasContent: !!b.content, 
+      hasHeroImage: !!b.heroImageUrl 
+    })) || []
   });
 
   const activeConnectionStatus = currentJob?.connectionState ? {
@@ -66,9 +125,6 @@ export default function BlogGenerator() {
     message: currentJob.connectionMessage,
     updatedAt: currentJob.connectionUpdatedAt,
   } : null;
-
-  // Phase 4 Progressive Content Streaming - Future enhancement placeholder
-  // SSE connection is handled by useBlogGenerator hook
 
   // Loading state while authenticating
   if (isLoading) {
@@ -139,7 +195,7 @@ export default function BlogGenerator() {
           </div>
         )}
 
-        {/* Blog Tile Grid */}
+        {/* Blog Tile Grid - Keep original layout */}
         <div>
           <div className="mb-6">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
@@ -159,6 +215,9 @@ export default function BlogGenerator() {
             }}
             onBulkDeleteBlogs={handleBulkDeleteBlogs}
             isLoading={blogsLoading}
+            onViewLogs={handleViewLogs}
+            onViewDraft={handleViewDraft}
+            onRetry={handleRetry}
           />
         </div>
       </div>
@@ -183,6 +242,54 @@ export default function BlogGenerator() {
           setShowBlogModal(false);
           setSelectedBlog(null);
         }}
+      />
+      
+      {/* Generation Log Modal - Opens when user clicks "View Logs" */}
+      <GenerationLogModal
+        isOpen={showLogsModal}
+        onClose={() => {
+          setShowLogsModal(false);
+          setSelectedTaskId(null);
+        }}
+        taskId={selectedTaskId || ''}
+        logs={(() => {
+          const isLive = selectedTaskId ? isLiveGeneration(selectedTaskId) : false;
+          const logsToUse = isLive && selectedTaskId && taskLogs[selectedTaskId] 
+            ? taskLogs[selectedTaskId] 
+            : logs;
+          console.log('[LOG MODAL DEBUG]', {
+            selectedTaskId,
+            isLive,
+            taskLogsForTask: selectedTaskId ? taskLogs[selectedTaskId]?.length : 0,
+            httpLogsCount: logs.length,
+            logsToUseCount: logsToUse.length,
+            allTaskLogKeys: Object.keys(taskLogs),
+            firstLog: logsToUse[0]
+          });
+          return logsToUse.map(log => ({
+            timestamp: log.timestamp,
+            step: log.step,
+            message: log.message,
+            progress: log.progress,
+            level: (log.level as 'info' | 'warning' | 'error' | 'success') || 'info'
+          }));
+        })()}
+        isLoading={logsLoading}
+        isLive={selectedTaskId ? isLiveGeneration(selectedTaskId) : false}
+        onRefresh={refreshLogs}
+      />
+      
+      {/* Draft Preview Modal - Opens when user clicks "View Draft" */}
+      <DraftPreviewModal
+        isOpen={showDraftModal}
+        onClose={() => {
+          setShowDraftModal(false);
+          setSelectedTaskId(null);
+        }}
+        taskId={selectedTaskId || ''}
+        draft={draft}
+        isLoading={draftLoading}
+        onRefresh={refreshDraft}
       />
     </div>
   );
