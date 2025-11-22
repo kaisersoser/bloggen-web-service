@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BlogData, JobState } from '@/types/blog';
 import { logger } from '@/lib/logger';
@@ -30,19 +30,39 @@ async function fetchPreviousBlogsFromApi(): Promise<BlogData[]> {
 
 export function useBlogManagement() {
   const [jobs, setJobs] = useState<JobState[]>([]);
+  // Local state for actively generating blogs (queued/in_progress)
+  const [activeBlogs, setActiveBlogs] = useState<BlogData[]>([]);
+  // Force re-render counter to trigger useMemo recalculation
+  const [, forceUpdate] = useState(0);
   const queryClient = useQueryClient();
 
   const {
-    data: previousBlogs = [],
+    data: persistedBlogs = [],
     isPending,
     isFetching,
   } = useQuery<BlogData[]>({
     queryKey: ['blogs'],
     queryFn: fetchPreviousBlogsFromApi,
     placeholderData: [],
+    // Disable structural sharing to ensure React always sees new data
+    structuralSharing: false,
   });
 
-  const blogsLoading = isPending || (isFetching && previousBlogs.length === 0);
+  const blogsLoading = isPending || (isFetching && persistedBlogs.length === 0);
+  
+  // Merge active blogs with persisted blogs (active blogs take precedence)
+  const previousBlogs = useMemo(() => {
+    const activeBlogIds = new Set(activeBlogs.map(b => b.id));
+    const filtered = persistedBlogs.filter(b => !activeBlogIds.has(b.id));
+    const merged = [...activeBlogs, ...filtered];
+    logger.info('[useBlogManagement] Merged blogs', { 
+      activeCount: activeBlogs.length, 
+      persistedCount: persistedBlogs.length,
+      mergedCount: merged.length,
+      activeBlogs: activeBlogs.map(b => ({ id: b.id, status: b.status }))
+    });
+    return merged;
+  }, [activeBlogs, persistedBlogs]);
 
   const updateJob = useCallback((jobId: string, updates: Partial<JobState>) => {
     setJobs(prevJobs => 
@@ -156,9 +176,11 @@ export function useBlogManagement() {
     });
   }, []);
 
-  // Add a temporary blog to the previousBlogs list immediately when generation starts
+  // Add a temporary blog to activeBlogs immediately when generation starts
   const addTemporaryBlog = useCallback((blog: BlogData) => {
-    queryClient.setQueryData<BlogData[]>(['blogs'], (prev = []) => {
+    logger.info('[addTemporaryBlog] Adding active blog', { blogId: blog.id, status: blog.status });
+    
+    setActiveBlogs(prev => {
       // Check if blog already exists
       const existingIndex = prev.findIndex(b => b.id === blog.id);
       if (existingIndex >= 0) {
@@ -171,20 +193,17 @@ export function useBlogManagement() {
         return [blog, ...prev];
       }
     });
-  }, [queryClient]);
+  }, []);
 
-  // Update a temporary blog's status/progress
+  // Update a temporary blog's status/progress in activeBlogs
   const updateTemporaryBlog = useCallback((blogId: string, updates: Partial<BlogData>) => {
-    logger.info('[updateTemporaryBlog] Updating blog', { blogId, updates });
+    logger.info('[updateTemporaryBlog] Updating active blog', { blogId, updates });
     
-    queryClient.setQueryData<BlogData[]>(['blogs'], (prev = []) => {
-      logger.info('[updateTemporaryBlog] Previous blogs count', { count: prev.length });
-      
-      // Create a completely new array to force React Query to detect the change
+    setActiveBlogs(prev => {
       const updated = prev.map(blog => {
         if (blog.id === blogId) {
           const newBlog = { ...blog, ...updates, updatedAt: new Date().toISOString() };
-          logger.info('[updateTemporaryBlog] Found and updating blog', { 
+          logger.info('[updateTemporaryBlog] Updated blog in activeBlogs', { 
             blogId, 
             oldStatus: blog.status, 
             newStatus: newBlog.status 
@@ -193,18 +212,23 @@ export function useBlogManagement() {
         }
         return blog;
       });
-      
-      logger.info('[updateTemporaryBlog] Returning new array', { count: updated.length });
-      // Return a new array reference
-      return [...updated];
+      return updated;
     });
-  }, [queryClient]);
+    
+    // Force a re-render to ensure UI updates
+    forceUpdate(n => n + 1);
+  }, [forceUpdate]);
 
-  // Remove temporary blog (used when generation fails or is cancelled)
-  const removeTemporaryBlog = useCallback((blogId: string) => {
-    queryClient.setQueryData<BlogData[]>(['blogs'], (prev = []) => {
-      return prev.filter(blog => blog.id !== blogId);
-    });
+  // Remove blog from activeBlogs and optionally refresh persisted blogs
+  const removeTemporaryBlog = useCallback((blogId: string, shouldRefresh: boolean = false) => {
+    logger.info('[removeTemporaryBlog] Removing from activeBlogs', { blogId, shouldRefresh });
+    
+    setActiveBlogs(prev => prev.filter(blog => blog.id !== blogId));
+    
+    if (shouldRefresh) {
+      // Refresh persisted blogs from backend
+      queryClient.invalidateQueries({ queryKey: ['blogs'] });
+    }
   }, [queryClient]);
 
   return {
