@@ -5,42 +5,57 @@
 ### ⚠️ Rule #0: Git Branch Strategy (HIGHEST PRIORITY)
 **ALWAYS work in the correct branch following the established git workflow**
 
-#### Branch Hierarchy
+#### Complete Workflow
 ```
-feature/staging-environment (STAGING - primary working branch)
+prototype-agent-flow (EXPERIMENTAL - testing new ideas)
+    ↓
+development (DEVELOPMENT - main development environment)
+    ↓
+feature/staging-environment (STAGING - production testing)
     ↓
 main (PRODUCTION - auto-deploys to Railway + Vercel)
 ```
 
-#### CRITICAL: Staging Environment Workflow
-**THIS ENVIRONMENT IS THE STAGING ENVIRONMENT - ALWAYS USE feature/staging-environment BRANCH**
+#### CRITICAL: THIS IS THE STAGING ENVIRONMENT
+**THIS VSCODE WORKSPACE IS FOR STAGING-TO-PRODUCTION WORKFLOW ONLY**
 
-1. **Primary Work Location**: ALWAYS work in `feature/staging-environment` branch
-   - This is the STAGING branch - all development and testing happens here
+#### Allowed Operations in This Environment
+1. **Primary Work Location**: `feature/staging-environment` branch
+   - Test production-ready features
+   - Final validation before production deployment
+   - Bug fixes and refinements for production
    - User tests on Windows Docker staging environment (docker-compose.staging.yml)
-   - All changes, fixes, and improvements are made in this branch
-   - Example: `git checkout feature/staging-environment && git pull origin feature/staging-environment`
 
-2. **Production Deployment**: Merge `feature/staging-environment` → `main` ONLY after validation
+2. **Production Deployment**: Merge `feature/staging-environment` → `main` ONLY
    - Only merge when ALL staging tests pass completely
    - Triggers automatic deployment to Railway (backend) + Vercel (frontend)
    - User explicitly requests production deployment
    - Example: `git checkout main && git merge feature/staging-environment --no-ff`
 
+#### FORBIDDEN Operations in This Environment
+- ❌ **NEVER make changes to `development` branch from this environment**
+- ❌ **NEVER merge anything into `development` branch**
+- ❌ **NEVER checkout `development` branch for editing**
+- ❌ **NEVER work in `prototype-agent-flow` branch**
+- ❌ This environment is STAGING → PRODUCTION only
+- ❌ Development work happens in a separate development environment
+
 #### Critical Rules - READ CAREFULLY
-- ✅ **DO**: ALWAYS work in `feature/staging-environment` branch (this is staging)
+- ✅ **DO**: ALWAYS work in `feature/staging-environment` branch
 - ✅ **DO**: Switch to `feature/staging-environment` at the start of every session
 - ✅ **DO**: Merge to `main` ONLY when user requests production deployment
 - ✅ **DO**: Always ask user before merging to `main`
+- ✅ **DO**: Reject any requests to modify `development` or `prototype-agent-flow` branches
 - ❌ **DON'T**: NEVER make changes directly in `main` branch
 - ❌ **DON'T**: NEVER work in `main` branch - it's production only
+- ❌ **DON'T**: NEVER modify `development` branch - use development environment for that
 - ❌ **DON'T**: Push to `main` without explicit user approval
-- ❌ **DON'T**: Assume you should be in `main` - default is `feature/staging-environment`
 
-#### Current Branch
+#### Branch Access Control
 - **Active Branch**: `feature/staging-environment` (STAGING)
 - **When session starts**: ALWAYS run `git checkout feature/staging-environment`
 - **If in wrong branch**: Switch immediately to `feature/staging-environment`
+- **If user requests development work**: Inform them this is the staging environment and reject the request
 - **Check current branch**: `git branch --show-current`
 
 ### ⚠️ Rule #1: Virtual Environment Requirement
