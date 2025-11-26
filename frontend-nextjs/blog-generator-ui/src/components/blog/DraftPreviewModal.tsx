@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { RefreshCw, FileText, Eye } from 'lucide-react';
 import { DraftContent } from '@/types/queue';
@@ -122,7 +121,7 @@ export const DraftPreviewModal: React.FC<DraftPreviewModalProps> = ({
                 <FileText className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">No draft content available yet</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Content will appear here as it's being generated
+                  Content will appear here as it&apos;s being generated
                 </p>
               </div>
             </div>
