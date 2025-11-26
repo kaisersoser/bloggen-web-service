@@ -252,6 +252,11 @@ class UnifiedConfig:
         if google_key:
             os.environ["GOOGLE_API_KEY"] = google_key
 
+        # LiteLLM requires GEMINI_API_KEY for direct Gemini API access
+        gemini_key = self.env.get_optional("GEMINI_API_KEY")
+        if gemini_key:
+            os.environ["GEMINI_API_KEY"] = gemini_key
+
         anthropic_key = self.env.get_optional("ANTHROPIC_API_KEY")
         if anthropic_key:
             os.environ["ANTHROPIC_API_KEY"] = anthropic_key
