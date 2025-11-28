@@ -108,7 +108,7 @@ export const GenerationLogModal: React.FC<GenerationLogModalProps> = ({
     }
   };
 
-  const getLevelBg = (level?: string) => {
+  const _getLevelBg = (level?: string) => {
     switch (level) {
       case 'success':
         return 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800';
