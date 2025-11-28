@@ -44,6 +44,7 @@ from .tools.reference_deduplicator import (
     create_reference_deduplicator,
     format_deduplication_report,
 )
+from .generation_metrics import MetricsCollector, GenerationMetrics
 from core.llm_interceptor import _register_audit_tracker
 from core.config import config  # reuse existing config for model + key
 from core.crewai_rate_limiter import CrewAIRateLimitManager
@@ -125,6 +126,15 @@ class BlogGenerationFlow(Flow):
         if instructions:
             self.flow_state.instructions = instructions
 
+        # Initialize metrics collector for tracking generation performance
+        self.metrics_collector: Optional[MetricsCollector] = None
+        if blog_id and user_id:
+            self.metrics_collector = MetricsCollector(
+                blog_id=blog_id,
+                user_id=user_id,
+                topic=topic or "unknown"
+            )
+
         logger.info(
             "BlogGenerationFlow initialized (blog_id=%s user_id=%s)",
             blog_id,
@@ -205,7 +215,7 @@ class BlogGenerationFlow(Flow):
 
     def _execute(self, agent, task, phase_name: str = "unknown") -> Any:
         """Execute crew with optional rate limiting and error handling"""
-        crew = Crew(agents=[agent], tasks=[task], verbose=True)
+        crew = Crew(agents=[agent], tasks=[task], verbose=True, memory=True)
         event_listener = get_event_listener()
         event_listener.register_run(crew, phase_name, self.status_manager)
 
@@ -666,6 +676,57 @@ class BlogGenerationFlow(Flow):
                 "Auto topic generation failed (%s); using fallback '%s'", e, fallback
             )
 
+    # Research quality pre-check helper
+    def _validate_research_sufficiency(
+        self, structured_research: Optional[StructuredResearchOutput]
+    ) -> tuple[bool, str, dict]:
+        """
+        Validate research has sufficient material for quality content generation.
+        
+        This pre-check prevents content phase failures due to thin research.
+        
+        Args:
+            structured_research: Parsed structured research output
+            
+        Returns:
+            Tuple of (is_sufficient, reason, metrics)
+        """
+        if not structured_research:
+            return False, "No structured research available", {}
+        
+        metrics = structured_research.get_quality_metrics()
+        
+        # Minimum thresholds for content generation to succeed
+        MIN_FACTS = 8  # Slightly lower than research minimums to allow flexibility
+        MIN_STATISTICS = 3
+        MIN_SOURCES = 5
+        MIN_CASE_STUDIES = 1
+        
+        issues = []
+        
+        if metrics.get('fact_count', 0) < MIN_FACTS:
+            issues.append(f"Only {metrics.get('fact_count', 0)}/{MIN_FACTS} facts")
+        
+        if metrics.get('statistic_count', 0) < MIN_STATISTICS:
+            issues.append(f"Only {metrics.get('statistic_count', 0)}/{MIN_STATISTICS} statistics")
+        
+        if metrics.get('source_count', 0) < MIN_SOURCES:
+            issues.append(f"Only {metrics.get('source_count', 0)}/{MIN_SOURCES} sources")
+        
+        if metrics.get('case_study_count', 0) < MIN_CASE_STUDIES:
+            issues.append(f"Only {metrics.get('case_study_count', 0)}/{MIN_CASE_STUDIES} case studies")
+        
+        if issues:
+            reason = f"Research insufficient: {'; '.join(issues)}"
+            logger.warning(f"⚠️ Research sufficiency check FAILED: {reason}")
+            return False, reason, metrics
+        
+        logger.info(
+            f"✅ Research sufficiency check PASSED: {metrics.get('fact_count', 0)} facts, "
+            f"{metrics.get('statistic_count', 0)} stats, {metrics.get('source_count', 0)} sources"
+        )
+        return True, "Research meets minimum requirements", metrics
+
     # Enhanced notification helper methods
     def _assess_topic_complexity(self, topic: str) -> str:
         """Assess topic complexity for enhanced notifications."""
@@ -1021,6 +1082,10 @@ class BlogGenerationFlow(Flow):
             status_message=f"Researching '{self.flow_state.topic}'...",
             detail="Collecting sources",
         )
+        
+        # Start metrics collection for research phase
+        if self.metrics_collector:
+            self.metrics_collector.metrics.start_phase("research")
 
         # Phase 1 Foundation: Enhanced real-time messaging - Initial Planning
         self.status_manager.send_agent_thinking(
@@ -1187,6 +1252,20 @@ class BlogGenerationFlow(Flow):
                 detail=f"{metrics['fact_count']} facts, {metrics['source_count']} sources"
             )
             
+            # Complete metrics for research phase
+            if self.metrics_collector:
+                self.metrics_collector.set_research_metrics(
+                    fact_count=metrics.get('fact_count', 0),
+                    source_count=metrics.get('source_count', 0),
+                    quality_score=metrics.get('quality_score')
+                )
+                self.metrics_collector.metrics.complete_phase(
+                    "research",
+                    success=True,
+                    fact_count=metrics.get('fact_count', 0),
+                    source_count=metrics.get('source_count', 0)
+                )
+            
             return {
                 **init_data, 
                 "research_results": result,
@@ -1194,6 +1273,13 @@ class BlogGenerationFlow(Flow):
             }
         except Exception as e:  # pragma: no cover
             logger.exception("Research phase failed")
+            # Complete metrics with failure
+            if self.metrics_collector:
+                self.metrics_collector.metrics.complete_phase(
+                    "research",
+                    success=False,
+                    error_message=str(e)
+                )
             self._error(f"Research failed: {e}")
             raise
 
@@ -1208,6 +1294,37 @@ class BlogGenerationFlow(Flow):
             status_message="Generating draft content...",
             detail="Authoring with images",
         )
+        
+        # Start metrics collection for content phase
+        if self.metrics_collector:
+            self.metrics_collector.metrics.start_phase("content")
+
+        # 🔍 RESEARCH SUFFICIENCY PRE-CHECK (Phase 1.5 improvement)
+        # Validate research has enough material before attempting content generation
+        structured_research = research_data.get("structured_research")
+        is_sufficient, reason, research_metrics = self._validate_research_sufficiency(structured_research)
+        
+        if not is_sufficient:
+            self._status(
+                "Research insufficient - requesting expansion...", 
+                step=3, 
+                detail=reason
+            )
+            self.status_manager.send_agent_thinking(
+                agent_name="Expert Content Creator",
+                thought=f"⚠️ Research pre-check failed: {reason}. Logging warning and proceeding with available data. Content quality may be affected.",
+            )
+            logger.warning(
+                f"⚠️ Research sufficiency pre-check FAILED: {reason}. "
+                f"Content generation proceeding but may produce lower quality output."
+            )
+            # Note: We continue but log the warning - the quality validator will catch issues later
+        else:
+            self.status_manager.send_agent_thinking(
+                agent_name="Expert Content Creator",
+                thought=f"✅ Research pre-check passed: {research_metrics.get('fact_count', 0)} facts, "
+                f"{research_metrics.get('statistic_count', 0)} statistics, {research_metrics.get('source_count', 0)} sources available.",
+            )
 
         # Enhanced content generation messaging - Strategic Planning
         self.status_manager.send_agent_thinking(
@@ -1248,7 +1365,7 @@ class BlogGenerationFlow(Flow):
             agent = self.agent_factory.create_content_creator(tools, year)
             
             # Use enhanced task with structured research if available
-            structured_research = research_data.get("structured_research")
+            # Note: structured_research already retrieved in pre-check above
             if structured_research:
                 logger.info("✅ Using structured research for content generation")
                 self.status_manager.send_agent_thinking(
@@ -1319,6 +1436,18 @@ class BlogGenerationFlow(Flow):
                 min_citations=5
             )
             
+            # Record initial content attempt metrics
+            if self.metrics_collector:
+                self.metrics_collector.record_content_attempt(
+                    attempt_number=1,
+                    word_count=metrics.get('word_count', 0),
+                    quality_score=metrics.get('quality_score', 0),
+                    citation_count=metrics.get('citation_count', 0),
+                    paragraph_count=metrics.get('paragraph_count', 0),
+                    section_count=metrics.get('section_count', 0),
+                    passed_validation=is_valid
+                )
+            
             # Retry logic if quality validation fails
             max_content_retries = 2 if config.features.enable_quality_retries else 0
             retry_count = 0
@@ -1327,7 +1456,7 @@ class BlogGenerationFlow(Flow):
                 retry_count += 1
                 logger.warning(f"Content quality validation failed (attempt {retry_count}/{max_content_retries}): {len(issues)} issues")
                 self._status(
-                    f"Content quality insufficient - regenerating (attempt {retry_count})...", 
+                    f"Content quality insufficient - expanding (attempt {retry_count})...", 
                     step=3, 
                     detail=f"Score: {metrics['quality_score']:.1f}/10"
                 )
@@ -1338,15 +1467,44 @@ class BlogGenerationFlow(Flow):
                 logger.info(f"Content retry feedback:\n{feedback}")
                 logger.info(f"Citation status:\n{citation_feedback}")
                 
-                # Retry with specific feedback - EXPAND existing content, don't restart
-                task.description += f"\n\n{feedback}\n\n{citation_feedback}\n\n🚨 CRITICAL RETRY INSTRUCTIONS:\n" \
-                    f"- DO NOT restart from scratch - EXPAND your existing content\n" \
-                    f"- ADD more sections and detail to what you already wrote\n" \
-                    f"- PRESERVE all existing citations in [text](url) format\n" \
-                    f"- DO NOT stop to insert images until you reach {1000} words\n" \
-                    f"- Complete ALL content sections FIRST, then add images at the end"
+                # Calculate how many more words needed
+                current_word_count = metrics.get('word_count', 0)
+                words_needed = max(0, 1000 - current_word_count)
                 
-                draft = self._execute(agent, task, f"content_quality_retry_{retry_count}")
+                # 🚀 CONTINUATION MODE: Include existing content so agent can truly expand it
+                existing_content_preview = str(draft)[:3000]  # First 3000 chars for context
+                
+                continuation_prompt = f"""
+{feedback}
+
+{citation_feedback}
+
+🚨 CONTINUATION MODE - EXPAND EXISTING CONTENT (DO NOT START OVER)
+
+Your previous content has {current_word_count} words but needs at least 1000.
+You need to ADD {words_needed} MORE words.
+
+=== YOUR EXISTING CONTENT (PRESERVE AND EXPAND THIS) ===
+{existing_content_preview}
+{"... [content continues]" if len(str(draft)) > 3000 else ""}
+=== END EXISTING CONTENT ===
+
+📝 CONTINUATION INSTRUCTIONS:
+1. KEEP all existing content above - DO NOT delete or rewrite it
+2. ADD 2-3 new substantial paragraphs (100-150 words each) to existing sections
+3. ADD 1-2 completely new sections (200-300 words each) with ## headers
+4. PRESERVE all existing citations in [text](url) format
+5. ADD more citations - aim for {5 - metrics.get('citation_count', 0)} more
+6. DO NOT add images until word count exceeds 1000
+
+Your output should be the COMPLETE blog post with your additions integrated.
+Total target: {max(1200, current_word_count + words_needed)} words minimum.
+"""
+                
+                # Create new task with continuation prompt
+                task.description = continuation_prompt
+                
+                draft = self._execute(agent, task, f"content_continuation_{retry_count}")
                 
                 # Re-validate with same relaxed minimums
                 is_valid, issues, metrics = QualityValidator.validate_content_quality(
@@ -1357,6 +1515,19 @@ class BlogGenerationFlow(Flow):
                     min_sections=4,
                     min_citations=5
                 )
+                
+                # Record retry attempt metrics
+                if self.metrics_collector:
+                    self.metrics_collector.record_content_attempt(
+                        attempt_number=retry_count + 1,
+                        word_count=metrics.get('word_count', 0),
+                        quality_score=metrics.get('quality_score', 0),
+                        citation_count=metrics.get('citation_count', 0),
+                        paragraph_count=metrics.get('paragraph_count', 0),
+                        section_count=metrics.get('section_count', 0),
+                        passed_validation=is_valid,
+                        feedback_given=feedback[:200] if feedback else None
+                    )
             
             # Final quality check - if still invalid after retries, raise error
             if not is_valid and config.features.enable_quality_retries:
@@ -1435,9 +1606,28 @@ class BlogGenerationFlow(Flow):
 
             self.flow_state.results["content"] = draft
             self._status("Content draft complete", step=3, detail="Draft ready")
+            
+            # Complete metrics for content phase
+            if self.metrics_collector:
+                self.metrics_collector.metrics.complete_phase(
+                    "content",
+                    success=True,
+                    word_count=metrics.get('word_count', 0),
+                    quality_score=metrics.get('quality_score', 0),
+                    citation_count=metrics.get('citation_count', 0),
+                    retry_count=retry_count
+                )
+            
             return {**research_data, "initial_content": draft}
         except Exception as e:  # pragma: no cover
             logger.exception("Content generation failed")
+            # Complete metrics with failure
+            if self.metrics_collector:
+                self.metrics_collector.metrics.complete_phase(
+                    "content",
+                    success=False,
+                    error_message=str(e)
+                )
             self._error(f"Content generation failed: {e}")
             raise
 
@@ -1547,6 +1737,10 @@ class BlogGenerationFlow(Flow):
             status_message="Fact-checking content...",
             detail="Verifying claims",
         )
+        
+        # Start metrics collection for fact-checking phase
+        if self.metrics_collector:
+            self.metrics_collector.metrics.start_phase("fact_check")
 
         # Enhanced fact-checking initialization
         self.status_manager.send_agent_thinking(
@@ -1619,10 +1813,22 @@ class BlogGenerationFlow(Flow):
 
             self.flow_state.results["fact_checked"] = checked
             self._status("Fact-check complete", step=4, detail="Content validated")
+            
+            # Complete metrics for fact-checking phase
+            if self.metrics_collector:
+                self.metrics_collector.metrics.complete_phase("fact_check", success=True)
+            
             return {**content_data, "fact_checked_content": checked}
 
         except Exception as e:  # pragma: no cover
             logger.exception("Fact checking failed")
+            # Complete metrics with failure
+            if self.metrics_collector:
+                self.metrics_collector.metrics.complete_phase(
+                    "fact_check",
+                    success=False,
+                    error_message=str(e)
+                )
             self._error(f"Fact checking failed: {e}")
             raise
 
@@ -1804,6 +2010,10 @@ ENHANCED ENFORCEMENT MEASURES:
             status_message="Finalizing blog post...",
             detail="Polishing output",
         )
+        
+        # Start metrics collection for finalization phase
+        if self.metrics_collector:
+            self.metrics_collector.metrics.start_phase("finalize")
 
         # Phase 1 Foundation: Enhanced real-time messaging - Agent Planning
         self.status_manager.send_agent_thinking(
@@ -2128,9 +2338,23 @@ ENHANCED ENFORCEMENT MEASURES:
                 f"🔍 FLOW FINALIZE - final_blog_post in return: {return_dict.get('final_blog_post', 'MISSING')[:200] if return_dict.get('final_blog_post') else 'EMPTY IN RETURN'}..."
             )
 
+            # Complete metrics for finalization phase and finalize overall metrics
+            if self.metrics_collector:
+                self.metrics_collector.metrics.complete_phase("finalize", success=True)
+                self.metrics_collector.finalize(success=True, final_status="completed")
+                logger.info(self.metrics_collector.get_metrics().get_summary())
+
             return return_dict
         except Exception as e:  # pragma: no cover
             logger.exception("Finalization failed")
+            # Complete metrics with failure
+            if self.metrics_collector:
+                self.metrics_collector.metrics.complete_phase(
+                    "finalize",
+                    success=False,
+                    error_message=str(e)
+                )
+                self.metrics_collector.finalize(success=False, final_status="failed")
             self._error(f"Finalization failed: {e}")
             raise
 

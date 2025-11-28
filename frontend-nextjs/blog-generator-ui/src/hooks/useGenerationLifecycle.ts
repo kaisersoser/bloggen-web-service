@@ -41,6 +41,7 @@ export function useGenerationLifecycle({
   createJob,
   deleteJob,
   refetchStats,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   fetchPreviousBlogs,
   addTemporaryJob,
   addTemporaryBlog,
@@ -196,8 +197,23 @@ export function useGenerationLifecycle({
     }
   }, [refetchStats, removeTemporaryBlog, resetActiveConnection, state.activeConnectionId, updateJob, updateTemporaryBlog]);
 
+  // Stop polling helper - defined first to avoid circular dependency
+  const stopPollingForNextBlog = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    isPollingRef.current = false;
+    
+    if (logger.shouldLog('debug')) {
+      logger.debug('Stopped polling for next blog');
+    }
+  }, []);
+
   // Start polling for queued blogs that transition to IN_PROGRESS
-  const startPollingForNextBlog = useCallback(() => {
+  // targetTaskId: Optional - if provided, poll for this specific task (avoids stale closure issue for first blog)
+  //               If not provided, searches jobs/previousBlogs for queued blogs (used after completion)
+  const startPollingForNextBlog = useCallback((targetTaskId?: string) => {
     // Don't start polling if already polling or if SSE connection is active
     if (isPollingRef.current || state.activeConnectionId) {
       return;
@@ -207,13 +223,18 @@ export function useGenerationLifecycle({
 
     pollingIntervalRef.current = setInterval(async () => {
       try {
-        // Find all queued blogs (both from jobs and temporary blogs)
-        const queuedBlogs = jobs.filter(job => job.status === 'queued');
-        const queuedTempBlogs = previousBlogs.filter(blog => blog.status === 'queued');
+        // Build list of task IDs to poll
+        // If targetTaskId provided, use it directly (avoids stale closure for first blog)
+        // Otherwise search through jobs/previousBlogs (for recovery/subsequent blogs after completion)
+        const taskIdsToCheck: string[] = targetTaskId 
+          ? [targetTaskId]
+          : [
+              ...jobs.filter(job => job.status === 'queued').map(j => j.id),
+              ...previousBlogs.filter(blog => blog.status === 'queued').map(b => b.id)
+            ];
         
         // Check each queued blog's status
-        for (const blog of [...queuedBlogs, ...queuedTempBlogs]) {
-          const taskId = blog.id;
+        for (const taskId of taskIdsToCheck) {
           
           try {
             const statusResponse = await blogService.getBlogStatus(taskId);
@@ -285,8 +306,8 @@ export function useGenerationLifecycle({
           }
         }
         
-        // If no queued blogs found, stop polling
-        if (queuedBlogs.length === 0 && queuedTempBlogs.length === 0) {
+        // If no queued blogs to check, stop polling
+        if (taskIdsToCheck.length === 0) {
           stopPollingForNextBlog();
         }
       } catch (error) {
@@ -297,19 +318,7 @@ export function useGenerationLifecycle({
     if (logger.shouldLog('debug')) {
       logger.debug('Started polling for next blog in queue');
     }
-  }, [state.activeConnectionId, jobs, previousBlogs, updateJob, updateTemporaryBlog, actions, connectToTaskStream, handleConnectionStateChange, handleTaskCompletion, handleTaskError]);
-
-  const stopPollingForNextBlog = useCallback(() => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-    isPollingRef.current = false;
-    
-    if (logger.shouldLog('debug')) {
-      logger.debug('Stopped polling for next blog');
-    }
-  }, []);
+  }, [state.activeConnectionId, jobs, previousBlogs, updateJob, updateTemporaryBlog, actions, connectToTaskStream, handleConnectionStateChange, handleTaskCompletion, handleTaskError, stopPollingForNextBlog]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -372,23 +381,27 @@ export function useGenerationLifecycle({
 
       createJob(taskId, trimmedTopic, trimmedInstructions);
       actions.setCurrentJobId(taskId);
-      // Track this as an active connection (we support multiple now)
-      // Don't overwrite - just add to the list
-      if (!state.activeConnectionId) {
+
+      // Determine if this is the first blog (nothing currently generating) or queued
+      const isFirstInQueue = !state.activeConnectionId;
+      
+      // If this is the first blog, set activeConnectionId immediately to prevent
+      // subsequent blogs from also being marked as "in_progress"
+      if (isFirstInQueue) {
         actions.setActiveConnectionId(taskId);
       }
-
+      
       // Create temporary blog card immediately so it appears in the UI
-      // Start with 'queued' status - backend will update to 'in_progress' when it starts processing
+      // If nothing is generating, show as 'in_progress' immediately; otherwise 'queued'
       const temporaryBlog: BlogData = {
         id: taskId,
         userId: '',
         topic: trimmedTopic,
         instructions: trimmedInstructions || null,
         content: null,
-        status: 'queued',
-        progress: 0,
-        currentStep: 'Queued for generation...',
+        status: isFirstInQueue ? 'in_progress' : 'queued',
+        progress: isFirstInQueue ? 5 : 0,
+        currentStep: isFirstInQueue ? 'Initializing...' : 'Queued for generation...',
         error: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -418,7 +431,8 @@ export function useGenerationLifecycle({
 
       // Don't create SSE connection immediately - wait for backend to start processing
       // Start polling to detect when this blog transitions from QUEUED to IN_PROGRESS
-      startPollingForNextBlog();
+      // Pass taskId directly to avoid stale closure issue (state update from addTemporaryBlog is async)
+      startPollingForNextBlog(taskId);
       
       if (logger.shouldLog('debug')) {
         logger.debug('Started polling for blog to begin processing', { taskId });
@@ -440,7 +454,7 @@ export function useGenerationLifecycle({
         actions.setActiveConnectionId(null);
       }
     }
-  }, [actions, addTemporaryBlog, canGenerate, createJob, handleAuthError, startPollingForNextBlog, state.activeConnectionId, state.taskLogs, updateTemporaryBlog]);
+  }, [actions, addTemporaryBlog, canGenerate, createJob, handleAuthError, startPollingForNextBlog, state.activeConnectionId, state.taskLogs]);
 
   // Recover any active jobs on initial load
   useEffect(() => {

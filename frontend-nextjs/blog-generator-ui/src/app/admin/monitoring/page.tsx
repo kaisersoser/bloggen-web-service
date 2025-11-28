@@ -1,7 +1,7 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { useState, useEffect, useCallback, memo, useMemo } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -621,7 +621,7 @@ export default function AdminMonitoringPage() {
             {(() => {
               const pool = monitoringData.health.system.details.database_pool as DatabasePoolStats;
               const utilization = pool.max_size > 0 ? (pool.in_use / pool.max_size) * 100 : 0;
-              const isHealthy = pool.initialized && !pool.closed && utilization < 80;
+              const _isHealthy = pool.initialized && !pool.closed && utilization < 80;
               
               return (
                 <>

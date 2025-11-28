@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, KeyboardEvent, useMemo, useState } from "react";
 import { PromptInstructionsPanel } from "@/components/blog/tabbed/PromptInstructionsPanel";
 import { TabbedPromptHeader } from "@/components/blog/tabbed/TabbedPromptHeader";
 import type { LogEntry } from "@/types/blog";
