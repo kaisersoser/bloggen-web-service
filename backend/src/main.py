@@ -1217,7 +1217,7 @@ async def get_blog_status(
     Used by frontend to poll for status changes without creating SSE connection.
     """
     try:
-        blog = await database_service.fetch_one(
+        blog = await database_service.fetchrow(
             "SELECT id, status, progress, current_step FROM blogs WHERE id = $1 AND user_id = $2",
             task_id, user.id
         )
