@@ -96,7 +96,7 @@ _main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def app_lifespan(app: FastAPI):
     """
     FastAPI lifespan event handler for startup and shutdown.
     """
@@ -314,7 +314,7 @@ app = FastAPI(
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan,
+    lifespan=app_lifespan,
 )
 
 # CORS configuration
